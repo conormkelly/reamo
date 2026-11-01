@@ -33,6 +33,11 @@
 //!   89.0% at 57c6d9c.
 //! - Single strings flagged several: readings flagged `multiple` on any
 //!   one-string signal, from t = 0.1 s.
+//! - Leading the report, what a player notices: time from the onset until
+//!   the reading stays within 1 and 0.5 cent of f1(t), flicker (the
+//!   error's spread over readings flagged stable), note-name changes per
+//!   note, false-note events per idle minute, notes with an octave
+//!   reading, the share shown, and the signed bias per string.
 //! - Reported beside the targets, not targets: the pooled groups apart
 //!   (stiff and weak, guitar and bass glides), glide errors from 0.5 s, and
 //!   a Karplus-Strong pluck whose fundamental starts 20 dB under its
@@ -806,7 +811,121 @@ fn coreShare(cpu: Cpu) f64 {
     return (cpu.push_ns_per_s + 30 * cpu.analyse_mean_ns) / 1e9 * 100;
 }
 
+/// What a player notices, over the one-string signals that are plucked
+/// (every group but the ramp, two notes and the no-note ones).
+const Player = struct {
+    /// Per note, seconds from the onset until every reading to the last
+    /// one shown has cents within 1 (and 0.5) cent of f1(t); infinite if
+    /// never.
+    settle_1c: std.ArrayList(f64) = .empty,
+    settle_half_c: std.ArrayList(f64) = .empty,
+    /// Per note, the standard deviation of the error over its readings
+    /// flagged stable (3 or more), cents.
+    flicker: std.ArrayList(f64) = .empty,
+    /// Per note, how often the note name shown changes after the first.
+    name_changes: std.ArrayList(f64) = .empty,
+    notes: usize = 0,
+    notes_with_octave: usize = 0,
+    /// Idle signals (hum, noise, muted): false-note events (a run of
+    /// readings showing a note) and seconds of input.
+    false_events: usize = 0,
+    idle_s: f64 = 0,
+    /// Signed error from t = 1 s, per string (the case name's first word).
+    bias_key: [48][12]u8 = undefined,
+    bias_key_len: [48]usize = undefined,
+    bias_sum: [48]f64 = [_]f64{0} ** 48,
+    bias_n: [48]f64 = [_]f64{0} ** 48,
+    bias_keys: usize = 0,
+
+    fn biasSlot(self: *Player, key: []const u8) usize {
+        for (0..self.bias_keys) |i| {
+            if (std.mem.eql(u8, self.bias_key[i][0..self.bias_key_len[i]], key)) return i;
+        }
+        const i = self.bias_keys;
+        const n = @min(key.len, 12);
+        @memcpy(self.bias_key[i][0..n], key[0..n]);
+        self.bias_key_len[i] = n;
+        self.bias_keys += 1;
+        return i;
+    }
+};
+
+fn measurePlayer(alloc: std.mem.Allocator, pl: *Player, c: Case, sr: f64, rs: []const Display) !void {
+    switch (c.group) {
+        .hum, .noise, .muted => {
+            var prev = false;
+            for (rs) |r| {
+                const on = r.note != null;
+                if (on and !prev) pl.false_events += 1;
+                prev = on;
+            }
+            pl.idle_s += @as(f64, @floatFromInt(rs.len)) / 30;
+            return;
+        },
+        .two_notes, .ramp => return,
+        else => {},
+    }
+    const s = c.strings[0].?;
+    pl.notes += 1;
+    var settle1: ?f64 = null;
+    var settle05: ?f64 = null;
+    var sum: f64 = 0;
+    var sum2: f64 = 0;
+    var stable_n: f64 = 0;
+    var last_note: ?i32 = null;
+    var changes: f64 = 0;
+    var octave = false;
+    const key_end = std.mem.indexOfScalar(u8, c.name, ' ') orelse c.name.len;
+    const slot = pl.biasSlot(c.name[0..key_end]);
+    // Settling runs to the note's last reading shown: the gate ending a
+    // decayed note on purpose is not a reading off the pitch.
+    var last_shown: usize = 0;
+    for (rs, 0..) |r, i| {
+        if (r.hz != null) last_shown = i;
+    }
+    for (rs, 0..) |r, i| {
+        const t = readTime(i, sr);
+        if (t <= 0 or i > last_shown) continue;
+        const truth = s.firstPartialHz(t);
+        const e: ?f64 = if (r.hz) |hz| sig.cents(hz, truth) else null;
+        if (e != null and @abs(e.?) <= 1) {
+            if (settle1 == null) settle1 = t;
+        } else settle1 = null;
+        if (e != null and @abs(e.?) <= 0.5) {
+            if (settle05 == null) settle05 = t;
+        } else settle05 = null;
+        if (r.stable) if (e) |v| {
+            sum += v;
+            sum2 += v * v;
+            stable_n += 1;
+        };
+        if (r.note) |n| {
+            if (last_note) |l| {
+                if (l != n) changes += 1;
+            }
+            last_note = n;
+            if (t >= 0.1) {
+                const d = @abs(n - noteOf(truth));
+                if ((d >= 11 and d <= 13) or (d >= 23 and d <= 25) or (d >= 35 and d <= 37)) octave = true;
+            }
+        }
+        if (t >= 1) if (e) |v| {
+            pl.bias_sum[slot] += v;
+            pl.bias_n[slot] += 1;
+        };
+    }
+    try pl.settle_1c.append(alloc, settle1 orelse std.math.inf(f64));
+    try pl.settle_half_c.append(alloc, settle05 orelse std.math.inf(f64));
+    if (stable_n >= 3) {
+        const m = sum / stable_n;
+        try pl.flicker.append(alloc, @sqrt(@max(0, sum2 / stable_n - m * m)));
+    }
+    try pl.name_changes.append(alloc, changes);
+    if (octave) pl.notes_with_octave += 1;
+}
+
 const Results = struct {
+    player: Player = .{},
     group: [groups.len]GroupStats = [_]GroupStats{.{}} ** groups.len,
     cpu: [rates.len]Cpu = [_]Cpu{.{}} ** rates.len,
     ticks: [rates.len]Ticks = [_]Ticks{.{}} ** rates.len,
@@ -871,6 +990,7 @@ pub fn main() !void {
                 const rs = run(cand, sr, s);
                 if (case_filter != null) try trace(w, cand, c, sr, rs);
                 try measure(allocator, &r.group[@intFromEnum(c.group)], c, sr, rs);
+                try measurePlayer(allocator, &r.player, c, sr, rs);
             }
         }
     }
@@ -887,6 +1007,7 @@ pub fn main() !void {
 
     try w.print("\n{d} signals at {d} rates. Candidates:\n\n", .{ cases.len, rates.len });
     for (cands[0..nc]) |c| try w.print("- {s}: {s}\n", .{ c.name, c.note });
+    try printPlayer(w, cands[0..nc], results);
     try printTargets(w, cands[0..nc], results);
     try printPooledApart(w, cands[0..nc], results);
     try printTicks(w, cands[0..nc], results);
@@ -1049,6 +1170,94 @@ fn printPooledApart(w: anytype, cands: []const Candidate, results: []Results) !v
             ks.octave,
         });
     }
+}
+
+/// The player-facing measures, which lead the report; the targets'
+/// sub-cent numbers support them.
+fn printPlayer(w: anytype, cands: []const Candidate, results: []Results) !void {
+    const alloc = std.heap.page_allocator;
+    try w.print(
+        \\
+        \\## What a player notices
+        \\
+        \\Over the plucked one-string signals; times from the onset, against f1(t). Bar: within 0.5 cent, and no string's bias over 0.2 cent.
+        \\
+        \\| candidate | to within 1 c: median / P90 (s), never | to within 0.5 c: median / P90 (s), never | flicker once stable: median / worst (c) | note-name changes per note: mean / worst | false notes per idle minute | notes with an octave reading | shown in 1-3 s | worst string bias (c) |
+        \\|---|---|---|---|---|---|---|---|---|
+        \\
+    , .{});
+    for (cands, results) |c, *r| {
+        const pl = &r.player;
+        const a = try quantiles(alloc, pl.settle_1c.items);
+        const b = try quantiles(alloc, pl.settle_half_c.items);
+        const f = try quantiles(alloc, pl.flicker.items);
+        var change_sum: f64 = 0;
+        var change_worst: f64 = 0;
+        for (pl.name_changes.items) |v| {
+            change_sum += v;
+            change_worst = @max(change_worst, v);
+        }
+        var shown: usize = 0;
+        var reads: usize = 0;
+        for (groups) |grp| {
+            if (!grp.pitched() or grp == .ramp) continue;
+            shown += r.group[@intFromEnum(grp)].span_shown;
+            reads += r.group[@intFromEnum(grp)].span_reads;
+        }
+        var worst_bias: f64 = 0;
+        var worst_key: []const u8 = "";
+        for (0..pl.bias_keys) |i| {
+            if (pl.bias_n[i] == 0) continue;
+            const m = pl.bias_sum[i] / pl.bias_n[i];
+            if (@abs(m) > @abs(worst_bias)) {
+                worst_bias = m;
+                worst_key = pl.bias_key[i][0..pl.bias_key_len[i]];
+            }
+        }
+        const notes: f64 = @floatFromInt(@max(pl.notes, 1));
+        try w.print("| {s} | {d:.2} / {d:.2}, {d:.1}% | {d:.2} / {d:.2}, {d:.1}% | {d:.3} / {d:.3} | {d:.2} / {d:.0} | {d:.2} | {d:.1}% | {d:.1}% | {d:.3} {s} |\n", .{
+            c.name,                                       a.median,                          a.p90, a.never,
+            b.median,                                     b.p90,                             b.never, f.median,
+            f.worst,                                      change_sum / notes,                change_worst,
+            @as(f64, @floatFromInt(pl.false_events)) / @max(pl.idle_s / 60, 1e-9),
+            100 * @as(f64, @floatFromInt(pl.notes_with_octave)) / notes,
+            100 * @as(f64, @floatFromInt(shown)) / @as(f64, @floatFromInt(@max(reads, 1))),
+            worst_bias,                                   worst_key,
+        });
+    }
+    try w.print("\nSigned bias per string from 1 s (cents; one-string signals, every rate and spectrum):\n\n", .{});
+    for (cands, results) |c, *r| {
+        const pl = &r.player;
+        try w.print("- {s}:", .{c.name});
+        for (0..pl.bias_keys) |i| {
+            if (pl.bias_n[i] == 0) continue;
+            try w.print(" {s} {d:.3};", .{ pl.bias_key[i][0..pl.bias_key_len[i]], pl.bias_sum[i] / pl.bias_n[i] });
+        }
+        try w.print("\n", .{});
+    }
+}
+
+const Quantiles = struct { median: f64, p90: f64, never: f64, worst: f64 };
+
+/// Median, 90th percentile and worst of the finite values, and the share
+/// that are infinite (never), percent.
+fn quantiles(alloc: std.mem.Allocator, values: []const f64) !Quantiles {
+    const copy = try alloc.dupe(f64, values);
+    defer alloc.free(copy);
+    std.mem.sort(f64, copy, {}, std.sort.asc(f64));
+    var finite: usize = 0;
+    for (copy) |v| {
+        if (std.math.isFinite(v)) finite += 1;
+    }
+    const never = 100 * @as(f64, @floatFromInt(copy.len - finite)) / @as(f64, @floatFromInt(@max(copy.len, 1)));
+    if (copy.len == 0) return .{ .median = std.math.nan(f64), .p90 = std.math.nan(f64), .never = 0, .worst = std.math.nan(f64) };
+    // Never counts as later than any time, so it sits in the order.
+    return .{
+        .median = copy[copy.len / 2],
+        .p90 = copy[@min(copy.len - 1, copy.len * 9 / 10)],
+        .never = never,
+        .worst = if (finite > 0) copy[finite - 1] else std.math.inf(f64),
+    };
 }
 
 fn printTicks(w: anytype, cands: []const Candidate, results: []Results) !void {
