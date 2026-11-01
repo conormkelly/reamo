@@ -7,7 +7,7 @@
 
 .PHONY: help install all frontend frontend-build extension dev-extension tracy \
         frontend-dev dev dev-notests dev-cycle stop-reaper start-reaper \
-        check lint typecheck test test-frontend test-e2e test-extension tuner-bench tuner-targets zig-version \
+        check lint typecheck test test-frontend test-e2e test-extension tuner-bench tuner-targets tuner-wav tuner-mdb zig-version \
         test-ws test-ws-harness harness harness-image release-check \
         container-image container-check clean
 
@@ -162,6 +162,12 @@ tuner-bench: zig-version ## Tuner pitch analyser on synthetic signals: accuracy 
 
 tuner-targets: zig-version ## Tuner pitch analyser against its accuracy targets on strings with known first partials (ReleaseFast)
 	cd extension && "$(ZIG)" build tuner-targets -Doptimize=ReleaseFast
+
+tuner-wav: zig-version ## Tuner pitch analyser over a WAV file: make tuner-wav WAV=take.wav [ARGS="--out frames.csv --notes notes.csv"]
+	cd extension && "$(ZIG)" build tuner-wav -Doptimize=ReleaseFast -- "$(WAV)" $(ARGS)
+
+tuner-mdb: zig-version ## Tuner pitch analyser on MDB-bass-synth stems: make tuner-mdb MDB=<dataset dir> [ARGS="--tracks name --out dir"]
+	cd extension && "$(ZIG)" build tuner-mdb -Doptimize=ReleaseFast -- "$(MDB)" $(ARGS)
 
 zig-version: ## Fail unless ZIG (default: the zig on PATH) is Zig 0.15.x
 	@v="$$("$(ZIG)" version 2>/dev/null)"; case "$$v" in 0.15.*) ;; \

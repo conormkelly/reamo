@@ -594,6 +594,9 @@ make test-frontend    # Vitest unit tests
 make test-e2e         # Playwright E2E tests (starts Vite on 5173, or reuses one already there)
 make test-extension   # Zig unit tests
 make tuner-bench      # tuner pitch analyser vs the JSFX on synthetic signals: accuracy and CPU
+make tuner-targets    # tuner pitch analyser against its targets: strings with known first partials, hum, starts, swells, findings
+make tuner-wav WAV=take.wav  # tuner pitch analyser over one WAV take (ARGS="--out frames.csv --notes notes.csv")
+make tuner-mdb MDB=<dir>     # tuner pitch analyser on MDB-bass-synth stems (dataset outside the repo; ARGS="--tracks name")
 make container-check  # `make check` in the pinned check container (needs only Docker)
 
 # Against a real REAPER
