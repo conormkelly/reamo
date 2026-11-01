@@ -26,7 +26,7 @@ afterwards**: a segfault is a failure even if the client saw no error.
 - A REAPER licence file, see below
 
 The first run builds the `reamo-v1-harness:reaper-7.83` image (~30 s:
-Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb). The Debian base is pinned
+Debian, REAPER 7.83, xvfb/GTK/ALSA, JACK, python3, gdb). The Debian base is pinned
 by digest in the `Dockerfile`.
 
 `make docker-clean` removes what runs leave behind: stopped harness
@@ -203,7 +203,8 @@ container. `boot.sh` (inside the container):
 1. copies REAPER into a writable dir and writes a `reaper.ini` beside the
    binary, making it **portable**: that dir is REAPER's resource folder.
    - `linux_audio_mode=2`: REAPER's Linux dummy audio device, so the audio
-     path (meters, audio hook) still runs with no sound hardware
+     path (meters, audio hook) still runs with no sound hardware; or JACK,
+     for a scenario that opts in (see "Audio inputs through JACK")
    - `verchk=0` and `--network none`: no update check, whose dialog would
      also block the main thread
    - blank VST paths: no plugin scan
@@ -228,6 +229,9 @@ scenarios/<name>/
                 (NET_ADMIN lets test.py add network adapters with `ip`;
                 SYS_PTRACE lets it attach gdb to REAPER, as
                 clients-dropping-mid-write-survive-default-sigpipe does)
+  no-extension  optional: REAPER starts without REAmo
+  jack-inputs   optional: REAPER runs on JACK with this many audio inputs,
+                which test.py feeds (see "Audio inputs through JACK")
 ```
 
 ```lua
@@ -324,6 +328,95 @@ invisible error dialog.
 
 Name scenarios after the behaviour they pin (`item-notes-poll`), and keep
 each to one concern so a failure points somewhere.
+
+## Audio inputs through JACK
+
+REAPER's dummy device has no inputs. A scenario that needs audio arriving
+at REAPER's inputs (the track tuner, input meters, recording) runs REAPER on
+JACK instead, with inputs the test feeds. Linux container only.
+
+**Opting in.** A `jack-inputs` file in the scenario's folder, holding the
+input count (1 to 16). `boot.sh` then:
+
+- starts `jackd --no-realtime --port-max 64 -d dummy -C <n> -P 2 -r 48000 -p 256`
+  and waits up to 10 s for its `<n>` capture ports (`jack_lsp`), or fails
+  the scenario with jackd's output;
+- writes `linux_audio_mode=0` (JACK), `linux_audio_nch_in=<n>` and
+  `linux_audio_nch_out=2` to `reaper.ini`. REAPER connects `REAPER:in<i>`
+  to `system:capture_<i>` itself, which the dummy backend keeps silent;
+- exports `HARNESS_JACK_INPUTS=<n>` to the test (0 without JACK), and
+  `JACK_NO_START_SERVER=1`;
+- keeps `jackd.out` with the scenario's output, and fails the scenario if
+  jackd has exited by the end.
+
+Every other scenario runs on the dummy device as before.
+`audio-inputs-through-jack-reach-armed-tracks` is the example.
+
+`HARNESS_AUDIO=jack scripts/harness/run.sh` runs every scenario on JACK (2
+inputs unless `jack-inputs` says otherwise). It is for exploring what
+changes under JACK, not a release check: scenarios are written against the
+dummy device, and some fail on JACK.
+
+**Feeding the inputs** (`jack_feeder.py`, stdlib only):
+
+```python
+from jack_feeder import Feeder
+
+with Feeder() as f:                         # HARNESS_JACK_INPUTS channels
+    f.wait_connected()                      # every out_<i+1> -> REAPER:in<i+1>
+    f.tone(0, 440.0, 0.5)                   # input 1: 440 Hz at half scale
+    f.tone(0, 466.16, 0.5)                  # note change, same phase, no click
+    f.pluck(1, 82.41, 0.8, decay=1.5)       # 60 dB down in 1.5 s, then silence
+    f.swell(2, 220.0, 0.5, seconds=3.0)     # silence to 0.5 over 3 s, then held
+    f.silence(0)
+    print(f.stats())
+```
+
+- Channels count from 0, as `I_RECINPUT` does. Amplitudes are 0 to 1 (full
+  scale). Changes start at the next JACK block (256 samples, 5.3 ms).
+- `tone`, `pluck` and `swell` return the frequency played: a tone loops a
+  whole number of cycles in about a second, within 0.02 cents of the one
+  asked for.
+- `stats()`: callbacks, xruns, connections made, connected per channel,
+  CPU seconds and age (difference two calls for CPU over a span), time in
+  the audio callback.
+- The JACK client runs in a child process, so the test's own work never
+  holds the GIL its audio callback needs. The child takes JSON lines on
+  stdin and exits when stdin closes, so it can't outlive the test.
+- Voices are rendered to tables when asked for; the callback only copies
+  slices (`ctypes.memmove`). Measured on aarch64 Docker: 4 channels use
+  1.7 to 2.7 % of one core while plucks and swells are rendered, about
+  20 µs per callback.
+
+**Reading what arrived.** Use REAPER's own view, not a debug command:
+`Track_GetPeakInfo` on a track armed and monitoring the input (unity
+volume and centre pan meter a mono input at the level fed), or record and
+read the take with an audio accessor (the example does both).
+
+**Gotchas**
+
+- **`/dev/shm` and `--port-max`.** jackd's default 2048 ports need about
+  107 MB of shared memory; Docker's `/dev/shm` is 64 MB, and jackd dies of
+  SIGBUS. `--port-max 64` needs about 40 MB. The input count is capped at
+  16 so that 3 ports per input (capture, REAPER's, the feeder's) plus 4
+  outputs fit.
+- **xruns.** jackd runs without realtime scheduling, so a block can be late
+  under load and REAPER gets a gap. Assert on medians or most readings,
+  not on every block.
+- **Close audio device when stopped** (`audioclosestop=1`; the harness
+  leaves it at its default, off). REAPER closes JACK when stopped and
+  re-registers its ports on play, which drops their connections: nothing
+  arrives while stopped, and the first blocks after play can be silent
+  until the feeder reconnects (on JACK's port-registration callback, and
+  polling every 0.25 s). `Audio_Quit()` then `Audio_Init()` does the same
+  on demand.
+- **Under JACK the audio hook's `input_nch` is 0.** Ask
+  `GetNumAudioInputs()` for the input count.
+
+**Limits.** Linux and JACK only: this says nothing about CoreAudio, ASIO or
+WASAPI behaviour (device names, channel counts, buffer sizes, closing when
+stopped), nor ReaRoute or loopback devices. jackd's dummy backend runs at
+48 kHz with 256-sample blocks; other rates and sizes are untested.
 
 ## The operation tour
 
