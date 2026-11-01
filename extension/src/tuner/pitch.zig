@@ -82,16 +82,19 @@
 //! constant), and `stable` once the shown pitch's slope over 300 ms is
 //! under 0.5 cent a second.
 //!
-//! Five of the targets on `zig build tuner-targets` are not met:
+//! Targets on `zig build tuner-targets` not met:
 //! - strings whose two polarisations beat read 0.51 cent off the stronger
 //!   one's f1 at P95 (target 0.5): they follow the sum of both, whose
 //!   frequency moves as the weaker decays, within 0.05 cent;
 //! - jitter 0.18 cent (target 0.1), from those strings' slow drift;
-//! - 11 octave readings, all a Karplus-Strong 880 Hz pluck whose
-//!   fundamental starts 20 dB under its octave, read an octave up for a
-//!   few hundred milliseconds without a string range;
 //! - 72 confident subharmonics of two notes, all within 8 / f of the
 //!   onset, before the spectrum can resolve the subharmonic f;
+//! - hum that changes during a note: P95 1.83 cent (target 0.5) when its
+//!   level steps, its phase jumps, a pickup is switched or the mains
+//!   drifts 20 mHz a second (the learned hum is carried through the note
+//!   unchanged; drift of 2-5 mHz a second is mostly within 0.5 cent),
+//!   with 16 octave readings and 492 readings flagged several;
+//! - 288 false notes from buzz that switches on (its onset opens the gate);
 //! - 6 single-string readings flagged several, weak-fundamental strings
 //!   early on.
 //!
