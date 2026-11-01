@@ -1072,9 +1072,9 @@ pub fn AnalyserWith(comptime options: Options) type {
                     // bass line's octave) stays a new note.
                     if (options.comb_confirm and !related and (self.fine_count - self.onset_at) * self.fine_decimation >= self.window) {
                         // The count stays (it orders onsets); a showing note
-                        // takes it as its own.
+                        // takes it as its own once the gate sees the window
+                        // past its (restored) onset.
                         self.onset_at = self.comb_prev_onset_at;
-                        if (self.note_active) self.note_onset_count = self.onset_count;
                         self.comb_onset = 0;
                     }
                 }
@@ -1185,7 +1185,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 // Readings while the name is still held back don't count:
                 // they were never shown.
                 const named = !options.names_after_window or self.sinceOnset() >= self.window;
-                const jumped = options.jump_stops and pitched and named and self.onset_count == self.note_onset_count and self.note_last_hz > 0 and @abs(1200 * @log2(m.?.hz / self.note_last_hz)) > th.hold.jump_cents;
+                const jumped = options.jump_stops and pitched and self.onset_count == self.note_onset_count and self.note_last_hz > 0 and @abs(1200 * @log2(m.?.hz / self.note_last_hz)) > th.hold.jump_cents;
                 const keep = pitched and loud and !jumped and self.sounding() and !self.mainsHeld(m.?.hz, now);
                 if (!keep) {
                     self.note_active = false;
@@ -1411,7 +1411,11 @@ pub fn AnalyserWith(comptime options: Options) type {
                     if (k >= 2) multiple = true;
                 }
             }
-            if (!near or !self.mainsPeriodic(since_onset)) return false;
+            if (!near) return false;
+            // Once an onset's input has been found to repeat at the mains
+            // period, that stands while the hold waits: a click later in
+            // the window would otherwise pass hum for a note.
+            if (self.mains_waiting != self.onset_count and !self.mainsPeriodic(since_onset)) return false;
             // Read at a multiple of the mains frequency, hum or buzz has
             // its fundamental too, so it doesn't repeat at the reading's
             // own period; a note there (a synth tone at 120 Hz) does.
@@ -1420,10 +1424,16 @@ pub fn AnalyserWith(comptime options: Options) type {
                 const lo: usize = @intFromFloat(@floor(own));
                 if (self.repeatsWithin(since_onset, lo, lo + 1)) return false;
             }
+            // Two spans of at least `mains_fall_s`, measured between the
+            // analyses used and a span apart: a step in the level ramps
+            // over a window, under `mains_fall_s`, so it can fall over one
+            // span, or over both sides of a shared edge, but not over two
+            // spans with a gap between them.
             const latest = self.levelAt(now) orelse return true;
-            const before = self.levelAt(now - mains_fall_s) orelse return true;
-            const earlier = self.levelAt(now - 2 * mains_fall_s) orelse return true;
-            if (!(earlier - before >= mains_fall_db and before - latest >= mains_fall_db)) return true;
+            const before = self.levelEntry(now - mains_fall_s) orelse return true;
+            const gap = self.levelEntry(before.t - mains_fall_s) orelse return true;
+            const earlier = self.levelEntry(gap.t - mains_fall_s) orelse return true;
+            if (!(earlier.v - gap.v >= mains_fall_db and before.v - latest >= mains_fall_db)) return true;
             var loudest = latest;
             for (0..level_history_len) |back| {
                 const i = self.levelSlot(back);
@@ -1507,10 +1517,15 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// The level of the latest analysis at or before `t`, if the
         /// history reaches back that far.
         fn levelAt(self: *const Self, t: f64) ?f64 {
+            return if (self.levelEntry(t)) |e| e.v else null;
+        }
+
+        /// The time and level of the latest analysis kept at or before `t`.
+        fn levelEntry(self: *const Self, t: f64) ?struct { t: f64, v: f64 } {
             for (0..level_history_len) |back| {
                 const i = self.levelSlot(back);
                 if (std.math.isInf(self.level_t[i])) continue;
-                if (self.level_t[i] <= t) return self.level_v[i];
+                if (self.level_t[i] <= t) return .{ .t = self.level_t[i], .v = self.level_v[i] };
             }
             return null;
         }
@@ -2179,6 +2194,35 @@ test "the clarity of a clean tone is near 1 and of a noisy one lower" {
 
 /// Pushes `signal` in 1/30 s blocks and returns how many analyses showed a
 /// note from `from_s` on, and how many of those were not `note`.
+/// A tone of 8 harmonics (1/k) whose fundamental is `f0` until `at`
+/// samples and `f1` after, its phase continuous: a pitch change with no
+/// onset.
+fn steppedTone(out: []f32, sample_rate: f64, f0: f64, f1: f64, at: usize, amp: f64) void {
+    var phase: f64 = 0;
+    for (out, 0..) |*v, i| {
+        const f = if (i < at) f0 else f1;
+        var x: f64 = 0;
+        for (1..9) |k| {
+            const kf: f64 = @floatFromInt(k);
+            x += @sin(kf * phase) / kf;
+        }
+        v.* = @floatCast(amp * x);
+        phase += 2 * std.math.pi * f / sample_rate;
+        if (phase > 2 * std.math.pi) phase -= 2 * std.math.pi;
+    }
+}
+
+fn countNote(a: anytype, buf: []const f32, from: usize, note: i32) usize {
+    var n: usize = 0;
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        if (pos >= from and r.freq_hz > 0 and r.note == note) n += 1;
+    }
+    return n;
+}
+
 fn countNotes(a: anytype, signal: []const f32, sample_rate: f64, from_s: f64, note: ?i32) struct { shown: usize, other: usize } {
     const tick: usize = @intFromFloat(@round(sample_rate / 30));
     var shown: usize = 0;
@@ -2931,6 +2975,152 @@ test "the mains hold judges a level's fall the same whether polled at 30 or at 5
         errdefer std.debug.print("tick {d}: {d} of {d}\n", .{ tick, shown, reads });
         try testing.expect(shown * 2 >= reads);
     }
+}
+
+test "a pitch that steps three semitones with no onset shows the new note" {
+    const a = try testing.allocator.create(AnalyserWith(.{ .comb_onset = false }));
+    defer testing.allocator.destroy(a);
+    try a.init(48000);
+    prime(a);
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..24000], 0);
+    // After 0.5 s of quiet, A2, then C3 three semitones up with no onset.
+    steppedTone(buf[24000..], 48000, 110, 130.813, 24000, 0.1);
+    signals.addNoise(buf, 3e-5, 20);
+    try testing.expect(countNote(a, buf, 48000 + 14400, 48) >= 10);
+}
+
+test "after a jump stops a note, a pitch twice the stopped one starts showing, as a note read an octave under corrects" {
+    const a = try testing.allocator.create(AnalyserWith(.{ .comb_onset = false }));
+    defer testing.allocator.destroy(a);
+    try a.init(48000);
+    prime(a);
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..24000], 0);
+    steppedTone(buf[24000..], 48000, 55, 110, 24000, 0.1);
+    signals.addNoise(buf, 3e-5, 21);
+    try testing.expect(countNote(a, buf, 48000 + 14400, 45) >= 10);
+}
+
+test "a pitch wobbling a cent about a flat line is never flagged stable" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..2400], 0);
+    // 1 cent of vibrato at 3.3 Hz: about one cycle per stable_s, so the
+    // fitted slope is near zero while the pitch is never still.
+    var phase: f64 = 0;
+    for (buf[2400..], 0..) |*v, i| {
+        const t = @as(f64, @floatFromInt(i)) / 48000;
+        const f = 110 * std.math.pow(f64, 2, @sin(2 * std.math.pi * 3.3 * t) / 1200);
+        v.* = @floatCast(0.1 * (@sin(phase) + 0.5 * @sin(2 * phase)));
+        phase += 2 * std.math.pi * f / 48000;
+    }
+    signals.addNoise(buf, 3e-5, 22);
+    var stable: usize = 0;
+    var shown: usize = 0;
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        if (r.freq_hz > 0) shown += 1;
+        if (r.stable) stable += 1;
+    }
+    try testing.expect(shown > 60);
+    try testing.expectEqual(@as(usize, 0), stable);
+}
+
+test "a clean note whose odd half-partials are spread thin is not read an octave down" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    @memset(buf, 0);
+    // After 0.5 s of quiet, A2's harmonics, and odd multiples of 55 Hz from
+    // 385 Hz up, each 24 dB under the fundamental: much period-two
+    // structure, but nothing near 55 Hz.
+    for (buf[24000..], 0..) |*v, i| {
+        const t = @as(f64, @floatFromInt(i)) / 48000;
+        var x: f64 = 0;
+        for (1..9) |k| x += @sin(2 * std.math.pi * 110 * @as(f64, @floatFromInt(k)) * t) / @as(f64, @floatFromInt(k));
+        for (3..11) |j| x += 0.063 * @sin(2 * std.math.pi * 55 * @as(f64, @floatFromInt(2 * j + 1)) * t + @as(f64, @floatFromInt(j)));
+        v.* = @floatCast(0.1 * x);
+    }
+    signals.addNoise(buf, 3e-5, 23);
+    var down: usize = 0;
+    var right: usize = 0;
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        if (r.freq_hz == 0 or pos < 48000) continue;
+        if (r.note == 33) down += 1;
+        if (r.note == 45) right += 1;
+    }
+    errdefer std.debug.print("right {d} down {d}\n", .{ right, down });
+    try testing.expect(right > 20);
+    try testing.expectEqual(@as(usize, 0), down);
+}
+
+test "hum that switches on and then steps down 4 dB does not pass for a decaying note" {
+    for ([_]f64{ 0.25, 0.3, 0.35, 0.4, 0.6 }) |step| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(48000 * 2);
+        defer testing.allocator.destroy(buf);
+        signals.mainsChanging(buf, 48000, 50, .hum, -40, .{ .on_s = 0.5, .step_at_s = 0.5 + step, .step_db = -4 });
+        signals.addNoise(buf, 3e-5, 25);
+        errdefer std.debug.print("step {d} s after on\n", .{step});
+        try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 0, null).shown);
+    }
+}
+
+test "a hum that steps down 4 dB at a click does not pass for a decaying note" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    signals.mainsChanging(buf, 48000, 50, .hum, -40, .{ .on_s = 0.5, .step_at_s = 1.5, .step_db = -4 });
+    var rng = signals.MinStd.init(24);
+    for (buf[72000..72240]) |*v| v.* += @floatCast(0.03 * rng.next());
+    signals.addNoise(buf, 3e-5, 24);
+    try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 0, null).shown);
+}
+
+test "piezo notes whose first readings are an octave under still show once their name is due" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    var total: usize = 0;
+    var notes: usize = 0;
+    for ([_]f64{ 110, 146.832, 329.628 }) |f0| for ([_]u64{ 1, 2, 3 }) |seed| {
+        restart(a);
+        notes += 1;
+        @memset(buf[0..2400], 0);
+        signals.pluckedString(buf[2400..], 48000, .{ .f0 = f0, .inharmonicity = 6.5e-5, .seed = seed });
+        const level = signals.rms(buf[2400..7200]);
+        for ([_][3]f64{ .{ 98, 0.6, -12 }, .{ 163, 0.4, -8 }, .{ 231, 0.3, -6 } }) |mode| {
+            const amp = level * std.math.pow(f64, 10, mode[2] / 20) * std.math.sqrt2;
+            for (buf[2400..], 0..) |*v, i| {
+                const t = @as(f64, @floatFromInt(i)) / 48000;
+                v.* += @floatCast(amp * @exp(-@log(1000.0) / mode[1] * t) * @sin(2 * std.math.pi * mode[0] * t));
+            }
+        }
+        var peak: f32 = 0;
+        for (buf[2400..7200]) |v| peak = @max(peak, @abs(v));
+        var rng = signals.MinStd.init(seed + 30);
+        for (buf[2400..2448]) |*v| v.* += peak * @as(f32, @floatCast(rng.next()));
+        signals.addNoise(buf, 3e-5, 11);
+        const n = countNote(a, buf, 0, @intFromFloat(@round(69 + 12 * @log2(f0 / 440))));
+        errdefer std.debug.print("{d} Hz seed {d}: {d}\n", .{ f0, seed, n });
+        try testing.expect(n >= 40);
+        total += n;
+    };
+    try testing.expect(total >= notes * 40);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {

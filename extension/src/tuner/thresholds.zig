@@ -15,7 +15,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 7;
+pub const version = 8;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -146,7 +146,10 @@ pub const mains = struct {
     /// `fall_s` spans, and `decay_db` under the loudest of the last
     /// `hold_s`. Not swept.
     pub const fall_s = 0.1;
-    pub const fall_db = 0.1;
+    /// Over the window, steady hum's level ripples by about 0.2 dB, so a
+    /// fall must exceed that: 0.25 dB in 0.1 s is a string with t60 up
+    /// to about 24 s.
+    pub const fall_db = 0.25;
     pub const decay_db = 1.0;
     pub const hold_s = 1.0;
     /// An onset the mains hold is waiting on lives this long, seconds,

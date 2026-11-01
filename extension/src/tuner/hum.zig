@@ -348,6 +348,23 @@ test "learns hum and buzz on 50 and 60 Hz mains, off nominal, and takes them out
     }
 }
 
+test "two learns agree only within 0.05 Hz of each other and 1.5 dB in their strongest harmonic" {
+    var a: Model = .{ .base_hz = 50.0, .count = 1 };
+    a.harmonic[0] = 1;
+    a.amp[0] = 1;
+    a.phase[0] = 0;
+    var b = a;
+    b.base_hz = 50.03;
+    b.amp[0] = std.math.pow(f64, 10, 1.0 / 20.0);
+    try testing.expect(a.agrees(b));
+    var far = b;
+    far.base_hz = 50.1;
+    try testing.expect(!a.agrees(far));
+    var loud = b;
+    loud.amp[0] = std.math.pow(f64, 10, 3.0 / 20.0);
+    try testing.expect(!a.agrees(loud));
+}
+
 test "learns nothing from noise or silence" {
     const l = try Learner.create();
     defer testing.allocator.destroy(l);
