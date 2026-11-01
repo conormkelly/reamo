@@ -279,6 +279,10 @@ pub fn validateBackend(comptime T: type) void {
         "getTrackRecInput",
         "setTrackRecInput",
 
+        // Audio hardware hook (audio/audio_hook.zig)
+        "registerAudioHook",
+        "unregisterAudioHook",
+
         // Fixed Lanes (swipe comping)
         "getNumFixedLanes",
         "getTrackFreeMode",

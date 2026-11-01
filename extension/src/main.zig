@@ -975,10 +975,10 @@ fn shutdown() void {
     }
     logging.debug("CSurf cleaned up", .{});
 
-    // Stop audio streaming (joins network thread, unregisters audio hook)
+    // Stop audio streaming (joins network thread, lets go of the audio hook)
     if (g_audio_stream) |mgr| {
         logging.debug("cleaning up audio stream", .{});
-        // Stop thread if running (will also unregister audio hook)
+        // Stop thread if running
         if (mgr.hasSubscribers()) {
             // Force unsubscribe all to trigger stopStreaming
             mgr.mutex.lock();
@@ -991,9 +991,9 @@ fn shutdown() void {
             t.join();
             mgr.thread = null;
         }
-        // Unregister hook if still registered
+        // Let go of the hook for the stream (the tuner may still hold it)
         if (g_api) |*api| {
-            audio_hook.unregister(api);
+            audio_hook.instance().release(api, .stream);
         }
         commands.g_ctx.audio_stream = null;
         g_allocator.destroy(mgr);
@@ -1097,6 +1097,10 @@ fn shutdown() void {
         g_tuner_subs = null;
     }
     logging.debug("tuner subscriptions cleaned up", .{});
+
+    // Whatever still holds the audio hook, REAPER must not call into an
+    // unloaded extension.
+    if (g_api) |*api| audio_hook.instance().releaseAll(api);
 
     if (g_tile_cache) |t_cache| {
         logging.debug("cleaning up tile cache", .{});
