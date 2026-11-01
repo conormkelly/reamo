@@ -61,6 +61,14 @@
 //! few hundred milliseconds, which the spectrum can't cure without
 //! misreading notes under hum or over a ringing previous note.
 //!
+//! Mains hum a few hertz from a first partial passes the refinement's band
+//! and ripples its phase (60 Hz hum 40 dB under fretted B1 moved it by
+//! cents). The hum is learned while no note shows (hum.zig: the mains
+//! frequency, and each harmonic's amplitude and phase, from up to 0.5 s of
+//! idle input; two learns in a row must agree, so a decaying tail is not
+//! taken for hum) and taken out of a note's input before its first
+//! partial is measured, extrapolated through the note.
+//!
 //! Two notes together repeat at their common subharmonic, and YIN reads
 //! it: E2 and B2 as E1. The spectrum of the input since the onset tells
 //! one string from several (several.zig); with several, a reading at no
@@ -82,6 +90,7 @@ const std = @import("std");
 const fft_mod = @import("fft.zig");
 const first_partial = @import("first_partial.zig");
 const several = @import("several.zig");
+const hum = @import("hum.zig");
 
 /// What the tuner's user sets.
 pub const Settings = struct {
@@ -211,7 +220,19 @@ pub const Options = struct {
     /// Whether the spectrum of the input since the onset is checked for
     /// several notes (see several.zig).
     several_guard: bool = true,
+    /// Whether stationary mains hum is learned while no note shows and
+    /// taken out of a note's input before its first partial is measured
+    /// (see hum.zig).
+    hum_model: bool = true,
 };
+
+/// The hum is learned every `hum_hop_s` from the idle input since the
+/// last onset, at least `hum_learn_min_s` and at most `hum_learn_max_s` of
+/// it (the longer, the more exactly the mains frequency is known, and the
+/// further its phase can be carried through a note).
+const hum_learn_min_s = 0.15;
+const hum_learn_max_s = 0.5;
+const hum_hop_s = 0.05;
 
 const floor_rise_db_per_s = 20.0;
 const resume_s = 0.25;
@@ -321,6 +342,13 @@ pub fn AnalyserWith(comptime options: Options) type {
         several_scratch: several.Scratch,
         /// Whether the last analysis heard several notes.
         heard_several: bool,
+        /// The learned hum: the model in use (if `hum_valid`), the last
+        /// learned (two in a row must agree), and the fine input it was
+        /// learned at.
+        hum_now: hum.Model,
+        hum_valid: bool,
+        hum_last: ?hum.Model,
+        hum_learned_at: u64,
         refine_work: first_partial.Work(max_fine_period),
 
         /// Analysed samples kept in all.
@@ -418,6 +446,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.onset_at = 0;
             self.segment_len = 0;
             self.heard_several = false;
+            self.hum_now = .{};
+            self.hum_valid = false;
+            self.hum_last = null;
+            self.hum_learned_at = 0;
             self.kept_count = 0;
             self.hold_set = false;
             self.hold_log2 = 0;
@@ -670,6 +702,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             const detected = self.analysis_rate / self.interpolate(best);
             if (fine_needed) self.loadSegment();
             const coarse = self.holdOctave(detected);
+            if (options.hum_model and self.hum_valid and fine_needed) {
+                // Out of the band the refinement passes, about the note.
+                self.hum_now.subtract(self.segment[0..self.segment_len], self.fine_count - self.segment_len, self.fine_rate, 0, 2 * coarse);
+            }
             // Of several notes, only one of them shows, never what repeats
             // under them all.
             if (self.judgeSeveral(coarse)) |j| {
@@ -720,6 +756,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 }
             }
             self.gate_open = self.note_active;
+            if (!self.note_active) self.learnHum();
             // An onset holds the floor until a note it started has ended, or
             // for `onset_floor_hold_s` if none shows (the window takes a while
             // to fill with a new note).
@@ -728,6 +765,28 @@ pub fn AnalyserWith(comptime options: Options) type {
                 if (self.note_onset_count == self.onset_count or since_onset >= onset_floor_hold_s) self.floor_paused = false;
             }
             return if (self.note_active) m else null;
+        }
+
+        /// Every `hum_hop_s` of idle input, learns the hum from the input
+        /// since the last onset (between `hum_learn_min_s` and
+        /// `hum_learn_max_s` of it); two learns in a row that agree make the
+        /// model used.
+        fn learnHum(self: *Self) void {
+            if (!options.hum_model or !fine_needed) return;
+            if (@as(f64, @floatFromInt(self.fine_count - self.hum_learned_at)) < hum_hop_s * self.fine_rate) return;
+            const idle: u64 = if (self.onset_count > 0) self.fine_count - self.onset_at else self.fine_count;
+            const most: u64 = @min(@as(u64, @intFromFloat(hum_learn_max_s * self.fine_rate)), max_fine);
+            const n: usize = @intCast(@min(idle, most));
+            if (@as(f64, @floatFromInt(n)) < hum_learn_min_s * self.fine_rate) return;
+            self.hum_learned_at = self.fine_count;
+            const start = self.fine_count - n;
+            for (self.segment[0..n], 0..) |*d, i| d.* = self.fine[@intCast((start + i) % max_fine)];
+            const learned = hum.learn(max_fine_period, &self.refine_work, self.segment[0..n], start, self.fine_rate);
+            if (learned) |m| {
+                self.hum_valid = if (self.hum_last) |last| last.agrees(m) else false;
+                if (self.hum_valid) self.hum_now = m;
+            } else self.hum_valid = false;
+            self.hum_last = learned;
         }
 
         /// Whether the latest `release_s` of input holds energy within
@@ -1363,6 +1422,77 @@ test "two strings at once read as no confident subharmonic once the spectrum res
             if (r.freq_hz > 0 and !r.multiple) try testing.expect(r.note >= lower - 1);
         }
         try testing.expect(multiple > 0);
+    }
+}
+
+test "a bass string over mains hum a few hertz from its fundamental reads within half a cent from 1 s" {
+    // Fretted bass B1 is 1.8 Hz over 60 Hz, A1 5 Hz over 50 Hz; the hum is
+    // there from the start, 40 dB under the note.
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 3);
+    defer testing.allocator.destroy(other);
+    for ([_][3]f64{ .{ 61.7354, 1e-3, 60 }, .{ 55, 2e-4, 50 } }) |c| {
+        for ([_]signals.Mains{ .hum, .buzz }) |kind| {
+            const a = try bareAnalyser(48000);
+            defer testing.allocator.destroy(a);
+            const opts: signals.StringOptions = .{ .f0 = c[0], .inharmonicity = c[1], .t60_s = 8 };
+            @memset(buf[0..24000], 0);
+            signals.pluckedString(buf[24000..], 48000, opts);
+            const note_db = 20 * std.math.log10(signals.rms(buf[24000..72000]));
+            signals.mains(other, 48000, c[2], kind, note_db - 40);
+            signals.mix(buf, other);
+            signals.addNoise(buf, 3e-5, 11);
+            var k: usize = 0;
+            var shown: usize = 0;
+            while ((k + 1) * 1600 <= buf.len) : (k += 1) {
+                a.push(buf[k * 1600 .. (k + 1) * 1600]);
+                const r = a.analyse(.{});
+                const t = @as(f64, @floatFromInt((k + 1) * 1600)) / 48000 - 0.5;
+                if (t < 1 or r.freq_hz == 0) continue;
+                shown += 1;
+                errdefer std.debug.print("{d} Hz over {d} Hz {s}, {d:.2} s: {d:.3} c\n", .{ c[0], c[2], @tagName(kind), t, centsOff(r, opts.firstPartialHz(t)) });
+                try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, opts.firstPartialHz(t)), 0.5);
+            }
+            try testing.expect(shown > 20);
+        }
+    }
+}
+
+test "a note on a mains harmonic reads true, over buzz and after its own tail" {
+    // E5 is 2 cents under 11 x 60 Hz. Over buzz, the hum taken out is the
+    // buzz's 660 Hz alone; with no hum, a first E5's decaying tail must not
+    // be learned as hum and taken out of the second.
+    const buf = try generate(48000 * 4);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 4);
+    defer testing.allocator.destroy(other);
+    const opts: signals.StringOptions = .{ .f0 = 659.255, .inharmonicity = 4.4e-5 };
+    for ([_]bool{ true, false }) |with_buzz| {
+        const a = try bareAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        @memset(buf, 0);
+        signals.pluckedString(buf[24000..96000], 48000, opts);
+        signals.pluckedString(buf[120000..], 48000, opts);
+        if (with_buzz) {
+            signals.mains(other, 48000, 60, .buzz, -60);
+            signals.mix(buf, other);
+        }
+        signals.addNoise(buf, 3e-5, 12);
+        var k: usize = 0;
+        var shown: usize = 0;
+        while ((k + 1) * 1600 <= buf.len) : (k += 1) {
+            a.push(buf[k * 1600 .. (k + 1) * 1600]);
+            const r = a.analyse(.{});
+            const t = @as(f64, @floatFromInt((k + 1) * 1600)) / 48000;
+            const since = if (t >= 2.5) t - 2.5 else t - 0.5;
+            // The first E5 is cut off at 2 s; its readings count until then.
+            if (since < 0.5 or (t < 2.5 and t > 1.9) or r.freq_hz == 0 or r.settling) continue;
+            shown += 1;
+            errdefer std.debug.print("buzz {}, {d:.2} s: {d:.3} c\n", .{ with_buzz, t, centsOff(r, opts.firstPartialHz(since)) });
+            try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, opts.firstPartialHz(since)), 0.1);
+        }
+        try testing.expect(shown > 40);
     }
 }
 

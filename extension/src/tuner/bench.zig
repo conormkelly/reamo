@@ -128,7 +128,7 @@ fn jsfxCandidate(allocator: std.mem.Allocator) !Candidate {
 
 const candidate_notes = [_][2][]const u8{
     .{ "jsfx", "PitchDetect.jsfx ported: 4096 samples, analysed every 512, read at 30 Hz" },
-    .{ "analyser", "the tuner's: 2 kHz low-pass, analysed at 44.1-48 kHz, voicing gate 0.3, first-partial refinement, octave hold, learned noise floor and onset gate, several-notes guard" },
+    .{ "analyser", "the tuner's: 2 kHz low-pass, analysed at 44.1-48 kHz, voicing gate 0.3, first-partial refinement, octave hold, learned noise floor and onset gate, several-notes guard, learned hum taken out" },
     .{ "no-lowpass", "the analyser without its low-pass, so analysing at the input rate (the JSFX's YIN with a 92.9 ms window and the voicing gate)" },
     .{ "lowpass-1k", "the analyser with a 1 kHz low-pass" },
     .{ "rate-24k", "the analyser analysing at 22.05-24 kHz" },
@@ -138,6 +138,7 @@ const candidate_notes = [_][2][]const u8{
     .{ "fixed-gate", "the analyser gated only by a -60 dBFS silence threshold, without the learned floor, the onset gate and the release check" },
     .{ "mains-rule", "the analyser with the mains rule" },
     .{ "no-several-guard", "the analyser without the several-notes guard" },
+    .{ "no-hum-model", "the analyser without the learned hum taken out" },
 };
 
 var readings_buf: [256]Reading = undefined;
@@ -449,6 +450,7 @@ pub fn main() !void {
         try analyserCandidateWith(pitch.AnalyserWith(.{ .floor_margin_db = null, .onset_gate = false, .release_drop_db = null }), .{ .silence_db = -60 }, "fixed-gate", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .mains_rule = true }), "mains-rule", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .several_guard = false }), "no-several-guard", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .hum_model = false }), "no-hum-model", allocator),
     };
     var cands: [max_candidates]Candidate = undefined;
     var nc: usize = 0;

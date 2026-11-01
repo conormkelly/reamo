@@ -768,6 +768,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = null }), "no-release", "the analyser without the release check", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .mains_rule = true }), "mains-rule", "the analyser with the mains rule", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .several_guard = false }), "no-several-guard", "the analyser without the several-notes guard", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .hum_model = false }), "no-hum-model", "the analyser without the learned hum taken out", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;
