@@ -94,16 +94,6 @@ export {
   type UseFolderHierarchyReturn,
 } from './useFolderHierarchy';
 export {
-  useMediaQuery,
-  useIsPWA,
-} from './useMediaQuery';
-export { useContainerQuery } from './useContainerQuery';
-export {
-  useScrollDirection,
-  type ScrollDirection,
-  type UseScrollDirectionReturn,
-} from './useScrollDirection';
-export {
   usePortalPosition,
   type PortalPosition,
   type PortalPlacement,

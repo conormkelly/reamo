@@ -361,16 +361,12 @@
 
   /* =============================================================================
    * SAFE AREA CSS CUSTOM PROPERTIES (UX_GUIDELINES.md §3)
-   * Used for dynamic safe area calculations in JavaScript and CSS.
    * Fallbacks handle browsers without safe area support.
    * ============================================================================= */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-
-  /* Chrome 135+ optimization for gesture navigation (§3) */
-  --safe-max-bottom: env(safe-area-max-inset-bottom, 34px);
 }
 
 /* =============================================================================
@@ -381,7 +377,6 @@
  * References:
  * - WebKit Bug #191872: env() can return 0px initially in PWA standalone mode
  * - iOS Safari 100vh bug: 100vh includes area behind URL bar
- * - Chrome 135+: New safe-area-max-inset-* variables
  * ============================================================================= */
 
 /* Root document setup for PWA */
@@ -409,39 +404,15 @@ body {
   overflow: hidden;
 }
 
-/* iOS Safari-safe full height (replaces Tailwind's h-screen which uses 100vh) */
-.h-screen-safe {
-  height: 100vh; /* Fallback for older browsers */
-  height: 100dvh; /* Dynamic viewport height - respects Safari URL bar */
-}
-
 /* =============================================================================
  * RESPONSIVE VIEWPORT HEIGHT UTILITIES (UX_GUIDELINES.md §6)
  * - dvh: Dynamic viewport height, responds to iOS Safari's collapsible address bar
- * - svh: Small viewport height, stable for modals (accounts for browser UI visible)
  * ============================================================================= */
 
 /* Dynamic viewport height with fallback */
 .h-dvh {
   height: 100vh; /* Fallback */
   height: 100dvh;
-}
-
-/* Small viewport height for stable modals */
-.h-svh {
-  height: 100vh;
-  height: 100svh;
-}
-
-/* Prevent iOS body bounce */
-.overflow-hidden-ios {
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
-/* Container query setup for responsive components (UX_GUIDELINES.md §10) */
-.container-responsive {
-  container-type: inline-size;
 }
 
 /* =============================================================================
