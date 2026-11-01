@@ -239,6 +239,9 @@ const resume_s = 0.25;
 /// Longer than B0's period, so a low note's waveform doesn't swing it.
 const release_s = 0.04;
 const onset_floor_hold_s = 0.25;
+/// An onset starts a note only within this long of the first analysis
+/// that saw it.
+const onset_life_s = 0.25;
 const mains_cents = 15.0;
 const mains_decay_db = 1.0;
 const mains_hold_s = 1.0;
@@ -409,6 +412,9 @@ pub fn AnalyserWith(comptime options: Options) type {
         level_v: [level_history_len]f64,
         level_pos: usize,
         level_used: usize,
+        /// The last onset the gate has seen, and when it first saw it.
+        onset_seen: u64,
+        onset_seen_at: f64,
 
         /// Sets up for `sample_rate` and starts from silence.
         pub fn init(self: *Self, sample_rate: f64) error{UnsupportedSampleRate}!void {
@@ -485,6 +491,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.note_may_resume = false;
             self.level_pos = 0;
             self.level_used = 0;
+            self.onset_seen = 0;
+            self.onset_seen_at = 0;
             self.block_fill = 0;
             self.block_energy = 0;
             @memset(&self.blocks, 0);
@@ -741,6 +749,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.level_v[self.level_pos] = level;
             self.level_pos = (self.level_pos + 1) % level_history_len;
             self.level_used = @min(self.level_used + 1, level_history_len);
+            // Every analysis sees a new onset, pitched or not.
+            const fresh_onset = self.onsetFresh(now);
 
             const loud = if (options.floor_margin_db) |margin| std.math.isNan(self.floor_db) or level >= self.floor_db + margin else true;
             const pitched = m != null and level >= settings.silence_db;
@@ -754,7 +764,6 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.note_may_resume = !pitched and loud;
                 }
             } else if (pitched and loud and self.sounding()) {
-                const fresh_onset = self.onset_count > self.note_onset_count;
                 const resuming = self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
                 if (!options.onset_gate or fresh_onset or resuming) {
                     if (!resuming) self.note_start = now;
@@ -794,6 +803,21 @@ pub fn AnalyserWith(comptime options: Options) type {
                 if (self.hum_valid) self.hum_now = m;
             } else self.hum_valid = false;
             self.hum_last = learned;
+        }
+
+        /// Whether the last onset may still start a note: it is newer than
+        /// the note last shown, and the first analysis to see it was under
+        /// `onset_life_s` ago. One that opened nothing (a click, a pick
+        /// scrape) must not let a later sound show without an onset of its
+        /// own; counting from the first analysis to see it gives a caller
+        /// that analyses seldom its chance.
+        fn onsetFresh(self: *Self, now: f64) bool {
+            if (self.onset_count <= self.note_onset_count) return false;
+            if (self.onset_seen != self.onset_count) {
+                self.onset_seen = self.onset_count;
+                self.onset_seen_at = now;
+            }
+            return now - self.onset_seen_at <= onset_life_s;
         }
 
         /// Whether the latest `release_s` of input holds energy within
@@ -1634,10 +1658,34 @@ test "reports no pitch for silence, and for a tone under the silence threshold" 
     defer testing.allocator.destroy(buf);
     @memset(buf, 0);
     try testing.expectEqual(Reading.none, readAfter(a, buf, .{}));
-    // 196 Hz at -66 dBFS RMS: under -60, over -70.
+    // 196 Hz at -66 dBFS RMS, each time from an onset: under -60, over -70.
     signals.sine(buf, 44100, 196, 0.0007, 0);
+    restart(a);
     try testing.expectEqual(Reading.none, readAfter(a, buf, .{ .silence_db = -60 }));
+    restart(a);
     try testing.expect(readAfter(a, buf, .{ .silence_db = -70 }).freq_hz > 0);
+}
+
+test "an onset that shows no note expires, so a swell over hum long after a click never shows" {
+    const a = try bareAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 4);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 4);
+    defer testing.allocator.destroy(other);
+    // Hum throughout; a 5 ms click at 0.5 s; A2 swelling in at 60 dB a
+    // second from 2.5 s, which has no onset of its own.
+    signals.mains(buf, 48000, 50, .hum, -50);
+    var rng = signals.MinStd.init(9);
+    for (buf[24000..24240]) |*v| v.* += @floatCast(0.3 * rng.next());
+    @memset(other, 0);
+    signals.pluckedString(other[120000..], 48000, .{ .f0 = 110, .inharmonicity = 6.5e-5, .t60_s = 20 });
+    for (other[120000..], 0..) |*v, i| {
+        const t = @as(f64, @floatFromInt(i)) / 48000;
+        v.* *= @floatCast(@min(1, std.math.pow(f64, 10, 3 * (t - 1))));
+    }
+    signals.mix(buf, other);
+    try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 2.5, null).shown);
 }
 
 test "reports no pitch for noise above the silence threshold" {
