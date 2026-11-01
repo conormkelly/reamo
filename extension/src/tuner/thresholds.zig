@@ -15,7 +15,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 4;
+pub const version = 5;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -214,6 +214,14 @@ pub const hold = struct {
     /// far between analyses, cents; a bigger jump stops the note. A peg
     /// turn moves a few cents per analysis. Not swept.
     pub const jump_cents = 200.0;
+    /// Two readings within this are the same note's (a quarter tone),
+    /// cents.
+    pub const quarter_tone_cents = 50.0;
+    /// While a later onset is unproven, a showing note's reading that has
+    /// moved this far, cents, is from a window mixing it with whatever
+    /// came, and shows no name (a re-plucked string moves a few cents; the
+    /// mixed window that read E2 47 c flat as G4 came in did not).
+    pub const mixed_cents = 25.0;
     /// The Hampel filter (smoothing, off by default): `hampel_len`
     /// analyses, replacing a reading 3 scaled MADs and at least
     /// `hampel_floor_cents` from the median.

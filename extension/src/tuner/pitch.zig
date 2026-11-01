@@ -1158,6 +1158,7 @@ pub fn AnalyserWith(comptime options: Options) type {
 
             const loud = if (options.floor_margin_db) |margin| std.math.isNan(self.floor_db) or level >= self.floor_db + margin else true;
             const pitched = m != null and level >= settings.silence_db;
+            const last_hz = self.note_last_hz;
             if (self.note_active) {
                 // Without a new onset the name may only move as far as a
                 // pitch moving continuously goes between two analyses: a
@@ -1176,7 +1177,13 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.jump_from_hz = if (jumped) self.note_last_hz else 0;
                     self.jump_wait_hz = 0;
                     self.note_last_hz = 0;
-                } else self.note_last_hz = if (named) m.?.hz else 0;
+                } else {
+                    // A later onset that the window has passed without
+                    // being taken back started a new note on this one: it
+                    // becomes the note's own, so the jump rule applies.
+                    if (self.onset_count != self.note_onset_count and self.sinceOnset() >= self.window) self.note_onset_count = self.onset_count;
+                    self.note_last_hz = if (named) m.?.hz else 0;
+                }
             } else if (pitched and self.sounding()) {
                 const resuming = loud and self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
                 const at_onset = loud and !rise_onset and (!options.onset_gate or fresh_onset);
@@ -1209,8 +1216,11 @@ pub fn AnalyserWith(comptime options: Options) type {
             // While the window still holds input from before the onset that
             // started it, the note shows no name.
             // A note already showing when a later onset comes keeps its
-            // name until that onset proves a new note.
-            const held = options.names_after_window and self.note_active and self.onset_count == self.note_onset_count and self.sinceOnset() < self.window;
+            // name until that onset proves a new note, and shows none
+            // while a reading from the mixed window moves off it.
+            const fresh_note = self.onset_count == self.note_onset_count;
+            const mixed_off = !fresh_note and m != null and last_hz > 0 and @abs(1200 * @log2(m.?.hz / last_hz)) >= th.hold.mixed_cents;
+            const held = options.names_after_window and self.note_active and (fresh_note or mixed_off) and self.sinceOnset() < self.window;
             self.gate_open = self.note_active and !held;
             if (!self.note_active) self.learnHum();
             // An onset holds the floor until a note it started has ended, or
@@ -2797,6 +2807,41 @@ test "while a new note's name is held back the reading says it is starting, and 
     }
     try testing.expect(starting >= 2);
     try testing.expect(first_shown.? <= 0.15);
+}
+
+test "a note started by a comb onset stops at a jump without an onset, and no name from the mixed window shows" {
+    // E2 rings from 0.25 s; at 1.25 s it is damped to nothing and G4 is
+    // plucked as loud, so only the comb onset fires; a sine a twelfth
+    // under G4 sits 30 dB down from then on.
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 4);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 4);
+    defer testing.allocator.destroy(other);
+    @memset(buf, 0);
+    const at = 12000 + 48000;
+    signals.pluckedString(buf[12000..at], 48000, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4 });
+    const level = signals.rms(buf[at - 4800 .. at]);
+    const rest = buf.len - at;
+    signals.pluckedString(other[0..rest], 48000, .{ .f0 = 391.995, .inharmonicity = 3e-5, .t60_s = 2 });
+    signals.scale(other[0..rest], level / signals.rms(other[0..4800]));
+    signals.mix(buf[at..], other[0..rest]);
+    signals.sine(other[0..rest], 48000, 130.665, level * std.math.sqrt2 * std.math.pow(f64, 10, -30.0 / 20.0), 0);
+    signals.mix(buf[at..], other[0..rest]);
+    signals.addNoise(buf, 3e-5, 17);
+    var g4: usize = 0;
+    var wrong: usize = 0;
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        if (pos + 1600 <= at or r.freq_hz == 0) continue;
+        if (r.note == 67) g4 += 1 else wrong += 1;
+    }
+    errdefer std.debug.print("G4 {d}, other {d}\n", .{ g4, wrong });
+    try testing.expect(g4 > 10);
+    try testing.expectEqual(@as(usize, 0), wrong);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
