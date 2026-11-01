@@ -29,7 +29,14 @@
 //! - Hum under a note: the error from t = 1 s on strings near the mains
 //!   and its harmonics with hum or buzz under them, over the readings
 //!   shown (the gate stops a note at 12 dB over the hum on purpose), with
-//!   the share shown alongside.
+//!   the share shown alongside, which must not fall under the analyser's
+//!   89.0% at 57c6d9c.
+//! - Single strings flagged several: readings flagged `multiple` on any
+//!   one-string signal, from t = 0.1 s.
+//! - Reported beside the targets, not targets: the pooled groups apart
+//!   (stiff and weak, guitar and bass glides), glide errors from 0.5 s, and
+//!   a Karplus-Strong pluck whose fundamental starts 20 dB under its
+//!   octave (its octave readings count towards the octave-error target).
 //! - Octave errors: readings from t = 0.1 s whose note is 11-13, 23-25 or
 //!   35-37 semitones from f1(t)'s.
 //! - False notes: readings that show a note on a signal with none.
@@ -87,6 +94,14 @@ const targets = struct {
     /// floor, which here is the hum, and counting that as an error would
     /// set this target against the false-notes one. Coverage is reported.
     const hum_p95_cents = 0.5;
+    /// The share of hum_target readings shown from 1 s to 3 s must stay at
+    /// least the analyser's at 57c6d9c (89.0%), so the hum target can't be
+    /// met by gating harder.
+    const hum_coverage_pct = 89.0;
+    /// Readings flagged `multiple` on a single string (with or without hum
+    /// under it): a flagged reading that shows nothing must not be a free
+    /// way round the subharmonic target.
+    const single_flagged = 0;
     /// One core's share at 30 Hz, at 48 and 96 kHz.
     const cpu_percent = 1.0;
 };
@@ -128,6 +143,10 @@ const Group = enum {
     hum_target,
     /// Two strings at once.
     two_notes,
+    /// The Karplus-Strong 880 Hz pluck whose excitation leaves its
+    /// fundamental 20 dB under the octave and its 3rd harmonic weak (seed
+    /// 1014), with no range set.
+    ks_weak,
     /// Hum or buzz alone.
     hum,
     /// A noise floor alone.
@@ -164,6 +183,9 @@ const Case = struct {
     rumble_db: ?f64 = null,
     /// f0 of a muted string struck four times.
     muted_hz: ?f64 = null,
+    /// Render strings[0] as a Karplus-Strong pluck (t60 3 s, peak 0.9) with
+    /// this seed instead; its fundamental is at f0 exactly.
+    ks_seed: ?u64 = null,
 };
 
 const Str = struct { name: []const u8, f0: f64, b: f64 };
@@ -308,6 +330,7 @@ fn buildCases() []const Case {
         b.seed = 2;
         add(.two_notes, "{s}+{s}", .{ p[0].name, p[1].name }, .{ .name = "", .group = .two_notes, .strings = .{ a, b } });
     }
+    add(.ks_weak, "KS 880 Hz seed 1014", .{}, .{ .name = "", .group = .ks_weak, .strings = .{ .{ .f0 = 880, .inharmonicity = 0 }, null }, .ks_seed = 1014 });
     for ([_]f64{ 50, 60 }) |hz| {
         for ([_]f64{ -60, -50, -40, -30 }) |db| add(.hum, "{d} Hz hum {d} dB", .{ hz, db }, .{ .name = "", .group = .hum, .hum = .{ .hz = hz, .kind = .hum, .db = db } });
         for ([_]f64{ -50, -40 }) |db| add(.hum, "{d} Hz buzz {d} dB", .{ hz, db }, .{ .name = "", .group = .hum, .hum = .{ .hz = hz, .kind = .buzz, .db = db } });
@@ -334,7 +357,7 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
     for (c.strings) |maybe| {
         const s = maybe orelse continue;
         const body = tmp[0 .. n - onset];
-        sig.pluckedString(body, sr, s);
+        if (c.ks_seed) |seed_ks| sig.pluck(body, sr, s.f0, .{ .amp = 0.9, .t60_s = 3, .seed = seed_ks }) else sig.pluckedString(body, sr, s);
         sig.mix(out[onset..], body);
     }
     if (c.hum) |h| {
@@ -491,6 +514,8 @@ const GroupStats = struct {
     errors: std.ArrayList(f64) = .empty,
     /// Errors against the settled f1 (the glide's nu_inf).
     settled_errors: std.ArrayList(f64) = .empty,
+    /// Errors from t = 0.5 s rather than 1 s (reported beside the targets).
+    early_errors: std.ArrayList(f64) = .empty,
     /// Beating strings: errors against the instantaneous frequency of the
     /// first partial's two polarisations together (a diagnostic, not a
     /// target).
@@ -533,8 +558,9 @@ fn label(dst: []u8, c: Case, sr: f64) []const u8 {
     return std.fmt.bufPrint(dst, "{s} @{d}k", .{ c.name, sr / 1000 }) catch dst[0..0];
 }
 
+/// The p-th quantile; infinite for no values, so saying nothing can't pass.
 fn percentile(values: []f64, p: f64) f64 {
-    if (values.len == 0) return 0;
+    if (values.len == 0) return std.math.inf(f64);
     std.mem.sort(f64, values, {}, std.sort.asc(f64));
     const idx: usize = @intFromFloat(@ceil(p * @as(f64, @floatFromInt(values.len))) - 1);
     return values[@min(idx, values.len - 1)];
@@ -594,6 +620,7 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
             st.ramp_worst = @max(st.ramp_worst, e);
             continue;
         }
+        if (t >= 0.5) try st.early_errors.append(alloc, if (r.hz) |hz| @abs(sig.cents(hz, truth)) else std.math.inf(f64));
         if (t < 1.0) continue;
         const e = if (r.hz) |hz| sig.cents(hz, truth) else std.math.inf(f64);
         try st.errors.append(alloc, @abs(e));
@@ -785,6 +812,7 @@ pub fn main() !void {
     try w.print("\n{d} signals at {d} rates. Candidates:\n\n", .{ cases.len, rates.len });
     for (cands[0..nc]) |c| try w.print("- {s}: {s}\n", .{ c.name, c.note });
     try printTargets(w, cands[0..nc], results);
+    try printPooledApart(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -830,10 +858,10 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         \\
         \\## Targets
         \\
-        \\| candidate | glide P95 <= {d} c | steady P95 <= {d} c | beating P95 <= {d} c | jitter <= {d} c | octave errors = 0 | false notes = 0 | confident subharmonics = 0 | ramp within {d} c + {d} s | lock-on avg / worst (ms) <= {d:.1} / {d:.1} | hum under note P95 of shown <= {d} c (coverage) | core at 30 Hz 48k / 96k <= {d}% |
-        \\|---|---|---|---|---|---|---|---|---|---|---|---|
+        \\| candidate | glide P95 <= {d} c | steady P95 <= {d} c | beating P95 <= {d} c | jitter <= {d} c | octave errors = 0 | false notes = 0 | confident subharmonics = 0 | ramp within {d} c + {d} s | lock-on avg / worst (ms) <= {d:.1} / {d:.1} | hum under note P95 of shown <= {d} c, shown >= {d}% | single strings flagged several = 0 | core at 30 Hz 48k / 96k <= {d}% |
+        \\|---|---|---|---|---|---|---|---|---|---|---|---|---|
         \\
-    , .{ targets.glide_p95_cents, targets.steady_p95_cents, targets.beating_p95_cents, targets.jitter_cents, targets.ramp_cents, targets.ramp_lag_s, targets.lock_avg_ms, targets.lock_worst_ms, targets.hum_p95_cents, targets.cpu_percent });
+    , .{ targets.glide_p95_cents, targets.steady_p95_cents, targets.beating_p95_cents, targets.jitter_cents, targets.ramp_cents, targets.ramp_lag_s, targets.lock_avg_ms, targets.lock_worst_ms, targets.hum_p95_cents, targets.hum_coverage_pct, targets.cpu_percent });
     for (cands, results) |c, *r| {
         const g = &r.group;
         var glide: GroupStats = .{};
@@ -858,7 +886,7 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             const st = g[@intFromEnum(grp)];
             octave += st.octave;
             // Lock-on keeps the signals its baseline was measured on.
-            if (grp == .hum_target) continue;
+            if (grp == .hum_target or grp == .ks_weak) continue;
             lock_sum += st.lock_sum_ms;
             lock_n += st.lock_n;
             lock_never += st.lock_never;
@@ -871,9 +899,13 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         const cpu48 = coreShare(r.cpu[1]);
         const cpu96 = coreShare(r.cpu[3]);
         const hum = g[@intFromEnum(Group.hum_target)];
+        var single_flagged: usize = 0;
+        for (groups) |grp| {
+            if (grp.pitched()) single_flagged += g[@intFromEnum(grp)].multiple;
+        }
         const hum_p = p95Shown(alloc, hum);
         const hum_cover = 100 * @as(f64, @floatFromInt(hum.span_shown)) / @as(f64, @floatFromInt(@max(hum.span_reads, 1)));
-        try w.print("| {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d} {s} | {d} {s} | {d} {s} | {d} of {d} over {s} | {d:.1} / {d:.1}{s} {s} | {d:.3} ({d:.0}%) {s} | {d:.2}% / {d:.2}% {s} |\n", .{
+        try w.print("| {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d} {s} | {d} {s} | {d} {s} | {d} of {d} over {s} | {d:.1} / {d:.1}{s} {s} | {d:.3}, {d:.1}% {s} | {d} {s} | {d:.2}% / {d:.2}% {s} |\n", .{
             c.name,
             glide_p,
             verdict(glide_p <= targets.glide_p95_cents),
@@ -898,12 +930,54 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             verdict(lock_never == 0 and lock_avg <= targets.lock_avg_ms + 1e-9 and lock_worst <= targets.lock_worst_ms + 1e-9),
             hum_p,
             hum_cover,
-            verdict(hum_p <= targets.hum_p95_cents),
+            verdict(hum_p <= targets.hum_p95_cents and hum_cover >= targets.hum_coverage_pct),
+            single_flagged,
+            verdict(single_flagged <= targets.single_flagged),
             cpu48,
             cpu96,
             verdict(@max(cpu48, cpu96) <= targets.cpu_percent),
         });
     }
+}
+
+/// The pooled error targets' groups apart, and glide errors from 0.5 s:
+/// reported beside the targets, not targets themselves.
+fn printPooledApart(w: anytype, cands: []const Candidate, results: []Results) !void {
+    const alloc = std.heap.page_allocator;
+    try w.print(
+        \\
+        \\## Groups pooled by the targets, apart (reported, not targets)
+        \\
+        \\| candidate | stiff P95 (c) | weak P95 (c) | guitar glide P95 (c) | bass glide P95 (c) | glide P95 from 0.5 s (c) | guitar glide from 0.5 s (c) | bass glide from 0.5 s (c) | KS 880 Hz P95 (c), octave reads |
+        \\|---|---|---|---|---|---|---|---|---|
+        \\
+    , .{});
+    for (cands, results) |c, *r| {
+        const g = &r.group;
+        var early: std.ArrayList(f64) = .empty;
+        defer early.deinit(alloc);
+        try early.appendSlice(alloc, g[@intFromEnum(Group.glide_guitar)].early_errors.items);
+        try early.appendSlice(alloc, g[@intFromEnum(Group.glide_bass)].early_errors.items);
+        const ks = g[@intFromEnum(Group.ks_weak)];
+        try w.print("| {s} | {d:.3} | {d:.3} | {d:.3} | {d:.3} | {d:.3} | {d:.3} | {d:.3} | {d:.3}, {d} |\n", .{
+            c.name,
+            p95(alloc, g[@intFromEnum(Group.stiff)], false),
+            p95(alloc, g[@intFromEnum(Group.weak)], false),
+            p95(alloc, g[@intFromEnum(Group.glide_guitar)], false),
+            p95(alloc, g[@intFromEnum(Group.glide_bass)], false),
+            percentileOf(alloc, early.items),
+            percentileOf(alloc, g[@intFromEnum(Group.glide_guitar)].early_errors.items),
+            percentileOf(alloc, g[@intFromEnum(Group.glide_bass)].early_errors.items),
+            p95(alloc, ks, false),
+            ks.octave,
+        });
+    }
+}
+
+fn percentileOf(alloc: std.mem.Allocator, values: []const f64) f64 {
+    const copy = alloc.dupe(f64, values) catch return std.math.inf(f64);
+    defer alloc.free(copy);
+    return percentile(copy, 0.95);
 }
 
 fn printDetail(w: anytype, c: Candidate, r: *Results) !void {
