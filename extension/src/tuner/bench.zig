@@ -139,6 +139,7 @@ const candidate_notes = [_][2][]const u8{
     .{ "mains-rule", "the analyser with the mains rule" },
     .{ "no-several-guard", "the analyser without the several-notes guard" },
     .{ "no-hum-model", "the analyser without the learned hum taken out" },
+    .{ "no-subharmonic-check", "the analyser without the subharmonic check" },
 };
 
 var readings_buf: [256]Reading = undefined;
@@ -451,6 +452,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .mains_rule = true }), "mains-rule", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .several_guard = false }), "no-several-guard", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .hum_model = false }), "no-hum-model", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .subharmonic_check = false }), "no-subharmonic-check", allocator),
     };
     var cands: [max_candidates]Candidate = undefined;
     var nc: usize = 0;

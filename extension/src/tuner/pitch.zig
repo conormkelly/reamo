@@ -239,7 +239,13 @@ pub const Options = struct {
     /// taken out of a note's input before its first partial is measured
     /// (see hum.zig).
     hum_model: bool = true,
+    /// Whether YIN's first dip gives way to one at twice its lag that is
+    /// far deeper (see `subharmonic`).
+    subharmonic_check: bool = true,
 };
+
+const subharmonic_min_dip = 0.03;
+const subharmonic_ratio = 0.25;
 
 /// The hum is learned every `hum_hop_s` from the idle input since the
 /// last onset, at least `hum_learn_min_s` and at most `hum_learn_max_s` of
@@ -365,6 +371,8 @@ pub fn AnalyserWith(comptime options: Options) type {
         several_scratch: several.Scratch,
         /// Whether the last analysis heard several notes.
         heard_several: bool,
+        /// The lag the subharmonic check moved from, this analysis.
+        moved_from: ?usize,
         /// The learned hum: the model in use (if `hum_valid`), the last
         /// learned (two in a row must agree), and the fine input it was
         /// learned at.
@@ -473,6 +481,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.onset_at = 0;
             self.segment_len = 0;
             self.heard_several = false;
+            self.moved_from = null;
             self.hum_now = .{};
             self.hum_valid = false;
             self.hum_last = null;
@@ -730,14 +739,28 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// The first partial's frequency now, unsmoothed, or null for no pitch.
         fn measure(self: *Self, settings: Settings) ?Measured {
             self.difference();
-            const best = self.pickPeriod(settings.range) orelse return null;
-            const detected = self.analysis_rate / self.interpolate(best);
+            self.moved_from = null;
+            var best = self.pickPeriod(settings.range) orelse return null;
             if (fine_needed) self.loadSegment();
-            const coarse = self.holdOctave(detected);
-            if (options.hum_model and self.hum_valid and fine_needed) {
-                // Out of the band the refinement passes, about the note.
-                self.hum_now.subtract(self.segment[0..self.segment_len], self.fine_count - self.segment_len, self.fine_rate, 0, 2 * coarse);
+            const hum_out = options.hum_model and self.hum_valid and fine_needed;
+            if (hum_out) {
+                // Out of the band the refinement passes, about the note
+                // (the higher of the two periods considered, if two were).
+                const top_period = self.moved_from orelse best;
+                self.hum_now.subtract(self.segment[0..self.segment_len], self.fine_count - self.segment_len, self.fine_rate, 0, 2 * self.analysis_rate / self.interpolate(top_period));
             }
+            if (self.moved_from) |orig| {
+                // Hum adds periodicity at multiples of the period: under hum
+                // the longer period must have a partial heard at its
+                // frequency, once the hum is out.
+                if (hum_out) {
+                    const low = self.analysis_rate / self.interpolate(best);
+                    const heard = if (self.judgeSeveral(low)) |j| j.heard(low) else false;
+                    if (!heard) best = orig;
+                }
+            }
+            const detected = self.analysis_rate / self.interpolate(best);
+            const coarse = self.holdOctave(detected);
             // Of several notes, only one of them shows, never what repeats
             // under them all.
             if (self.judgeSeveral(coarse)) |j| {
@@ -1055,7 +1078,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// normalised difference under `dip_threshold`, or else the deepest
         /// one if it is under `options.voicing_threshold`; only periods
         /// within `range` if there is one.
-        fn pickPeriod(self: *const Self, range: ?Range) ?usize {
+        fn pickPeriod(self: *Self, range: ?Range) ?usize {
             const half = self.window / 2;
             var min_tau: usize = @max(2, @as(usize, @intFromFloat(self.analysis_rate / max_pitch_hz)));
             var end = half - 1;
@@ -1075,7 +1098,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             const c = self.cmnd[0..half];
             var tau = min_tau;
             while (tau < end - 1) : (tau += 1) {
-                if (c[tau] < dip_threshold and c[tau] < c[tau - 1] and c[tau] <= c[tau + 1]) return tau;
+                if (c[tau] < dip_threshold and c[tau] < c[tau - 1] and c[tau] <= c[tau + 1]) return self.subharmonic(tau, end);
             }
             var best = min_tau;
             for (min_tau + 1..end) |t| {
@@ -1083,6 +1106,28 @@ pub fn AnalyserWith(comptime options: Options) type {
             }
             const limit = options.voicing_threshold orelse return best;
             return if (c[best] < limit) best else null;
+        }
+
+        /// `tau`, or the deepest dip of the raw difference near 2 tau when
+        /// tau's dip is real (normalised depth `subharmonic_min_dip` or
+        /// more) and that one is under `subharmonic_ratio` of it: the true
+        /// period of a tone whose 2nd harmonic stands well over a weak 1st
+        /// and 3rd, whose half period dips under the threshold first. On a
+        /// true period the dip is near 0, so nothing moves. The raw
+        /// difference, not the normalised one: the cumulative mean makes
+        /// later dips look deeper at short lags.
+        fn subharmonic(self: *Self, tau: usize, end: usize) usize {
+            if (!options.subharmonic_check) return tau;
+            if (self.cmnd[tau] < subharmonic_min_dip) return tau;
+            const centre = 2 * tau;
+            if (centre + 2 >= end) return tau;
+            var best = centre - 2;
+            for (centre - 1..centre + 3) |t| {
+                if (self.diff[t] < self.diff[best]) best = t;
+            }
+            if (!(self.diff[best] < subharmonic_ratio * self.diff[tau])) return tau;
+            self.moved_from = tau;
+            return best;
         }
 
         /// The period to a fraction of a sample: a parabola through the raw
@@ -1657,6 +1702,26 @@ test "reports where the last onset was, in input samples, within a 5 ms block" {
         const got = a.lastOnset().?;
         errdefer std.debug.print("{d}: onset at {d}, plucked at {d}\n", .{ sr, got, at });
         try testing.expect(@abs(@as(f64, @floatFromInt(got)) - @as(f64, @floatFromInt(at))) <= 0.005 * sr + 4);
+    }
+}
+
+test "a bass tone whose 2nd harmonic stands 15 dB over its 1st, its 3rd weak, reads its own note from 100 ms" {
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    for ([_]f64{ 41.2034, 55, 61.7354 }) |f0| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        const opts: signals.StringOptions = .{ .f0 = f0, .inharmonicity = 2e-4, .partial_gain = .{ 0.089, 1, 0.1, 1 } };
+        signals.pluckedString(buf, 48000, opts);
+        const note: i32 = @intFromFloat(@round(69 + 12 * @log2(f0 / 440)));
+        var k: usize = 0;
+        while ((k + 1) * 1600 <= buf.len) : (k += 1) {
+            a.push(buf[k * 1600 .. (k + 1) * 1600]);
+            const r = a.analyse(.{});
+            if (k < 3 or r.freq_hz == 0) continue;
+            errdefer std.debug.print("{d} Hz, reading {d}: {any}\n", .{ f0, k, r });
+            try testing.expectEqual(note, r.note);
+        }
     }
 }
 
