@@ -26,6 +26,10 @@
 //!   percentile of |error| is pooled over a group's signals and rates.
 //! - Jitter: the standard deviation of a sustained signal's error over the
 //!   same 2 s; the worst signal's.
+//! - Hum under a note: the error from t = 1 s on strings near the mains
+//!   and its harmonics with hum or buzz under them, over the readings
+//!   shown (the gate stops a note at 12 dB over the hum on purpose), with
+//!   the share shown alongside.
 //! - Octave errors: readings from t = 0.1 s whose note is 11-13, 23-25 or
 //!   35-37 semitones from f1(t)'s.
 //! - False notes: readings that show a note on a signal with none.
@@ -76,6 +80,13 @@ const targets = struct {
     /// analyser before this work (`baseline` below, measured by this bench).
     const lock_avg_ms = baseline.lock_avg_ms;
     const lock_worst_ms = baseline.lock_worst_ms;
+    /// 95th percentile |error| on strings with mains hum or buzz under them
+    /// (`hum_target`), t >= 1 s, over the readings shown. Missing readings
+    /// don't count here, unlike the other error targets: the gate stops
+    /// showing a note on purpose once it is within 12 dB of the learned
+    /// floor, which here is the hum, and counting that as an error would
+    /// set this target against the false-notes one. Coverage is reported.
+    const hum_p95_cents = 0.5;
     /// One core's share at 30 Hz, at 48 and 96 kHz.
     const cpu_percent = 1.0;
 };
@@ -112,6 +123,9 @@ const Group = enum {
     ramp,
     /// A sustained string with mains hum or buzz under it.
     hum_note,
+    /// Bass and low guitar strings near the mains or its harmonics, with
+    /// 50 or 60 Hz hum or buzz at -60 dBFS, or 30 or 40 dB under the note.
+    hum_target,
     /// Two strings at once.
     two_notes,
     /// Hum or buzz alone.
@@ -130,7 +144,14 @@ const Group = enum {
 };
 const groups = std.enums.values(Group);
 
-const Hum = struct { hz: f64, kind: sig.Mains, db: f64 };
+const Hum = struct {
+    hz: f64,
+    kind: sig.Mains,
+    /// dBFS RMS, or with `relative` dB from the note's RMS over its first
+    /// second.
+    db: f64,
+    relative: bool = false,
+};
 
 const Case = struct {
     name: []const u8,
@@ -188,7 +209,7 @@ fn string(s: Str, rolloff: f64) sig.StringOptions {
     return .{ .f0 = s.f0, .inharmonicity = s.b, .rolloff = rolloff, .t60_s = if (isBass(s.f0)) 8 else 6 };
 }
 
-const max_cases = 160;
+const max_cases = 200;
 var case_store: [max_cases]Case = undefined;
 var name_store: [max_cases][40]u8 = undefined;
 var case_count: usize = 0;
@@ -253,6 +274,23 @@ fn buildCases() []const Case {
     for (hum_notes) |h| {
         add(.hum_note, "{s} + {d} Hz {s}", .{ h.s.name, h.hum.hz, @tagName(h.hum.kind) }, .{ .name = "", .group = .hum_note, .strings = .{ string(h.s, 1), null }, .hum = h.hum });
     }
+    const hum_strings = [_]Str{
+        bass_fretted[0],
+        bass[2],
+        .{ .name = "G1", .f0 = 48.9994, .b = 2e-4 },
+        guitar[0],
+        guitar[1],
+    };
+    for (hum_strings) |hs| {
+        for ([_]f64{ 50, 60 }) |hz| {
+            for ([_]sig.Mains{ .hum, .buzz }) |kind| {
+                for ([_][2]f64{ .{ -60, 0 }, .{ -30, 1 }, .{ -40, 1 } }) |lv| {
+                    const h: Hum = .{ .hz = hz, .kind = kind, .db = lv[0], .relative = lv[1] == 1 };
+                    add(.hum_target, "{s} + {d} {s} {d}{s}", .{ hs.name, hz, @tagName(kind), lv[0], if (h.relative) " rel" else " dBFS" }, .{ .name = "", .group = .hum_target, .strings = .{ string(hs, 1), null }, .hum = h });
+                }
+            }
+        }
+    }
     const pairs = [_][2]Str{
         .{ guitar[0], .{ .name = "B2", .f0 = 123.471, .b = 6.5e-5 } },
         .{ guitar[1], guitar[2] },
@@ -300,7 +338,12 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
         sig.mix(out[onset..], body);
     }
     if (c.hum) |h| {
-        sig.mains(tmp[0..n], sr, h.hz, h.kind, h.db);
+        var db = h.db;
+        if (h.relative) {
+            const second: usize = @intFromFloat(sr);
+            db += 20 * std.math.log10(sig.rms(out[onset .. onset + second]));
+        }
+        sig.mains(tmp[0..n], sr, h.hz, h.kind, db);
         sig.mix(out, tmp[0..n]);
     }
     if (c.muted_hz) |hz| {
@@ -787,10 +830,10 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         \\
         \\## Targets
         \\
-        \\| candidate | glide P95 <= {d} c | steady P95 <= {d} c | beating P95 <= {d} c | jitter <= {d} c | octave errors = 0 | false notes = 0 | confident subharmonics = 0 | ramp within {d} c + {d} s | lock-on avg / worst (ms) <= {d:.1} / {d:.1} | core at 30 Hz 48k / 96k <= {d}% |
-        \\|---|---|---|---|---|---|---|---|---|---|---|
+        \\| candidate | glide P95 <= {d} c | steady P95 <= {d} c | beating P95 <= {d} c | jitter <= {d} c | octave errors = 0 | false notes = 0 | confident subharmonics = 0 | ramp within {d} c + {d} s | lock-on avg / worst (ms) <= {d:.1} / {d:.1} | hum under note P95 of shown <= {d} c (coverage) | core at 30 Hz 48k / 96k <= {d}% |
+        \\|---|---|---|---|---|---|---|---|---|---|---|---|
         \\
-    , .{ targets.glide_p95_cents, targets.steady_p95_cents, targets.beating_p95_cents, targets.jitter_cents, targets.ramp_cents, targets.ramp_lag_s, targets.lock_avg_ms, targets.lock_worst_ms, targets.cpu_percent });
+    , .{ targets.glide_p95_cents, targets.steady_p95_cents, targets.beating_p95_cents, targets.jitter_cents, targets.ramp_cents, targets.ramp_lag_s, targets.lock_avg_ms, targets.lock_worst_ms, targets.hum_p95_cents, targets.cpu_percent });
     for (cands, results) |c, *r| {
         const g = &r.group;
         var glide: GroupStats = .{};
@@ -814,6 +857,8 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             if (!grp.pitched()) continue;
             const st = g[@intFromEnum(grp)];
             octave += st.octave;
+            // Lock-on keeps the signals its baseline was measured on.
+            if (grp == .hum_target) continue;
             lock_sum += st.lock_sum_ms;
             lock_n += st.lock_n;
             lock_never += st.lock_never;
@@ -825,7 +870,10 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         const lock_avg = lock_sum / @as(f64, @floatFromInt(@max(lock_n, 1)));
         const cpu48 = coreShare(r.cpu[1]);
         const cpu96 = coreShare(r.cpu[3]);
-        try w.print("| {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d} {s} | {d} {s} | {d} {s} | {d} of {d} over {s} | {d:.1} / {d:.1}{s} {s} | {d:.2}% / {d:.2}% {s} |\n", .{
+        const hum = g[@intFromEnum(Group.hum_target)];
+        const hum_p = p95Shown(alloc, hum);
+        const hum_cover = 100 * @as(f64, @floatFromInt(hum.span_shown)) / @as(f64, @floatFromInt(@max(hum.span_reads, 1)));
+        try w.print("| {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d} {s} | {d} {s} | {d} {s} | {d} of {d} over {s} | {d:.1} / {d:.1}{s} {s} | {d:.3} ({d:.0}%) {s} | {d:.2}% / {d:.2}% {s} |\n", .{
             c.name,
             glide_p,
             verdict(glide_p <= targets.glide_p95_cents),
@@ -848,6 +896,9 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             lock_worst,
             if (lock_never > 0) " (some never)" else "",
             verdict(lock_never == 0 and lock_avg <= targets.lock_avg_ms + 1e-9 and lock_worst <= targets.lock_worst_ms + 1e-9),
+            hum_p,
+            hum_cover,
+            verdict(hum_p <= targets.hum_p95_cents),
             cpu48,
             cpu96,
             verdict(@max(cpu48, cpu96) <= targets.cpu_percent),
