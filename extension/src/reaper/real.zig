@@ -1155,6 +1155,14 @@ pub const RealBackend = struct {
         return self.inner.numAudioOutputs();
     }
 
+    pub fn registerAudioHook(self: *const RealBackend, reg: *raw.AudioHookRegister) bool {
+        return self.inner.registerAudioHook(reg);
+    }
+
+    pub fn unregisterAudioHook(self: *const RealBackend, reg: *raw.AudioHookRegister) void {
+        self.inner.unregisterAudioHook(reg);
+    }
+
     pub fn audioOutputName(self: *const RealBackend, channel: c_int) ?[*:0]const u8 {
         return self.inner.audioOutputName(channel);
     }

@@ -25,7 +25,11 @@ export interface TunerSlice {
 
   // Settings (persisted to localStorage separately)
   tunerReferenceHz: number;
-  /** Silence threshold in dB (-90 to -30). Signals below this are ignored. */
+  /**
+   * Silence threshold in dB (-90 to -30). Signals below this are ignored.
+   * The tuner reports its own in every event; this is what shows until the
+   * first arrives.
+   */
   tunerThresholdDb: number;
 
   // Actions
@@ -54,7 +58,7 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
   tunerConf: 0,
   tunerInTune: false,
   tunerReferenceHz: 440,
-  tunerThresholdDb: -60,
+  tunerThresholdDb: -90,
 
   setTunerSubscription: (trackGuid) =>
     set({

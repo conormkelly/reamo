@@ -26,38 +26,6 @@ import { TunerSettings } from './TunerSettings';
 // This prevents flickering at the ±50 cent boundary between adjacent notes
 const NOTE_SWITCH_THRESHOLD = 40;
 
-// Load reference Hz from localStorage
-function loadReferenceHz(): number {
-  try {
-    const saved = localStorage.getItem('tuner-reference');
-    if (saved) {
-      const parsed = parseFloat(saved);
-      if (!isNaN(parsed) && parsed >= 400 && parsed <= 480) {
-        return parsed;
-      }
-    }
-  } catch {
-    // Ignore errors
-  }
-  return 440;
-}
-
-// Load threshold dB from localStorage (JSFX range: -90 to -30)
-function loadThresholdDb(): number {
-  try {
-    const saved = localStorage.getItem('tuner-threshold');
-    if (saved) {
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed) && parsed >= -90 && parsed <= -30) {
-        return parsed;
-      }
-    }
-  } catch {
-    // Ignore errors
-  }
-  return -60;
-}
-
 // Load selected track GUID from localStorage
 function loadSelectedTrack(): string | null {
   try {
@@ -151,23 +119,6 @@ export function TunerView(): ReactElement {
   const selectedTrack = trackList.find((t) => t.g === selectedTrackGuid);
   const trackName = selectedTrack?.n || 'Select Track';
 
-  // Load settings from storage on mount
-  useEffect(() => {
-    if (!selectedTrackGuid) return;
-
-    const storedRef = loadReferenceHz();
-    if (storedRef !== referenceHz) {
-      setReferenceHz(storedRef, selectedTrackGuid);
-    }
-
-    const storedThreshold = loadThresholdDb();
-    if (storedThreshold !== thresholdDb) {
-      setThresholdDb(storedThreshold, selectedTrackGuid);
-    }
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Auto-select track on mount (prefer saved track, then armed track, then first track)
   useEffect(() => {
     if (trackList.length === 0) return;
@@ -188,7 +139,7 @@ export function TunerView(): ReactElement {
   useEffect(() => {
     if (!selectedTrackGuid) return;
 
-    subscribe(selectedTrackGuid);
+    void subscribe(selectedTrackGuid);
 
     return () => {
       unsubscribe();

@@ -1126,7 +1126,7 @@ export const tuner = {
    * Set tuner parameter (reference frequency or silence threshold).
    *
    * @param trackGuid - GUID of the track
-   * @param param - "reference" (Hz, 400-480) or "threshold" (dB, -96 to 0)
+   * @param param - "reference" (Hz, 400-480) or "threshold" (dB, -90 to -30)
    * @param value - Parameter value
    */
   setParam: (trackGuid: string, param: 'reference' | 'threshold', value: number): WSCommand => ({

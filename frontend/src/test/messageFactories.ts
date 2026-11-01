@@ -486,6 +486,7 @@ function tuner(overrides?: Partial<TunerEventPayload>): ServerMessage {
     noteName: 'A',
     octave: 4,
     cents: 0,
+    clarity: 0.95,
     conf: 0.95,
     inTune: true,
     referenceHz: 440,

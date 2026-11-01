@@ -2,7 +2,7 @@
 /// that reads from the ring buffer and sends binary WebSocket frames.
 ///
 /// Thread lifecycle: spawned when first client subscribes, joined when last unsubscribes.
-/// The audio hook is registered/unregistered alongside the thread.
+/// The stream holds the shared audio hook alongside the thread (audio_hook.zig).
 const std = @import("std");
 const raw = @import("../reaper/raw.zig");
 const audio_hook = @import("audio_hook.zig");
@@ -51,7 +51,7 @@ pub const AudioStreamManager = struct {
     mutex: std.Thread.Mutex = .{},
 
     /// Subscribe a client to audio streaming.
-    /// If this is the first subscriber, starts the network thread and registers the audio hook.
+    /// If this is the first subscriber, takes the audio hook and starts the network thread.
     /// Returns true on success, false if max clients reached or streaming failed to start.
     pub fn subscribe(self: *AudioStreamManager, client_id: usize) bool {
         self.mutex.lock();
@@ -86,7 +86,7 @@ pub const AudioStreamManager = struct {
     }
 
     /// Unsubscribe a client from audio streaming.
-    /// If this was the last subscriber, stops the network thread and unregisters the audio hook.
+    /// If this was the last subscriber, stops the network thread and lets go of the audio hook.
     pub fn unsubscribe(self: *AudioStreamManager, client_id: usize) void {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -140,11 +140,11 @@ pub const AudioStreamManager = struct {
         }
     }
 
-    /// Start the audio hook and network thread. Returns true on success.
+    /// Take the audio hook and start the network thread. Returns true on success.
     fn startStreaming(self: *AudioStreamManager) bool {
-        // Register audio hook
+        // Take the audio hook
         if (self.api) |api| {
-            if (!audio_hook.register(api)) {
+            if (!audio_hook.instance().acquire(api, .stream)) {
                 logging.err("Audio stream: REAPER {s} the audio hook", .{if (api.audioRegHardwareHook == null) "has no API for" else "refused"});
                 return false;
             }
@@ -160,14 +160,14 @@ pub const AudioStreamManager = struct {
         // Spawn network thread
         self.thread = std.Thread.spawn(.{}, threadFn, .{self}) catch |err| {
             logging.err("Audio stream: failed to spawn thread: {s}", .{@errorName(err)});
-            if (self.api) |api| audio_hook.unregister(api);
+            if (self.api) |api| audio_hook.instance().release(api, .stream);
             return false;
         };
         logging.debug("Audio stream: network thread started", .{});
         return true;
     }
 
-    /// Stop the network thread and unregister the audio hook.
+    /// Stop the network thread and let go of the audio hook.
     fn stopStreaming(self: *AudioStreamManager) void {
         // Signal thread to stop
         self.should_stop.store(true, .release);
@@ -179,9 +179,9 @@ pub const AudioStreamManager = struct {
             logging.debug("Audio stream: network thread stopped", .{});
         }
 
-        // Unregister audio hook
+        // Let go of the audio hook (unregistered if the tuner doesn't hold it)
         if (self.api) |api| {
-            audio_hook.unregister(api);
+            audio_hook.instance().release(api, .stream);
         }
     }
 

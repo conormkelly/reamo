@@ -554,10 +554,10 @@ end
 def tuner_round(t, g, label):
     """Open the tuner on a track, set reference and threshold, close it.
     The tuner is a JSFX the extension puts first in the track's input FX
-    and takes away again, leaving the project as it was. On a track, adding
-    and removing it are REAPER's own two undo steps ("Add FX", "Remove FX"),
-    as the tuner is meant to work; on the master its input FX is REAPER's
-    monitoring chain, outside the project, so there is no undo history."""
+    and takes away again, leaving the project as it was. Adding and
+    removing it are REAPER's own two undo steps ("Add FX", "Remove FX"),
+    as the tuner is meant to work. (The master's tuner is REAmo's own
+    analyser: master_tuner_round.)"""
     start = t.digest()
     undo_before = dict(t.d["undo"])
     n_in = len(chain(t, g, rec=True))
@@ -593,11 +593,6 @@ def tuner_round(t, g, label):
     t.ok("tuner/unsubscribe")
     t._wait_equal(start, f"closing the tuner on {label} left REAPER's input FX changed")
     t.digest()
-    if g == "master":
-        if t.d["undo"]["can_undo"] != undo_before["can_undo"]:
-            raise Mismatch(f"the tuner on {label} left undo history: Ctrl+Z now offers "
-                           f"{t.d['undo']['can_undo']!r} (before the tuner: {undo_before['can_undo']!r})")
-        return
     # Exactly two steps: undoing "Remove FX" puts the tuner back, undoing
     # "Add FX" takes it away again, and then the history is as before.
     top = t.d["undo"]["can_undo"]
@@ -637,13 +632,47 @@ def _(t):
         remove_tuners(g)
 
 
+def master_tuner_round(t):
+    """Open the master's tuner, set reference and threshold, close it. It is
+    REAmo's analyser on the audio hook: nothing goes into REAPER (not even
+    the monitoring FX chain), so the project and its undo history are as
+    they were throughout."""
+    t.digest()
+    undo_before = dict(t.d["undo"])
+    mark = since(t.c)
+    r = t.send("tuner/subscribe", trackGuid="master")
+    if r is None or not r.get("success"):
+        raise Mismatch(f"tuner/subscribe on the master: {r}")
+    p = r["payload"]
+    want_name = reaper("return select(2, reaper.GetTrackName(reaper.GetMasterTrack(0)))")
+    if (p["trackGuid"], p["fxGuid"], p["trackName"], p["reference"], p["threshold"]) != ("master", "", want_name, 440.0, -90.0):
+        raise Mismatch(f"tuner/subscribe payload {p}")
+    t.expect({})  # no plugin anywhere, monitoring FX included
+    ev = wait_payload(t.c, "tuner", mark, lambda pl: pl.get("trackGuid") == "master")
+    if (ev["referenceHz"], ev["thresholdDb"]) != (440.0, -90):
+        raise Mismatch(f"tuner event {ev}")
+
+    t.ok("tuner/setParam", trackGuid="master", param="reference", value=442)
+    t.ok("tuner/setParam", trackGuid="master", param="threshold", value=-50)
+    mark = since(t.c)
+    ev = wait_payload(t.c, "tuner", mark, lambda pl: pl.get("trackGuid") == "master" and abs(pl["referenceHz"] - 442) < 0.05,
+                      what="tuner event showing the new reference")
+    if ev["thresholdDb"] != -50:
+        raise Mismatch(f"tuner event after setParam {ev}")
+
+    t.ok("tuner/unsubscribe")
+    t.expect({})
+    if t.d["undo"]["can_undo"] != undo_before["can_undo"]:
+        raise Mismatch(f"the master tuner left undo history: Ctrl+Z now offers "
+                       f"{t.d['undo']['can_undo']!r} (before the tuner: {undo_before['can_undo']!r})")
+
+
 @op("tuner on the master", "tuner/subscribe", "tuner/unsubscribe", "tuner/setParam")
 def _(t):
     try:
-        tuner_round(t, "master", "the master")
+        master_tuner_round(t)
     finally:
         t.send("tuner/unsubscribe")
-        remove_tuners("master")
 
 
 # ----------------------------------------------------------------------------

@@ -19,6 +19,7 @@
 const std = @import("std");
 const types = @import("../types.zig");
 const backend = @import("../backend.zig");
+const raw = @import("../raw.zig");
 const state = @import("state.zig");
 const transport = @import("transport.zig");
 const tracks = @import("tracks.zig");
@@ -205,6 +206,28 @@ pub const MockBackend = struct {
     // =========================================================================
     call_log: [MAX_CALLS]CallEntry = undefined,
     call_count: usize = 0,
+
+    // =========================================================================
+    // Audio hardware hook
+    // =========================================================================
+    /// The registration REAPER holds, or null.
+    audio_hook: ?*raw.AudioHookRegister = null,
+    audio_hook_registers: u32 = 0,
+    audio_hook_unregisters: u32 = 0,
+    /// Make registerAudioHook fail, as a REAPER without the API would.
+    audio_hook_refuse: bool = false,
+
+    pub fn registerAudioHook(self: *MockBackend, reg: *raw.AudioHookRegister) bool {
+        if (self.audio_hook_refuse) return false;
+        self.audio_hook = reg;
+        self.audio_hook_registers += 1;
+        return true;
+    }
+
+    pub fn unregisterAudioHook(self: *MockBackend, reg: *raw.AudioHookRegister) void {
+        if (self.audio_hook == reg) self.audio_hook = null;
+        self.audio_hook_unregisters += 1;
+    }
 
     // =========================================================================
     // Call tracking helpers

@@ -86,6 +86,12 @@ pub const AudioRingBuffer = struct {
         return occupancy(wp, rp);
     }
 
+    /// Throw away everything unread. A consumer operation: safe while the
+    /// producer writes, unlike reset().
+    pub fn discard(self: *AudioRingBuffer) void {
+        self.read_pos.store(self.write_pos.load(.acquire), .release);
+    }
+
     /// Reset buffer to empty state. NOT thread-safe — only call when no producer/consumer active.
     pub fn reset(self: *AudioRingBuffer) void {
         self.write_pos.store(0, .release);
@@ -319,4 +325,17 @@ test "reset clears buffer" {
 
     rb.reset();
     try std.testing.expectEqual(@as(usize, 0), rb.available());
+}
+
+test "discard empties the buffer and keeps later writes" {
+    var rb = AudioRingBuffer{};
+    const a = [_]f64{ 0.5, 0.5, 0.5 };
+    rb.writeFromF64(&a, &a, 3);
+    rb.discard();
+    try std.testing.expectEqual(@as(usize, 0), rb.available());
+    const b = [_]f64{-0.5};
+    rb.writeFromF64(&b, &b, 1);
+    var out: [2]i16 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), rb.read(&out, 1));
+    try std.testing.expectEqual(AudioRingBuffer.f64ToI16(-0.5), out[0]);
 }
