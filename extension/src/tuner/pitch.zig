@@ -82,6 +82,19 @@
 //! constant), and `stable` once the shown pitch's slope over 300 ms is
 //! under 0.5 cent a second.
 //!
+//! Five of the targets on `zig build tuner-targets` are not met:
+//! - strings whose two polarisations beat read 0.51 cent off the stronger
+//!   one's f1 at P95 (target 0.5): they follow the sum of both, whose
+//!   frequency moves as the weaker decays, within 0.05 cent;
+//! - jitter 0.18 cent (target 0.1), from those strings' slow drift;
+//! - 11 octave readings, all a Karplus-Strong 880 Hz pluck whose
+//!   fundamental starts 20 dB under its octave, read an octave up for a
+//!   few hundred milliseconds without a string range;
+//! - 72 confident subharmonics of two notes, all within 8 / f of the
+//!   onset, before the spectrum can resolve the subharmonic f;
+//! - 6 single-string readings flagged several, weak-fundamental strings
+//!   early on.
+//!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
 //! (about 670 KB, so not on the stack) and calls `push` and `analyse` from
