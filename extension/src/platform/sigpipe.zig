@@ -5,12 +5,18 @@
 /// since the extension runs in-process. A phone that drops off Wi-Fi mid-broadcast
 /// is enough. No crash report is written for this kind of death.
 ///
-/// REAPER leaves SIGPIPE at its default action: its only handler is installed
-/// lazily by WDL_SHM_Connection (bridged plugins). Zig installs a no-op handler
-/// for executables in start.zig, but a shared library never runs that code, so
-/// the extension has to do it. The vendored httpz/websocket.zig write paths use
-/// plain write()/writev(), so a per-call MSG_NOSIGNAL is not an option; a
-/// process-wide handler covers every socket, including plain HTTP responses.
+/// The httpz and websocket.zig forks never raise SIGPIPE themselves: every
+/// send passes MSG_NOSIGNAL, and Darwin sockets get SO_NOSIGPIPE when
+/// accepted. This handler is the second layer, for any write those don't
+/// cover. It can't be the only one: whatever else runs in REAPER can replace
+/// it (Tracy's crash handler turns SIGPIPE into an abort).
+///
+/// macOS REAPER leaves SIGPIPE at its default action: its only handler is
+/// installed lazily by WDL_SHM_Connection (bridged plugins). Linux REAPER
+/// (6.0 and 7.83 checked) installs a no-op handler in main(), before any
+/// plugin loads, so there this one stands aside. Zig installs a no-op handler
+/// for executables in start.zig, but a shared library never runs that code,
+/// so the extension has to do it.
 ///
 /// A no-op handler is used rather than SIG_IGN — matching WDL and Zig's start.zig
 /// — because ignored dispositions survive exec() into child processes REAPER
