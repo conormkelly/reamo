@@ -240,6 +240,8 @@ const floor_rise_db_per_s = 20.0;
 const resume_s = 0.25;
 /// Longer than B0's period, so a low note's waveform doesn't swing it.
 const release_s = 0.04;
+/// Input samples beyond this magnitude are taken for silence.
+const max_sample = 1000.0;
 const onset_floor_hold_s = 0.25;
 /// An onset starts a note only within this long of the first analysis
 /// that saw it.
@@ -402,9 +404,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         floor_db: f64,
         /// Floor learning stops at an onset until the gate has decided on it.
         floor_paused: bool,
-        /// The window's input energy, kept as a running sum, and the kept
-        /// samples to the next floor update.
-        window_energy: f64,
+        /// Kept samples to the next floor update.
         floor_countdown: usize,
         note_active: bool,
         note_onset_count: u64,
@@ -485,7 +485,6 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.gate_open = false;
             self.floor_db = std.math.nan(f64);
             self.floor_paused = false;
-            self.window_energy = 0;
             self.floor_countdown = 0;
             self.note_active = false;
             self.note_onset_count = 0;
@@ -502,18 +501,19 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.blocks_pos = 0;
         }
 
-        /// Adds mono input. Non-finite samples count as silence, so one bad
-        /// sample can't poison the filter.
+        /// Adds mono input. Non-finite samples, and any beyond
+        /// `max_sample` (60 dB over full scale: no audio, a plug-in blowing
+        /// up), count as silence, so one bad sample can't poison the
+        /// filters or the level.
         pub fn push(self: *Self, samples: []const f32) void {
             for (samples) |s| {
-                const x: f64 = if (std.math.isFinite(s)) s else 0;
+                const x: f64 = if (std.math.isFinite(s) and @abs(s) <= max_sample) s else 0;
                 self.energy_acc += x * x;
                 const y = self.lowpass.step(x);
                 self.phase += 1;
                 if (self.phase == self.decimation) {
                     self.phase = 0;
                     self.history[self.write_pos] = y;
-                    self.window_energy += self.energy_acc - self.energy[self.write_pos];
                     self.energy[self.write_pos] = self.energy_acc;
                     self.energy_acc = 0;
                     self.write_pos += 1;
@@ -535,12 +535,6 @@ pub fn AnalyserWith(comptime options: Options) type {
             }
             const step_s = 0.005;
             self.floor_countdown = @intFromFloat(@round(step_s * self.analysis_rate));
-            if (self.kept_count % 8192 == 0) {
-                // Re-sum, so the running sum's rounding can't drift.
-                var e: f64 = 0;
-                for (self.energy[0..self.window]) |v| e += v;
-                self.window_energy = e;
-            }
             if (self.note_active or self.floor_paused) return;
             // While a note that dropped out may still resume, the input is
             // that note, not the floor.
@@ -737,7 +731,11 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         /// The RMS of the window's input (before the low-pass), dBFS.
         fn windowLevelDb(self: *const Self) f64 {
-            const rms = @sqrt(@max(0, self.window_energy) / @as(f64, @floatFromInt(self.window * self.decimation)));
+            // Summed afresh each time: a running sum would carry the
+            // rounding of loud input long after it has left the window.
+            var energy: f64 = 0;
+            for (self.energy[0..self.window]) |v| energy += v;
+            const rms = @sqrt(energy / @as(f64, @floatFromInt(self.window * self.decimation)));
             return 20 * std.math.log10(@max(rms, 1e-7));
         }
 
@@ -839,7 +837,9 @@ pub fn AnalyserWith(comptime options: Options) type {
             var recent: f64 = 0;
             for (0..n) |k| recent += self.energy[(self.write_pos + self.window - 1 - k) % self.window];
             const recent_mean = recent / @as(f64, @floatFromInt(n));
-            const window_mean = @max(0, self.window_energy) / @as(f64, @floatFromInt(self.window));
+            var window_energy: f64 = 0;
+            for (self.energy[0..self.window]) |v| window_energy += v;
+            const window_mean = window_energy / @as(f64, @floatFromInt(self.window));
             return recent_mean >= window_mean * std.math.pow(f64, 10, -drop / 10);
         }
 
@@ -1775,6 +1775,40 @@ test "a non-finite input sample doesn't stop later readings" {
     buf[200] = std.math.inf(f32);
     a.push(buf);
     try testing.expectApproxEqAbs(@as(f64, 0), centsOff(a.analyse(.{}), 220), 0.01);
+}
+
+test "one absurd sample doesn't silence the analyser, at 44.1 or 48 kHz" {
+    for ([_]f64{ 44100, 48000 }) |sr| {
+        const a = try newAnalyser(sr);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(96000);
+        defer testing.allocator.destroy(buf);
+        const n: usize = @intFromFloat(2 * sr);
+        signals.sine(buf[0..n], sr, 220, 0.3, 0);
+        buf[@intFromFloat(0.5 * sr)] = 1e10;
+        const tick: usize = @intFromFloat(@round(sr / 30));
+        var k: usize = 0;
+        while ((k + 1) * tick <= n) : (k += 1) {
+            a.push(buf[k * tick .. (k + 1) * tick]);
+            const r = a.analyse(.{});
+            if (@as(f64, @floatFromInt((k + 1) * tick)) / sr < 0.8) continue;
+            errdefer std.debug.print("{d} at {d} s: {any}\n", .{ sr, @as(f64, @floatFromInt((k + 1) * tick)) / sr, r });
+            try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, 220), 0.01);
+        }
+    }
+}
+
+test "the window's level after loud bursts is that of the quiet input left in it, at 44.1 kHz" {
+    const a = try newAnalyser(44100);
+    defer testing.allocator.destroy(a);
+    var buf: [4410]f32 = undefined;
+    for (0..100) |k| {
+        @memset(&buf, 0);
+        signals.addNoise(&buf, if (k % 7 == 0) 300 else 1e-4, k + 1);
+        a.push(&buf);
+    }
+    // The window now holds only the last 1e-4 RMS noise: -80 dBFS.
+    try testing.expectApproxEqAbs(@as(f64, -80), a.windowLevelDb(), 0.2);
 }
 
 test "reset forgets earlier input" {
