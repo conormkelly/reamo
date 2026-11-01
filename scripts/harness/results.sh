@@ -47,7 +47,13 @@ keep_failure() {
         fi
         echo
         echo "run it again:"
-        echo "  ${TOUR_ONLY:+TOUR_ONLY='$TOUR_ONLY' }scripts/harness/run.sh --os $os --reaper $reaper $scenario"
+        # A soak's length and load are in its SOAK_* settings. %q quotes
+        # each value so the line pastes back into a shell as it ran.
+        local env_prefix="" v
+        for v in TOUR_ONLY $(compgen -e | grep '^SOAK_' || true); do
+            [ -n "${!v:-}" ] && env_prefix+="$(printf '%s=%q ' "$v" "${!v}")"
+        done
+        echo "  ${env_prefix}scripts/harness/run.sh --os $os --reaper $reaper $scenario"
     } >"$dest/replay.txt"
     [ ! -s "$OUT/tree.diff" ] || cp "$OUT/tree.diff" "$dest/worktree.diff"
     kept_failures+=("$dest")

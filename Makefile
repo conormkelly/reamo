@@ -8,7 +8,7 @@
 .PHONY: help install all frontend frontend-build extension dev-extension tracy \
         frontend-dev dev dev-notests dev-cycle stop-reaper start-reaper \
         check lint typecheck test test-frontend test-e2e test-extension zig-version \
-        test-ws test-ws-harness harness harness-image release-check \
+        test-ws test-ws-harness harness harness-image soak release-check \
         container-image container-check clean
 
 # Zig 0.15.x. Point ZIG at it when the `zig` on PATH is another version:
@@ -174,6 +174,9 @@ harness: ## Harness scenarios on headless REAPER in Docker; SCENARIOS="smoke ...
 
 harness-image: ## Build the harness image for REAPER_VERSION (pinned, oldest, latest or e.g. 6.0)
 	scripts/harness/run.sh --image-only
+
+soak: ## Soak test on headless REAPER, outside the harness suite; SOAK_MINUTES=30 for longer (default 3)
+	scripts/harness/run.sh long-session-stays-healthy
 
 release-check: ## Release gate: every scenario on the oldest supported REAPER, then the pinned newest
 	scripts/harness/run.sh --reaper oldest

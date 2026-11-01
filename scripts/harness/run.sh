@@ -8,6 +8,7 @@
 #   scripts/harness/run.sh --reaper latest         # reaper.fm's current release
 #   scripts/harness/run.sh --reaper 6.0 --image-only   # just build that image
 #   scripts/harness/run.sh --os windows smoke      # on a Windows PC, over ssh
+#   SOAK_MINUTES=30 scripts/harness/run.sh long-session-stays-healthy   # a soak
 #
 # --reaper takes a release as reaper.fm numbers it, or one of: pinned (the
 # default, the newest release we have checked), oldest, latest (looked up on
@@ -24,6 +25,8 @@
 #                   printed one scenario at a time, in order
 #   TOUR_ONLY       tour scenarios run only the ops whose name contains one of
 #                   these space-separated words
+#   SOAK_*          passed into the container, for the soak scenarios (README,
+#                   "Soak tests")
 #
 # Each scenario gets a fresh REAPER in its own --rm container with no network
 # and no published ports, so it can run beside a desktop REAPER (or another
@@ -135,25 +138,38 @@ else
 fi
 
 JOBS="${HARNESS_JOBS:-4}"
+# soak/ holds scenarios that run for minutes to hours. A full run takes only
+# scenarios/, so these run only when named.
+scenario_dir() {
+    local d
+    for d in scenarios soak; do
+        [ -f "$HERE/$d/$1/test.py" ] && { echo "$d/$1"; return 0; }
+    done
+    return 1
+}
 for s in "${scenarios[@]}"; do
-    [ -f "$HERE/scenarios/$s/test.py" ] || { echo "error: no scenario '$s'" >&2; exit 1; }
+    scenario_dir "$s" >/dev/null || { echo "error: no scenario '$s'" >&2; exit 1; }
 done
+soak_env=()
+for v in $(compgen -e | grep '^SOAK_' || true); do soak_env+=(-e "$v"); done
 
 # Runs are keyed by position, so a scenario named twice (to chase a flake)
 # runs twice rather than sharing one container name and status file.
 run_one() {
-    local i="$1" s="$2" out="$2"
+    local i="$1" s="$2" out="$2" dir
+    dir="$(scenario_dir "$s")"
     [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
     # Linux capabilities the scenario needs, one per line in its `capabilities`.
     local caps=()
-    if [ -f "$HERE/scenarios/$s/capabilities" ]; then
-        while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/scenarios/$s/capabilities"
+    if [ -f "$HERE/$dir/capabilities" ]; then
+        while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/$dir/capabilities"
     fi
     docker run --rm --name "reamo-v1-harness-$s-$$-$i" --network none --label reamo.harness=v1 \
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/reamo:/reamo:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
         ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
+        -e HARNESS_SCENARIO_DIR="/harness/$dir" ${soak_env[@]+"${soak_env[@]}"} \
         "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/run-$i.log" 2>&1 && rc=0 || rc=$?
     echo "$rc" >"$OUT/run-$i.status"
 }

@@ -346,3 +346,92 @@ untidy idea), `tempo-map` (ramps and meter changes, time-locked),
 `legacy-v6` (a hand-written REAPER 6 project with a missing plugin and
 missing media, so REAPER's load dialogs come up) and `empty-unsaved`
 (REAPER's startup project).
+
+## Soak tests
+
+`soak/` holds scenarios that run for minutes to hours. A full run takes only
+`scenarios/`, so they run only when named. Linux only for now.
+
+```sh
+make soak                          # 3 minutes: crashes, hangs, refusals, undo points, gross growth
+SOAK_MINUTES=60 make soak          # an hour: also the RSS slope and CPU drift
+SOAK_MINUTES=480 make soak         # a working day
+SOAK_MINUTES=60 SOAK_SEED=7 scripts/harness/run.sh long-session-stays-healthy
+```
+
+`long-session-stays-healthy` opens the band session (`corpus/band-session.lua`)
+and plays it on repeat:
+
+- one phone stays connected throughout: mixer, peaks, notes and toggle
+  states subscribed, and a main-thread command every 2 s;
+- `SOAK_PHONES` (5) more connect, churn subscriptions (tracks, peaks
+  viewports, FX chains and params, routing, audio stream, notes, toggle
+  states), send read-only commands, pings and clock syncs, then drop the
+  socket, close it, or go quiet first, and connect again;
+- page loads (`GET /` and an asset) come in alongside.
+
+**The tuner is left out by default.** Opening and closing it leaves undo
+points in REAPER (RV1-165), so a run with it fails. `SOAK_OPS=+tuner` puts
+it in, to check a fix for RV1-165; until then that run fails on the undo
+check, naming RV1-165.
+
+It fails if:
+
+- REAPER exits;
+- a command goes unanswered for 10 s (the steady phone's probe every 2 s,
+  so within 12 s), or a ReaScript call does (one every 10 s, so within 20 s);
+- the transport stops;
+- the server closes or refuses a phone's connection;
+- a command is refused, other than `audio/startStream` with
+  `STREAM_FAILED` (four listeners at most: the phones keep to three, but a
+  phone that just left can hold its slot a moment longer);
+- REAPER's undo history changed: the phones make no edits;
+- after warm-up (`SOAK_WARMUP_MINUTES`: a third of the run, 1 to 20
+  minutes), a limit below is broken.
+
+A run under 2 minutes is refused. A failed run still writes its summary.
+
+| Limit (`SOAK_<NAME>` overrides) | Default | Checked |
+|---|---|---|
+| `RSS_GROWTH_MB`: RSS at the end of the post-warm-up span minus at its start (medians of a tenth of the samples) | 24 | always |
+| `THREAD_GROWTH`, `FD_GROWTH`: threads, open files, the same way | 3, 4 | always |
+| `REFUSAL_PCT`: allowed refusals, percent of commands | 0.5 | always |
+| `RSS_SLOPE_MB_PER_HOUR`: least-squares slope of RSS | 6 | when warm-up is at least `SLOPE_MIN_WARMUP_MINUTES` (20) and at least `SLOPE_MIN_MINUTES` (30) follow it: runs of 60 minutes or more by default |
+| `CPU_DRIFT_POINTS`: mean CPU of the last third of that span minus the first, in points of one core | 3 | likewise |
+
+`SOAK_OPS` picks the phones' ops, in space-separated words: `+word` adds
+the opt-in ops (the tuner) whose name contains it, `-word` drops ops whose
+name contains it, and plain words keep only the ops whose name contains
+one of them (`SOAK_OPS=peaks`, `SOAK_OPS=-audio`, `SOAK_OPS=+tuner`).
+`SOAK_SEED` repeats a run's choices. For a crash, `HARNESS_GDB=1` puts
+backtraces in `reaper.out`.
+
+`out/long-session-stays-healthy/` keeps:
+
+- `soak-series.csv`: one row per `SOAK_SAMPLE_SECS` (5): RSS, CPU of the
+  process and its main thread, threads, open files, the probe's and the
+  ReaScript call's latency, the slowest command, what the phones did.
+  Written as it goes, so a crash leaves it.
+- `soak-summary.json`: settings, seed, metrics, limits, refusals,
+  problems, and RSS growth by mapping (`[heap]`, anonymous, libraries).
+
+### Where the limits come from
+
+Measured on REAPER 7.83, aarch64 Docker, up to seven runs at once:
+
+- No churn (the steady phone only): RSS flat at 200 MB, CPU 11.9 % (main
+  thread 2.6 %).
+- Full load without the tuner, 60 minutes: RSS climbs from 204 to 237 MB
+  over about 20 minutes, flattening, then holds: 0.04 MB growth and a
+  0.06 MB/h slope over the 40 minutes after a 20-minute warm-up. CPU
+  17.5 % mean (sd 1.2), main thread 5.4 %, drift -0.8 points. Threads (40 to
+  41) and open files (26 to 30): median growth 1 at most. Allowed refusals: 1 in 31,787 commands.
+- 30 minutes is still inside that climb (14 MB/h after a 10-minute
+  warm-up), hence slope and drift only from 60.
+- 15-minute runs of one op family each: growth up to 12 MB, in steps, then
+  flat; CPU drift within 1.1 points.
+
+The growth limit sits at twice the largest warm-up step, the slope limit
+far above the measured noise and well below a leak that matters over a
+working day (RV1-165 grows about 40 MB/h in the full mix), the drift limit
+at about three times the largest measured.

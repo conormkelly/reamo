@@ -1,0 +1,817 @@
+"""A long session stays healthy: REAPER doesn't crash or hang, its memory
+is flat after warm-up, and its CPU doesn't creep upward.
+
+A crashed REAPER session is the worst failure REAmo can cause, and slow
+leaks and rare crashes only show over time. The band session plays on
+repeat while phones do what phones do, for SOAK_MINUTES:
+
+- one phone (the desk) stays connected the whole run with the mixer,
+  timeline peaks, project notes and toggle states subscribed;
+- SOAK_PHONES more connect, churn subscriptions (tracks, peaks viewports,
+  FX chains, FX params, routing, audio stream, notes, toggle states),
+  send read-only commands, pings and clock syncs, then leave: dropping
+  the socket, closing it properly, or going quiet first (a phone put to
+  sleep), and connect again;
+- page loads (GET / and an asset) arrive alongside.
+
+The tuner is left out unless SOAK_OPS has "+tuner": opening and closing it
+leaves undo points in REAPER (RV1-165), so with it in the run fails.
+
+Nothing a phone does here is an edit, so the run must leave REAPER's undo
+history as it found it: an undo point would be an edit the user never
+made, and undo history grows by design, which would hide a leak.
+
+REAPER's RSS, CPU (process and main thread), threads and open files are
+sampled from /proc every SOAK_SAMPLE_SECS. Two probes tell a slow REAPER
+from a hung one, each failing after HANG_SECS without an answer: the desk
+sends a main-thread command every 2 s, and a ReaScript call runs every
+RPC_SECS (so a stall seen only by ReaScript is caught within 20 s). The
+series goes to out/<scenario>/soak-series.csv as it is taken (so a crash
+leaves it), and the verdict with its numbers to soak-summary.json, which
+every run writes, failed or not.
+
+Settings (env, all optional): SOAK_MINUTES (3, at least 2), SOAK_WARMUP_MINUTES
+(a third of the run, 1 to 20), SOAK_PHONES (5), SOAK_SAMPLE_SECS (5),
+SOAK_SEED (random; printed, so a run can be repeated), SOAK_OPS (see
+phone_ops) and the limits below as SOAK_<NAME>.
+"""
+import csv
+import json
+import os
+import random
+import re
+import statistics
+import struct
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import urllib.request
+
+from reamo_client import (HOST, PORT, Client, Closed, InvalidFrame, ReaperError, open_project,
+                          reaper, skip_unless_linux)
+
+skip_unless_linux("samples REAPER's memory and CPU from Linux's /proc")
+
+
+def env_float(name, default):
+    return float(os.environ.get(name, default))
+
+
+MINUTES = env_float("SOAK_MINUTES", 3)
+# Under this load REAPER's heap climbs for about 20 minutes, flattening as it
+# goes, then holds: a third of the run, at most 20 minutes, is warm-up.
+WARMUP_MINUTES = env_float("SOAK_WARMUP_MINUTES", min(20.0, max(1.0, MINUTES / 3)))
+PHONES = int(os.environ.get("SOAK_PHONES", "5"))
+SAMPLE_SECS = env_float("SOAK_SAMPLE_SECS", 5)
+SEED = int(os.environ.get("SOAK_SEED", str(random.randrange(1 << 31))))
+HANG_SECS = 10.0
+RPC_SECS = 10.0
+# The shortest run that leaves samples after a minute of warm-up to judge.
+MIN_MINUTES = 2.0
+
+# Limits, from measured runs (the README's "Soak tests" has the numbers).
+# Each can be overridden as SOAK_<NAME>.
+LIMITS = {
+    # RSS after warm-up: the end (median of the last tenth of samples)
+    # against the start (median of the first tenth). A short run ends inside
+    # the warm-up climb, whose steps reach 12 MB, so this catches gross
+    # growth only; the slope below is the leak check.
+    "RSS_GROWTH_MB": env_float("SOAK_RSS_GROWTH_MB", 24),
+    # Least-squares slope of RSS after warm-up (0.06 MB/h measured over the
+    # 40 minutes after a 20-minute warm-up), and the rise in mean process
+    # CPU from the first third of that span to the last, in points of one
+    # core (within 1.1 measured, on a mean of 18). Both are checked only
+    # when warm-up is at least SLOPE_MIN_WARMUP_MINUTES and at least
+    # SLOPE_MIN_MINUTES follow it: with the default warm-up, runs of 60
+    # minutes or more. Before that the heap is still climbing.
+    "RSS_SLOPE_MB_PER_HOUR": env_float("SOAK_RSS_SLOPE_MB_PER_HOUR", 6),
+    "CPU_DRIFT_POINTS": env_float("SOAK_CPU_DRIFT_POINTS", 3),
+    "SLOPE_MIN_WARMUP_MINUTES": env_float("SOAK_SLOPE_MIN_WARMUP_MINUTES", 20),
+    "SLOPE_MIN_MINUTES": env_float("SOAK_SLOPE_MIN_MINUTES", 30),
+    # Threads and open files after warm-up, median of the last tenth of
+    # samples minus the first (measured: 1 at most; threads come and go
+    # between 40 and 41): a connection that leaves one behind grows these
+    # with every reconnect.
+    "THREAD_GROWTH": env_float("SOAK_THREAD_GROWTH", 3),
+    "FD_GROWTH": env_float("SOAK_FD_GROWTH", 4),
+    # Allowed refusals (ALLOWED_REFUSALS) as a share of commands, in percent
+    # (measured: 0.003).
+    "REFUSAL_PCT": env_float("SOAK_REFUSAL_PCT", 0.5),
+}
+
+# Refusals a healthy run can get, and why. Any other refusal fails the run.
+ALLOWED_REFUSALS = {
+    # Four listeners at most. The phones keep to three, but a phone that has
+    # just left can hold its slot for a moment after its socket closes.
+    ("audio/startStream", "STREAM_FAILED"),
+}
+MAX_STREAMING = 3
+
+OUT = os.environ.get("HARNESS_OUT", "/tmp")
+CLK_TCK = os.sysconf("SC_CLK_TCK")
+
+# Toggle states the web UI watches: play, repeat, metronome, count-in.
+TOGGLES = [1007, 1068, 40364, 41745]
+
+
+class Hang(Exception):
+    """REAPER stopped answering."""
+
+
+class Stats:
+    """What every thread reports: counters (the sampler reads and resets
+    the per-sample ones), refusals, problems, and the desk's last
+    debug/memoryStats."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.total = {}
+        self.window = {}
+        self.refusals = {}
+        self.problems = []
+        self.hung = False
+        self.memory = {}
+        self.streaming = 0
+        self.stop = threading.Event()
+
+    def add(self, key, n=1):
+        with self.lock:
+            self.total[key] = self.total.get(key, 0) + n
+            self.window[key] = self.window.get(key, 0) + n
+
+    def peak(self, key, value):
+        with self.lock:
+            self.window[key] = max(self.window.get(key, 0), value)
+            self.total[key] = max(self.total.get(key, 0), value)
+
+    def refused(self, command, code):
+        with self.lock:
+            k = f"{command}: {code}"
+            self.refusals[k] = self.refusals.get(k, 0) + 1
+
+    def take_window(self):
+        with self.lock:
+            w, self.window = self.window, {}
+            return w
+
+    def set_memory(self, payload):
+        with self.lock:
+            self.memory = dict(payload)
+
+    def get_memory(self):
+        with self.lock:
+            return dict(self.memory)
+
+    def take_stream_slot(self):
+        with self.lock:
+            if self.streaming >= MAX_STREAMING:
+                return False
+            self.streaming += 1
+            return True
+
+    def give_stream_slot(self):
+        with self.lock:
+            self.streaming -= 1
+
+    def problem(self, text, hang=False):
+        print(f"PROBLEM: {text}", flush=True)
+        with self.lock:
+            self.problems.append(text)
+            self.hung = self.hung or hang
+        self.stop.set()
+
+
+stats = Stats()
+
+
+def run_command(c, command, **params):
+    """A command that must be answered within HANG_SECS. A refusal outside
+    ALLOWED_REFUSALS fails the run."""
+    t0 = time.monotonic()
+    try:
+        r = c.command(command, timeout=HANG_SECS, **params)
+    except TimeoutError:
+        raise Hang(f"{command} unanswered after {HANG_SECS:.0f} s") from None
+    ms = (time.monotonic() - t0) * 1000
+    stats.add("commands")
+    stats.peak("cmd_ms_max", ms)
+    if not r.get("success"):
+        code = (r.get("error") or {}).get("code", "?")
+        stats.add("cmd_refused")
+        stats.refused(command, code)
+        if (command, code) not in ALLOWED_REFUSALS:
+            stats.problem(f"{command} refused: {r.get('error')}")
+    return r, ms
+
+
+def absorb(c):
+    """Count what a client has read and let it go, so a long run doesn't
+    keep every event in memory."""
+    stats.add("events", len(c.events))
+    for frame in c.binary:
+        stats.add("peaks_frames" if frame[:1] == b"\x02" else "audio_frames")
+    c.events.clear()
+    c.binary.clear()
+
+
+def read_for(c, seconds):
+    c.drain(seconds)
+    absorb(c)
+
+
+def close_properly(c):
+    """A close frame (1000), as a browser closing the page sends."""
+    payload = struct.pack(">H", 1000)
+    mask = os.urandom(4)
+    try:
+        c.sock.sendall(bytes([0x88, 0x80 | len(payload)]) + mask +
+                       bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+    except OSError:
+        pass
+    c.close()
+
+
+class World:
+    """What the phones pick from: the session's tracks, FX and length."""
+
+    def __init__(self):
+        self.fx = reaper(FX_LUA) or []  # [[trackGuid, fxGuid, paramCount], ...]
+        self.length = reaper("return reaper.GetProjectLength(0)")
+        with Client(timeout=HANG_SECS) as c:
+            self.tracks = c.wait_event("trackSkeleton", timeout=HANG_SECS)["payload"]["tracks"]
+        self.guids = [t["g"] for t in self.tracks]
+        self.with_items = [t["g"] for t in self.tracks if t.get("ic")]
+        self.item_tracks = [i for i, t in enumerate(self.tracks) if t.get("ic")]
+        html = urllib.request.urlopen(f"http://{HOST}:{PORT}/", timeout=HANG_SECS).read().decode()
+        self.assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', html)
+
+
+FX_LUA = """
+local out = {}
+local function add(t, g)
+  for f = 0, reaper.TrackFX_GetCount(t) - 1 do
+    out[#out + 1] = {g, reaper.TrackFX_GetFXGUID(t, f), reaper.TrackFX_GetNumParams(t, f)}
+  end
+end
+add(reaper.GetMasterTrack(0), "master")
+for i = 0, reaper.CountTracks(0) - 1 do
+  local t = reaper.GetTrack(0, i)
+  add(t, reaper.GetTrackGUID(t))
+end
+return out
+"""
+
+
+def viewport(rng, world):
+    span = rng.choice([4, 15, 60, 240, 900, 3600])
+    start = rng.uniform(-span / 4, max(0.0, world.length - span / 2))
+    return {"start": start, "end": start + span, "widthPx": rng.randint(320, 1600)}
+
+
+def track_range(rng, world):
+    start = rng.randrange(len(world.guids))
+    return {"start": start, "end": min(len(world.guids) - 1, start + rng.randint(0, 63))}
+
+
+def fx_params(rng, world):
+    track, fx, count = rng.choice(world.fx)
+    first = rng.randrange(max(1, count))
+    return {"trackGuid": track, "fxGuid": fx, "range": {"start": first, "end": first + rng.randint(0, 99)}}
+
+
+class Phone:
+    """One connection's view of what it has subscribed, so it asks only
+    what the web UI would: a viewport change needs a peaks subscription."""
+
+    def __init__(self, c):
+        self.c = c
+        self.peaks = False
+        self.streaming = False
+
+    def peaks_subscribe(self, r, world):
+        res, _ = run_command(self.c, "peaks/subscribe", range=track_range(r, world), viewport=viewport(r, world))
+        self.peaks = bool(res.get("success"))
+
+    def peaks_viewport(self, r, world):
+        if not self.peaks:
+            return self.peaks_subscribe(r, world)
+        run_command(self.c, "peaks/updateViewport", viewport=viewport(r, world))
+
+    def peaks_unsubscribe(self):
+        run_command(self.c, "peaks/unsubscribe")
+        self.peaks = False
+
+    def stream_start(self):
+        if self.streaming or not stats.take_stream_slot():
+            return
+        res, _ = run_command(self.c, "audio/startStream")
+        self.streaming = bool(res.get("success"))
+        if not self.streaming:
+            stats.give_stream_slot()
+
+    def stream_stop(self):
+        run_command(self.c, "audio/stopStream")
+        self.left()
+
+    def left(self):
+        if self.streaming:
+            self.streaming = False
+            stats.give_stream_slot()
+
+
+# Ops a run leaves out unless SOAK_OPS opts them in with "+<word>", and why.
+OPT_IN = {"tuner": "opening and closing the tuner leaves undo points in REAPER (RV1-165)"}
+
+
+# What a phone does while connected: (relative weight, name, op). Each op
+# picks its own parameters; all are reads or subscriptions. SOAK_OPS
+# narrows down what a leak or a drift follows, in space-separated words:
+# "+word" adds the OPT_IN ops whose name contains it, "-word" drops the ops
+# whose name contains it, and a plain word keeps only the ops whose name
+# contains one of the plain words ("peaks", "-audio", "+tuner").
+def phone_ops(world):
+    words = os.environ.get("SOAK_OPS", "").split()
+    add = [w[1:] for w in words if w.startswith("+")]
+    drop = [w[1:] for w in words if w.startswith("-")]
+    keep = [w for w in words if w[:1] not in "+-"]
+
+    def opted_out(name):
+        return any(name.startswith(prefix) and not any(w in name for w in add) for prefix in OPT_IN)
+
+    ops = [op for op in all_phone_ops(world)
+           if not opted_out(op[1]) and (not keep or any(w in op[1] for w in keep))
+           and not any(w in op[1] for w in drop)]
+    assert ops, f"SOAK_OPS={words} matches no op (opt-in ops need +: {', '.join(OPT_IN)})"
+    return ops
+
+
+def opted_in(ops):
+    """The OPT_IN reasons for the ops this run has."""
+    return [why for prefix, why in OPT_IN.items() if any(op[1].startswith(prefix) for op in ops)]
+
+
+def all_phone_ops(world):
+    fx_tracks = sorted({f[0] for f in world.fx})
+
+    def cmd(command, params=lambda r: {}):
+        return lambda p, r: run_command(p.c, command, **params(r))
+
+    return [
+        (8, "track/subscribe", cmd("track/subscribe", lambda r: {"range": track_range(r, world),
+                                                                 "includeMaster": r.random() < 0.5})),
+        (3, "track/subscribe", cmd("track/subscribe", lambda r: {
+            "guids": r.sample(world.guids, r.randint(1, len(world.guids)))})),
+        (2, "track/unsubscribe", cmd("track/unsubscribe")),
+        (6, "peaks/subscribe", lambda p, r: p.peaks_subscribe(r, world)),
+        (8, "peaks/updateViewport", lambda p, r: p.peaks_viewport(r, world)),
+        (1, "peaks/unsubscribe", lambda p, r: p.peaks_unsubscribe()),
+        (3, "trackFx/subscribe", cmd("trackFx/subscribe", lambda r: {"trackGuid": r.choice(fx_tracks)})),
+        (1, "trackFx/unsubscribe", cmd("trackFx/unsubscribe")),
+        (5, "trackFxParams/subscribe", cmd("trackFxParams/subscribe", lambda r: fx_params(r, world))),
+        (2, "trackFxParams/unsubscribe", cmd("trackFxParams/unsubscribe")),
+        (2, "trackFx/getParams", cmd("trackFx/getParams", lambda r: dict(zip(("trackGuid", "fxGuid"),
+                                                                             r.choice(world.fx)[:2])))),
+        (2, "track/getFx", cmd("track/getFx", lambda r: {"trackIdx": r.randrange(len(world.guids))})),
+        (3, "routing/subscribe", cmd("routing/subscribe", lambda r: {"trackGuid": r.choice(world.guids)})),
+        (1, "routing/unsubscribe", cmd("routing/unsubscribe")),
+        (2, "tuner/subscribe", cmd("tuner/subscribe", lambda r: {"trackGuid": r.choice(world.with_items)})),
+        (2, "tuner/unsubscribe", cmd("tuner/unsubscribe")),
+        (1, "audio/startStream", lambda p, r: p.stream_start()),
+        (1, "audio/stopStream", lambda p, r: p.stream_stop()),
+        (1, "projectNotes/subscribe", cmd("projectNotes/subscribe")),
+        (1, "projectNotes/unsubscribe", cmd("projectNotes/unsubscribe")),
+        (1, "actionToggleState/subscribe", cmd("actionToggleState/subscribe",
+                                               lambda r: {"commandIds": r.sample(TOGGLES, 2)})),
+        (1, "actionToggleState/unsubscribe", cmd("actionToggleState/unsubscribe",
+                                                 lambda r: {"commandIds": r.sample(TOGGLES, 2)})),
+        (2, "item/getTakes", cmd("item/getTakes", lambda r: {"trackIdx": r.choice(world.item_tracks),
+                                                             "itemIdx": 0})),
+        (1, "lanes/getState", cmd("lanes/getState", lambda r: {"trackGuid": r.choice(world.guids)})),
+        (1, "tempo/barsToTime", cmd("tempo/barsToTime", lambda r: {"bar": r.randint(-4, 12)})),
+        (1, "transport/seek", cmd("transport/seek", lambda r: {"position": r.uniform(0, world.length)})),
+        (1, "fxPlugin/getList", cmd("fxPlugin/getList")),
+        (1, "action/getActions", cmd("action/getActions")),  # the largest response (~700 KB)
+        (1, "input/enumerateAudio", cmd("input/enumerateAudio")),
+        (2, "ping", lambda p, r: p.c.send({"type": "ping", "timestamp": time.time() * 1000})),
+        (2, "clockSync", lambda p, r: p.c.send({"type": "clockSync", "t0": time.time() * 1000})),
+    ]
+
+
+def page_load(rng, world):
+    """The browser loading the web UI: the page (which carries the token) and an asset."""
+    urllib.request.urlopen(f"http://{HOST}:{PORT}/", timeout=HANG_SECS).read()
+    if world.assets:
+        urllib.request.urlopen(f"http://{HOST}:{PORT}{rng.choice(world.assets)}", timeout=HANG_SECS).read()
+    stats.add("page_loads")
+
+
+def phone(n, world, ops):
+    rng = random.Random(SEED * 1000 + n)
+    weights = [w for w, _, _ in ops]
+    while not stats.stop.is_set():
+        c = p = None
+        stage = "loading the page"
+        try:
+            if rng.random() < 0.3:
+                page_load(rng, world)
+            stage = "connecting"
+            c = Client(timeout=HANG_SECS)
+            stats.add("connects")
+            stage = "waiting for the hello and first state"
+            c.wait_event("trackSkeleton", timeout=HANG_SECS)
+            stage = "connected"
+            p = Phone(c)
+            end = time.monotonic() + rng.uniform(2, 20)
+            while time.monotonic() < end and not stats.stop.is_set():
+                rng.choices(ops, weights)[0][2](p, rng)
+                read_for(c, rng.uniform(0.05, 0.8))
+            leave = rng.random()
+            if leave < 0.4:
+                c.close()
+                stats.add("left_dropped")
+            elif leave < 0.8:
+                close_properly(c)
+                stats.add("left_closed")
+            else:
+                # A phone put to sleep: the socket stays open, nothing is read.
+                stats.stop.wait(rng.uniform(3, 12))
+                c.close()
+                stats.add("left_quiet")
+        except (Hang, TimeoutError) as e:
+            stats.problem(f"phone {n}, {stage}: {e}", hang=True)
+        except (Closed, ConnectionError, InvalidFrame) as e:
+            # A healthy server closes no phone that reads: a close here is a
+            # refused or dropped connection (a full slot table, a dead accept
+            # loop, a frame it couldn't send).
+            stats.add("closed_by_server")
+            stats.problem(f"phone {n}, {stage}: the server closed the connection: {type(e).__name__}: {e}")
+        except Exception:
+            stats.problem(f"phone {n}, {stage}: {traceback.format_exc()}")
+        finally:
+            if p:
+                p.left()
+            if c:
+                c.close()
+        stats.stop.wait(rng.uniform(0, 3))
+
+
+def desk(world):
+    """The phone that stays connected: mixer, timeline and notes open, and
+    a main-thread command every 2 s to tell a slow REAPER from a hung one."""
+    try:
+        with Client(timeout=HANG_SECS) as c:
+            c.wait_event("trackSkeleton", timeout=HANG_SECS)
+            n = len(world.guids)
+            for command, params in [
+                ("track/subscribe", {"range": {"start": 0, "end": min(63, n - 1)}, "includeMaster": True}),
+                ("peaks/subscribe", {"range": {"start": 0, "end": n - 1},
+                                     "viewport": {"start": 0, "end": world.length, "widthPx": 1200}}),
+                ("projectNotes/subscribe", {}),
+                ("actionToggleState/subscribe", {"commandIds": TOGGLES}),
+            ]:
+                r, _ = run_command(c, command, **params)
+                if not r.get("success"):
+                    return  # run_command has reported it
+            next_probe = next_ping = time.monotonic()
+            while not stats.stop.is_set():
+                now = time.monotonic()
+                if now >= next_probe:
+                    r, ms = run_command(c, "debug/memoryStats")
+                    stats.peak("probe_ms_max", ms)
+                    if r.get("success"):
+                        stats.set_memory(r["payload"])
+                    next_probe = now + 2
+                if now >= next_ping:
+                    c.send({"type": "ping", "timestamp": time.time() * 1000})
+                    next_ping = now + 10
+                read_for(c, 0.25)
+    except (Hang, TimeoutError) as e:
+        stats.problem(f"desk: {e}", hang=True)
+    except Exception:
+        stats.problem(f"desk lost its connection: {traceback.format_exc()}")
+
+
+def undo_top():
+    """What Edit > Undo would undo now, as REAPER names it."""
+    return reaper("return reaper.Undo_CanUndo2(0) or ''", timeout=HANG_SECS)
+
+
+def reaper_pid():
+    r = subprocess.run(["pgrep", "-x", "reaper"], capture_output=True, text=True)
+    pids = r.stdout.split()
+    return int(pids[0]) if pids else None
+
+
+class Gone(Exception):
+    """The REAPER process has exited (or is a zombie)."""
+
+
+def proc_state(pid):
+    try:
+        return open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0]
+    except (OSError, IndexError):
+        return "X"
+
+
+def cpu_ticks(path):
+    # Fields after the ")" that ends the command name: utime, stime are 14, 15.
+    rest = open(path).read().rsplit(")", 1)[1].split()
+    return int(rest[11]) + int(rest[12])
+
+
+def proc_sample(pid):
+    """REAPER's /proc numbers, or Gone once it has exited: a zombie has
+    no memory lines and its fd folder can't be listed."""
+    if proc_state(pid) in "ZX":
+        raise Gone
+    try:
+        status = {}
+        for line in open(f"/proc/{pid}/status"):
+            k, _, v = line.partition(":")
+            status[k] = v.split()
+        return {
+            "cpu": cpu_ticks(f"/proc/{pid}/stat"),
+            "main_cpu": cpu_ticks(f"/proc/{pid}/task/{pid}/stat"),
+            "rss_mb": int(status["VmRSS"][0]) / 1024,
+            "rss_anon_mb": int(status["RssAnon"][0]) / 1024,
+            "hwm_mb": int(status["VmHWM"][0]) / 1024,
+            "threads": int(status["Threads"][0]),
+            "fds": len(os.listdir(f"/proc/{pid}/fd")),
+        }
+    except (OSError, KeyError, IndexError, ValueError):
+        raise Gone from None
+
+
+def mapping_rss(pid):
+    """RSS in MB by what backs it: a file (a library), [heap] (the main
+    malloc arena), [stack], or "anonymous" (other malloc arenas, mmapped
+    allocations, thread stacks). Where growth lands says whose memory it is."""
+    out, name = {}, None
+    for line in open(f"/proc/{pid}/smaps"):
+        parts = line.split()
+        if re.match(r"^[0-9a-f]+-[0-9a-f]+ ", line):
+            name = os.path.basename(parts[5]) if len(parts) > 5 else "anonymous"
+        elif parts[0] == "Rss:":
+            out[name] = out.get(name, 0) + int(parts[1]) / 1024
+    return out
+
+
+def try_mapping_rss(pid):
+    try:
+        return mapping_rss(pid)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def mapping_growth(before, after):
+    grown = {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)}
+    return {k: round(v, 2) for k, v in sorted(grown.items(), key=lambda kv: -abs(kv[1]))[:8] if abs(v) >= 0.1}
+
+
+COLUMNS = ["t_s", "rss_mb", "rss_anon_mb", "hwm_mb", "threads", "fds", "cpu_pct", "main_cpu_pct",
+           "ext_frames", "probe_ms_max", "rpc_ms", "cmd_ms_max", "connects", "commands", "cmd_refused",
+           "events", "peaks_frames", "audio_frames", "page_loads", "closed_by_server", "playing"]
+
+
+def fit_slope(xs, ys):
+    mx, my = statistics.fmean(xs), statistics.fmean(ys)
+    den = sum((x - mx) ** 2 for x in xs)
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den if den else 0.0
+
+
+def analyse(rows):
+    post = [r for r in rows if r["t_s"] >= WARMUP_MINUTES * 60]
+    out = {"samples": len(rows), "post_warmup_samples": len(post)}
+    if rows:
+        out["rss_mb_first"] = rows[0]["rss_mb"]
+        out["rss_mb_last"] = rows[-1]["rss_mb"]
+        out["rss_mb_max"] = max(r["rss_mb"] for r in rows)
+        out["probe_ms_max"] = max(r["probe_ms_max"] for r in rows)
+        out["rpc_ms_max"] = max(r["rpc_ms"] for r in rows)
+    if len(post) < 6:
+        return out
+    k = max(3, len(post) // 10)
+
+    def growth(key):
+        vals = [r[key] for r in post]
+        return statistics.median(vals[-k:]) - statistics.median(vals[:k])
+
+    hours = [r["t_s"] / 3600 for r in post]
+    rss = [r["rss_mb"] for r in post]
+    cpu = [r["cpu_pct"] for r in post]
+    third = len(post) // 3
+    out.update({
+        "post_warmup_minutes": (post[-1]["t_s"] - post[0]["t_s"]) / 60,
+        "rss_mb_post_warmup_start": statistics.median(rss[:k]),
+        "rss_mb_end": statistics.median(rss[-k:]),
+        "rss_growth_mb": growth("rss_mb"),
+        "rss_slope_mb_per_hour": fit_slope(hours, rss),
+        "rss_anon_slope_mb_per_hour": fit_slope(hours, [r["rss_anon_mb"] for r in post]),
+        "cpu_pct_mean": statistics.fmean(cpu),
+        "cpu_pct_max": max(cpu),
+        "cpu_slope_points_per_hour": fit_slope(hours, cpu),
+        "cpu_drift_points": statistics.fmean(cpu[-third:]) - statistics.fmean(cpu[:third]),
+        "main_cpu_pct_mean": statistics.fmean(r["main_cpu_pct"] for r in post),
+        "thread_growth": growth("threads"),
+        "fd_growth": growth("fds"),
+        "threads_range": [min(r["threads"] for r in post), max(r["threads"] for r in post)],
+        "fds_range": [min(r["fds"] for r in post), max(r["fds"] for r in post)],
+    })
+    return out
+
+
+def slope_checked():
+    """Whether this run is long enough for the slope and drift checks: set
+    by its settings, not by how many samples it got."""
+    return (WARMUP_MINUTES >= LIMITS["SLOPE_MIN_WARMUP_MINUTES"]
+            and MINUTES - WARMUP_MINUTES >= LIMITS["SLOPE_MIN_MINUTES"])
+
+
+def verdict(m, totals):
+    """The limits this run broke."""
+    broken = []
+    if "rss_growth_mb" not in m:
+        broken.append(f"too few samples after warm-up ({m.get('post_warmup_samples', 0)}) to judge memory")
+        return broken
+    L = LIMITS
+    if m["rss_growth_mb"] > L["RSS_GROWTH_MB"]:
+        broken.append(f"RSS grew {m['rss_growth_mb']:.1f} MB after warm-up (limit {L['RSS_GROWTH_MB']:g})")
+    if m["thread_growth"] > L["THREAD_GROWTH"]:
+        broken.append(f"threads grew by {m['thread_growth']:g} (limit {L['THREAD_GROWTH']:g})")
+    if m["fd_growth"] > L["FD_GROWTH"]:
+        broken.append(f"open files grew by {m['fd_growth']:g} (limit {L['FD_GROWTH']:g})")
+    commands = totals.get("commands", 0)
+    refused_pct = 100 * totals.get("cmd_refused", 0) / commands if commands else 0.0
+    m["refused_pct"] = refused_pct
+    if refused_pct > L["REFUSAL_PCT"]:
+        broken.append(f"{refused_pct:.2f} % of commands refused (limit {L['REFUSAL_PCT']:g} %)")
+    if not totals.get("connects") and PHONES:
+        broken.append("no phone connected")
+    m["slope_checked"] = slope_checked()
+    if m["slope_checked"]:
+        if m["rss_slope_mb_per_hour"] > L["RSS_SLOPE_MB_PER_HOUR"]:
+            broken.append(f"RSS rising {m['rss_slope_mb_per_hour']:.1f} MB/h after warm-up "
+                          f"(limit {L['RSS_SLOPE_MB_PER_HOUR']:g})")
+        if m["cpu_drift_points"] > L["CPU_DRIFT_POINTS"]:
+            broken.append(f"CPU drifted up {m['cpu_drift_points']:.1f} points (limit {L['CPU_DRIFT_POINTS']:g})")
+    return broken
+
+
+class Run:
+    """What the run has gathered, for the summary whatever way it ends."""
+
+    def __init__(self):
+        self.rows = []
+        self.pid = None
+        self.undo_before = None
+        self.maps_warm = None
+        self.maps_end = None
+        self.threads = []
+        self.ops = []
+
+
+def soak(run):
+    print("dialogs:", open_project("/tmp/corpus/band-session/band-session.RPP"), flush=True)
+    time.sleep(1.5)  # the extension's GUID cache settles after a project load
+    world = World()
+    run.ops = phone_ops(world)
+    print(f"session: {len(world.guids)} tracks, {len(world.fx)} FX, {world.length:.1f} s; "
+          f"assets {world.assets}; {len(run.ops)} ops", flush=True)
+    reaper("""
+      reaper.GetSet_LoopTimeRange(true, true, 0, reaper.GetProjectLength(0), false)
+      reaper.GetSetRepeat(1)
+      reaper.OnPlayButton()
+    """)
+    run.undo_before = undo_top()
+
+    run.pid = pid = reaper_pid()
+    if not pid:
+        raise RuntimeError("no REAPER process")
+    run.threads = [threading.Thread(target=desk, args=(world,), daemon=True)]
+    run.threads += [threading.Thread(target=phone, args=(n, world, run.ops), daemon=True) for n in range(PHONES)]
+    for t in run.threads:
+        t.start()
+
+    with open(os.path.join(OUT, "soak-series.csv"), "w", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, COLUMNS)
+        writer.writeheader()
+        start = time.monotonic()
+        prev, prev_t = proc_sample(pid), start
+        playing, rpc_ms = 1, 0.0
+        next_rpc = start + RPC_SECS
+        while not stats.stop.wait(max(0.0, prev_t + SAMPLE_SECS - time.monotonic())):
+            now = time.monotonic()
+            try:
+                cur = proc_sample(pid)
+            except Gone:
+                stats.problem(f"REAPER exited {(now - start) / 60:.1f} min in")
+                return
+            if now >= next_rpc:
+                # The Lua side of the harness runs on REAPER's main thread too.
+                t0 = time.monotonic()
+                try:
+                    state = reaper("return reaper.GetPlayState()", timeout=HANG_SECS)
+                except TimeoutError as e:
+                    stats.problem(f"REAPER's main thread didn't run a script: {e}", hang=True)
+                    return
+                except ReaperError as e:
+                    stats.problem(f"reaper.GetPlayState() raised: {e}")
+                    return
+                rpc_ms = (time.monotonic() - t0) * 1000
+                playing = int(state) & 1
+                if not playing:
+                    stats.problem(f"the transport stopped playing (play state {state})")
+                next_rpc = now + RPC_SECS
+            dt = now - prev_t
+            w = stats.take_window()
+            row = {
+                "t_s": round(now - start, 1),
+                "rss_mb": round(cur["rss_mb"], 2), "rss_anon_mb": round(cur["rss_anon_mb"], 2),
+                "hwm_mb": round(cur["hwm_mb"], 2), "threads": cur["threads"], "fds": cur["fds"],
+                "cpu_pct": round((cur["cpu"] - prev["cpu"]) / CLK_TCK / dt * 100, 2),
+                "main_cpu_pct": round((cur["main_cpu"] - prev["main_cpu"]) / CLK_TCK / dt * 100, 2),
+                "ext_frames": stats.get_memory().get("frameCount", 0),
+                "rpc_ms": round(rpc_ms, 1), "playing": playing,
+            }
+            for k in ["probe_ms_max", "cmd_ms_max", "connects", "commands", "cmd_refused", "events",
+                      "peaks_frames", "audio_frames", "page_loads", "closed_by_server"]:
+                row[k] = round(w.get(k, 0), 1)
+            if run.maps_warm is None and row["t_s"] >= WARMUP_MINUTES * 60:
+                run.maps_warm = try_mapping_rss(pid)
+            run.rows.append(row)
+            writer.writerow(row)
+            csv_file.flush()
+            prev, prev_t = cur, now
+            if now - start >= MINUTES * 60:
+                return
+            if len(run.rows) % max(1, int(60 / SAMPLE_SECS)) == 0:
+                print(f"{row['t_s'] / 60:5.1f} min: rss {row['rss_mb']:.1f} MB, cpu {row['cpu_pct']:.1f}%, "
+                      f"main {row['main_cpu_pct']:.1f}%, threads {row['threads']}, fds {row['fds']}, "
+                      f"connects {stats.total.get('connects', 0)}, commands {stats.total.get('commands', 0)}",
+                      flush=True)
+
+
+def finish(run):
+    """Stop the phones, check what can still be checked, write the summary
+    and return the failures."""
+    if run.pid:
+        run.maps_end = try_mapping_rss(run.pid)
+    stats.stop.set()
+    deadline = time.monotonic() + HANG_SECS + 5
+    for t in run.threads:
+        t.join(timeout=max(0.0, deadline - time.monotonic()))
+
+    alive = bool(run.pid) and proc_state(run.pid) not in "ZX"
+    if run.pid and not alive and not any("exited" in p for p in stats.problems):
+        stats.problems.append("REAPER exited")
+    # undo_top() runs on REAPER's main thread: after a hang it would only
+    # wait out its timeout.
+    if alive and not stats.hung and run.undo_before is not None:
+        try:
+            undo_after = undo_top()
+            if undo_after != run.undo_before:
+                why = "; ".join(opted_in(run.ops))
+                stats.problems.append(f"the phones left undo points in REAPER: the last is now {undo_after!r} "
+                                      f"(was {run.undo_before!r})" + (f"; expected: {why}" if why else ""))
+        except (TimeoutError, ReaperError) as e:
+            stats.problems.append(f"couldn't read REAPER's undo history after the run: {e}")
+
+    metrics = analyse(run.rows)
+    broken = verdict(metrics, stats.total) if alive and not stats.problems else []
+    if run.maps_warm and run.maps_end:
+        metrics["rss_growth_mb_by_mapping"] = mapping_growth(run.maps_warm, run.maps_end)
+    with open(os.path.join(OUT, "soak-summary.json"), "w") as f:
+        json.dump({"config": {"minutes": MINUTES, "warmup_minutes": WARMUP_MINUTES, "phones": PHONES,
+                              "sample_secs": SAMPLE_SECS, "seed": SEED, "cpus": os.cpu_count(),
+                              "ops": os.environ.get("SOAK_OPS", ""), "opted_in": opted_in(run.ops)},
+                   "limits": LIMITS, "metrics": metrics, "totals": stats.total,
+                   "refusals": stats.refusals, "extension_memory": stats.get_memory(),
+                   "problems": stats.problems, "limits_broken": broken}, f, indent=2)
+    print(json.dumps({"metrics": metrics, "totals": stats.total}, indent=2))
+    print("refusals:", json.dumps(stats.refusals, indent=2, sort_keys=True))
+    return stats.problems + broken
+
+
+def main():
+    print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {PHONES} phones + the desk, "
+          f"sample every {SAMPLE_SECS:g} s, seed {SEED}, ops {os.environ.get('SOAK_OPS') or 'default'}, "
+          f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
+    run = Run()
+    if MINUTES < MIN_MINUTES:
+        stats.problem(f"SOAK_MINUTES={MINUTES:g}: a soak needs at least {MIN_MINUTES:g} minutes, "
+                      f"to leave samples after warm-up")
+    else:
+        try:
+            soak(run)
+        except Exception:
+            stats.problem(f"the soak stopped: {traceback.format_exc()}")
+    failures = finish(run)
+    if failures:
+        print("FAIL:\n  " + "\n  ".join(failures), flush=True)
+        sys.exit(1)
+    print("soak passed", flush=True)
+
+
+main()
