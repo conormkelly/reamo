@@ -105,6 +105,10 @@ const targets = struct {
     /// least the analyser's at 57c6d9c (89.0%), so the hum target can't be
     /// met by gating harder.
     const hum_coverage_pct = 89.0;
+    /// The same for hum_drift (strings under changing hum), its coverage
+    /// at least the analyser's at registration (`drift_coverage_pct`).
+    const drift_p95_cents = 0.5;
+    const drift_coverage_pct = baseline.drift_coverage_pct;
     /// Readings flagged `multiple` on a single string (with or without hum
     /// under it): a flagged reading that shows nothing must not be a free
     /// way round the subharmonic target.
@@ -123,6 +127,8 @@ const targets = struct {
 /// ms window and the 0.3 voicing gate), on this bench in ReleaseFast,
 /// rounded up to 0.1 ms.
 const baseline = struct {
+    /// hum_drift's share shown from 1 s to 3 s at registration.
+    const drift_coverage_pct = 95.5;
     const lock_avg_ms = 42.7;
     const lock_worst_ms = 83.4;
 };
@@ -164,6 +170,11 @@ const Group = enum {
     /// fundamental 20 dB under the octave and its 3rd harmonic weak (seed
     /// 1014), with no range set.
     ks_weak,
+    /// Strings under hum that drifts, steps, jumps, switches pickups or
+    /// comes in bursts.
+    hum_drift,
+    /// Such hum alone.
+    hum_drift_idle,
     /// Hum or buzz alone.
     hum,
     /// A noise floor alone.
@@ -173,7 +184,7 @@ const Group = enum {
 
     fn pitched(g: Group) bool {
         return switch (g) {
-            .hum, .noise, .muted, .two_notes => false,
+            .hum, .noise, .muted, .two_notes, .hum_drift_idle => false,
             else => true,
         };
     }
@@ -183,6 +194,8 @@ const groups = std.enums.values(Group);
 const Hum = struct {
     hz: f64,
     kind: sig.Mains,
+    /// Drift, steps, a phase jump or switching (none by default).
+    change: ?sig.MainsChange = null,
     /// dBFS RMS, or with `relative` dB from the note's RMS over its first
     /// second.
     db: f64,
@@ -200,6 +213,8 @@ const Case = struct {
     rumble_db: ?f64 = null,
     /// f0 of a muted string struck four times.
     muted_hz: ?f64 = null,
+    /// A pickup switch's click (5 ms of noise at peak 0.03) at this time.
+    click_at_s: ?f64 = null,
     /// Render strings[0] as a Karplus-Strong pluck (t60 3 s, peak 0.9) with
     /// this seed instead; its fundamental is at f0 exactly.
     ks_seed: ?u64 = null,
@@ -248,7 +263,7 @@ fn string(s: Str, rolloff: f64) sig.StringOptions {
     return .{ .f0 = s.f0, .inharmonicity = s.b, .rolloff = rolloff, .t60_s = if (isBass(s.f0)) 8 else 6 };
 }
 
-const max_cases = 200;
+const max_cases = 260;
 var case_store: [max_cases]Case = undefined;
 var name_store: [max_cases][40]u8 = undefined;
 var case_count: usize = 0;
@@ -358,6 +373,41 @@ fn buildCases() []const Case {
     for ([_]f64{ 82.4069, 110, 41.2034 }) |hz| add(.muted, "muted {d} Hz", .{hz}, .{ .name = "", .group = .muted, .muted_hz = hz });
     add(.muted, "muted 82.4 Hz + 60 Hz hum", .{}, .{ .name = "", .group = .muted, .muted_hz = 82.4069, .hum = .{ .hz = 60, .kind = .hum, .db = -50 } });
     // Appended last: a case's noise seed follows its place in this list.
+    const drift_strings = [_]struct { s: Str, hz: f64 }{
+        .{ .s = bass_fretted[0], .hz = 60 },
+        .{ .s = bass[2], .hz = 50 },
+        .{ .s = .{ .name = "G1", .f0 = 48.9994, .b = 2e-4 }, .hz = 50 },
+        .{ .s = guitar[0], .hz = 50 },
+        .{ .s = guitar[1], .hz = 60 },
+    };
+    const changes = [_]struct { name: []const u8, change: sig.MainsChange, click: ?f64 = null }{
+        .{ .name = "+2 mHz/s", .change = .{ .ramp_hz_per_s = 0.002 } },
+        .{ .name = "-2 mHz/s", .change = .{ .ramp_hz_per_s = -0.002 } },
+        .{ .name = "+5 mHz/s", .change = .{ .ramp_hz_per_s = 0.005 } },
+        .{ .name = "-5 mHz/s", .change = .{ .ramp_hz_per_s = -0.005 } },
+        .{ .name = "+20 mHz/s", .change = .{ .ramp_hz_per_s = 0.02 } },
+        .{ .name = "-20 mHz/s", .change = .{ .ramp_hz_per_s = -0.02 } },
+        .{ .name = "+6 dB", .change = .{ .step_at_s = 1.5, .step_db = 6 } },
+        .{ .name = "-6 dB", .change = .{ .step_at_s = 1.5, .step_db = -6 } },
+        .{ .name = "jump", .change = .{ .jump_at_s = 1.5, .jump_rad = std.math.pi / 2.0 } },
+        .{ .name = "switch", .change = .{ .step_at_s = 1.5, .step_db = -4, .jump_at_s = 1.5, .jump_rad = 2 }, .click = 1.5 },
+    };
+    for (drift_strings) |d| {
+        for (changes) |ch| {
+            add(.hum_drift, "{s} {d} Hz {s}", .{ d.s.name, d.hz, ch.name }, .{ .name = "", .group = .hum_drift, .strings = .{ string(d.s, 1), null }, .hum = .{ .hz = d.hz, .kind = .hum, .db = -40, .relative = true, .change = ch.change }, .click_at_s = ch.click });
+        }
+        add(.hum_drift, "{s} {d} Hz buzz burst", .{ d.s.name, d.hz }, .{ .name = "", .group = .hum_drift, .strings = .{ string(d.s, 1), null }, .hum = .{ .hz = d.hz, .kind = .buzz, .db = -40, .relative = true, .change = .{ .on_s = 1.0, .off_s = 2.2 } } });
+        for ([_]f64{ 0.005, -0.005 }) |r| {
+            add(.hum_drift, "{s} {d} Hz {d} mHz/s -30", .{ d.s.name, d.hz, r * 1000 }, .{ .name = "", .group = .hum_drift, .strings = .{ string(d.s, 1), null }, .hum = .{ .hz = d.hz, .kind = .hum, .db = -30, .relative = true, .change = .{ .ramp_hz_per_s = r } } });
+        }
+    }
+    for ([_]f64{ 50, 60 }) |hz| {
+        for ([_]f64{ 0.005, 0.02 }) |r| {
+            for ([_]sig.Mains{ .hum, .buzz }) |kind| add(.hum_drift_idle, "{d} Hz {s} {d} mHz/s", .{ hz, @tagName(kind), r * 1000 }, .{ .name = "", .group = .hum_drift_idle, .hum = .{ .hz = hz, .kind = kind, .db = -40, .change = .{ .ramp_hz_per_s = r } } });
+        }
+        add(.hum_drift_idle, "{d} Hz switch", .{hz}, .{ .name = "", .group = .hum_drift_idle, .hum = .{ .hz = hz, .kind = .hum, .db = -40, .change = .{ .step_at_s = 1.5, .step_db = -4, .jump_at_s = 1.5, .jump_rad = 2 } }, .click_at_s = 1.5 });
+        add(.hum_drift_idle, "{d} Hz buzz bursts", .{hz}, .{ .name = "", .group = .hum_drift_idle, .hum = .{ .hz = hz, .kind = .buzz, .db = -40, .change = .{ .on_s = 1.0, .off_s = 2.2 } } });
+    }
     for ([_]Str{ guitar[0], guitar[1], guitar[3], bass[1] }) |s| {
         var o = string(s, 1);
         o.pluck_at = 1.0 / 3.0;
@@ -389,7 +439,7 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
             const second: usize = @intFromFloat(sr);
             db += 20 * std.math.log10(sig.rms(out[onset .. onset + second]));
         }
-        sig.mains(tmp[0..n], sr, h.hz, h.kind, db);
+        if (h.change) |ch| sig.mainsChanging(tmp[0..n], sr, h.hz, h.kind, db, ch) else sig.mains(tmp[0..n], sr, h.hz, h.kind, db);
         sig.mix(out, tmp[0..n]);
     }
     if (c.muted_hz) |hz| {
@@ -397,6 +447,12 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
             const at = onset + @as(usize, @intFromFloat(0.75 * sr * @as(f64, @floatFromInt(k))));
             sig.mutedString(out[at..], sr, hz, 0.03, 0.5, seed + k);
         }
+    }
+    if (c.click_at_s) |at_s| {
+        var rng = sig.MinStd.init(seed + 23);
+        const at: usize = @intFromFloat(at_s * sr);
+        const len: usize = @intFromFloat(0.005 * sr);
+        for (out[at..@min(n, at + len)]) |*v| v.* += @floatCast(0.03 * rng.next());
     }
     if (c.noise_db) |db| sig.addNoise(out, std.math.pow(f64, 10, db / 20), seed + 11);
     if (c.rumble_db) |db| {
@@ -594,7 +650,7 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
     const name = label(&name_buf, c, sr);
     st.reads += rs.len;
     switch (c.group) {
-        .hum, .noise, .muted => {
+        .hum, .noise, .muted, .hum_drift_idle => {
             for (rs) |r| {
                 if (r.note != null) st.false_notes += 1;
             }
@@ -852,7 +908,7 @@ const Player = struct {
 
 fn measurePlayer(alloc: std.mem.Allocator, pl: *Player, c: Case, sr: f64, rs: []const Display) !void {
     switch (c.group) {
-        .hum, .noise, .muted => {
+        .hum, .noise, .muted, .hum_drift_idle => {
             var prev = false;
             for (rs) |r| {
                 const on = r.note != null;
@@ -1056,10 +1112,10 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         \\
         \\## Targets
         \\
-        \\| candidate | glide P95 <= {d} c | steady P95 <= {d} c | beating P95 <= {d} c | jitter <= {d} c | octave errors = 0 | false notes = 0 | confident subharmonics = 0 | ramp within {d} c + {d} s | lock-on avg / worst (ms) <= {d:.1} / {d:.1} | hum under note P95 of shown <= {d} c, shown >= {d}% | single strings flagged several = 0 | core at 30 Hz 48k / 96k <= {d}% |
-        \\|---|---|---|---|---|---|---|---|---|---|---|---|---|
+        \\| candidate | glide P95 <= {d} c | steady P95 <= {d} c | beating P95 <= {d} c | jitter <= {d} c | octave errors = 0 | false notes = 0 | confident subharmonics = 0 | ramp within {d} c + {d} s | lock-on avg / worst (ms) <= {d:.1} / {d:.1} | hum under note P95 of shown <= {d} c, shown >= {d}% | hum drift P95 of shown <= {d} c, shown >= {d:.1}% | single strings flagged several = 0 | core at 30 Hz 48k / 96k <= {d}% |
+        \\|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
         \\
-    , .{ targets.glide_p95_cents, targets.steady_p95_cents, targets.beating_p95_cents, targets.jitter_cents, targets.ramp_cents, targets.ramp_lag_s, targets.lock_avg_ms, targets.lock_worst_ms, targets.hum_p95_cents, targets.hum_coverage_pct, targets.cpu_percent });
+    , .{ targets.glide_p95_cents, targets.steady_p95_cents, targets.beating_p95_cents, targets.jitter_cents, targets.ramp_cents, targets.ramp_lag_s, targets.lock_avg_ms, targets.lock_worst_ms, targets.hum_p95_cents, targets.hum_coverage_pct, targets.drift_p95_cents, targets.drift_coverage_pct, targets.cpu_percent });
     for (cands, results) |c, *r| {
         const g = &r.group;
         var glide: GroupStats = .{};
@@ -1084,13 +1140,13 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             const st = g[@intFromEnum(grp)];
             octave += st.octave;
             // Lock-on keeps the signals its baseline was measured on.
-            if (grp == .hum_target or grp == .ks_weak or grp == .third) continue;
+            if (grp == .hum_target or grp == .ks_weak or grp == .third or grp == .hum_drift) continue;
             lock_sum += st.lock_sum_ms;
             lock_n += st.lock_n;
             lock_never += st.lock_never;
             lock_worst = @max(lock_worst, st.lock_worst_ms);
         }
-        const false_notes = g[@intFromEnum(Group.hum)].false_notes + g[@intFromEnum(Group.noise)].false_notes + g[@intFromEnum(Group.muted)].false_notes;
+        const false_notes = g[@intFromEnum(Group.hum)].false_notes + g[@intFromEnum(Group.noise)].false_notes + g[@intFromEnum(Group.muted)].false_notes + g[@intFromEnum(Group.hum_drift_idle)].false_notes;
         const sub = g[@intFromEnum(Group.two_notes)].subharmonic;
         const ramp = g[@intFromEnum(Group.ramp)];
         const lock_avg = lock_sum / @as(f64, @floatFromInt(@max(lock_n, 1)));
@@ -1103,7 +1159,10 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         }
         const hum_p = p95Shown(alloc, hum);
         const hum_cover = 100 * @as(f64, @floatFromInt(hum.span_shown)) / @as(f64, @floatFromInt(@max(hum.span_reads, 1)));
-        try w.print("| {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d} {s} | {d} {s} | {d} {s} | {d} of {d} over {s} | {d:.1} / {d:.1}{s} {s} | {d:.3}, {d:.1}% {s} | {d} {s} | {d:.2}% / {d:.2}% {s} |\n", .{
+        const drift = g[@intFromEnum(Group.hum_drift)];
+        const drift_p = p95Shown(alloc, drift);
+        const drift_cover = 100 * @as(f64, @floatFromInt(drift.span_shown)) / @as(f64, @floatFromInt(@max(drift.span_reads, 1)));
+        try w.print("| {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d:.3} {s} | {d} {s} | {d} {s} | {d} {s} | {d} of {d} over {s} | {d:.1} / {d:.1}{s} {s} |", .{
             c.name,
             glide_p,
             verdict(glide_p <= targets.glide_p95_cents),
@@ -1126,9 +1185,14 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
             lock_worst,
             if (lock_never > 0) " (some never)" else "",
             verdict(lock_never == 0 and lock_avg <= targets.lock_avg_ms + 1e-9 and lock_worst <= targets.lock_worst_ms + 1e-9),
+        });
+        try w.print(" {d:.3}, {d:.1}% {s} | {d:.3}, {d:.1}% {s} | {d} {s} | {d:.2}% / {d:.2}% {s} |\n", .{
             hum_p,
             hum_cover,
             verdict(hum_p <= targets.hum_p95_cents and hum_cover >= targets.hum_coverage_pct),
+            drift_p,
+            drift_cover,
+            verdict(drift_p <= targets.drift_p95_cents and drift_cover >= targets.drift_coverage_pct),
             single_flagged,
             verdict(single_flagged <= targets.single_flagged),
             cpu48,

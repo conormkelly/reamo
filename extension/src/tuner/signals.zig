@@ -441,7 +441,61 @@ pub fn mains(out: anytype, sample_rate: f64, mains_hz: f64, kind: Mains, rms_db:
     scale(out, std.math.pow(f64, 10, rms_db / 20) / @sqrt(power));
 }
 
-/// A fretting-hand-muted ("dead") string: its first 8 harmonics die in
+/// How mains interference changes while it plays.
+pub const MainsChange = struct {
+    /// The mains frequency's drift, Hz a second (grid frequency wanders by
+    /// a few mHz a second, faster after a plant trips).
+    ramp_hz_per_s: f64 = 0,
+    /// From this many seconds, the level is `step_db` different (a player
+    /// turning towards or away from the source).
+    step_at_s: ?f64 = null,
+    step_db: f64 = 0,
+    /// From this many seconds, every harmonic k is `jump_rad` k further on
+    /// (a pickup switched, the hum's path changing).
+    jump_at_s: ?f64 = null,
+    jump_rad: f64 = 0,
+    /// The interference sounds only from `on_s` to `off_s` (a dimmer or a
+    /// power supply switching), abruptly.
+    on_s: f64 = 0,
+    off_s: f64 = std.math.inf(f64),
+};
+
+/// `mains` whose frequency drifts and whose level and phase change as
+/// `change` says; its level before any step is `rms_db` dBFS RMS.
+pub fn mainsChanging(out: anytype, sample_rate: f64, mains_hz: f64, kind: Mains, rms_db: f64, change: MainsChange) void {
+    @memset(out, 0);
+    var k: usize = 1;
+    var power: f64 = 0;
+    const top: f64 = switch (kind) {
+        .hum => 1000,
+        .buzz => 5000,
+    };
+    while (mains_hz * @as(f64, @floatFromInt(k)) < @min(top, sample_rate / 2)) : (k += 1) {
+        const kf: f64 = @floatFromInt(k);
+        const a = switch (kind) {
+            .hum => 1 / (kf * kf),
+            .buzz => (if (k % 2 == 1) @as(f64, 2) else 1) / @sqrt(kf),
+        };
+        power += a * a / 2;
+        for (out, 0..) |*s, i| {
+            const t = seconds(i, sample_rate);
+            if (t < change.on_s or t >= change.off_s) continue;
+            // Phase of the drifting fundamental: integral of f0 + r t.
+            var phase = tau * kf * (mains_hz * t + 0.5 * change.ramp_hz_per_s * t * t) + 0.7 * kf;
+            if (change.jump_at_s) |j| if (t >= j) {
+                phase += kf * change.jump_rad;
+            };
+            var gain = a;
+            if (change.step_at_s) |st| if (t >= st) {
+                gain *= std.math.pow(f64, 10, change.step_db / 20);
+            };
+            s.* += @floatCast(gain * @sin(phase));
+        }
+    }
+    scale(out, std.math.pow(f64, 10, rms_db / 20) / @sqrt(power));
+}
+
+/// A fretting-hand-muted ("dead") string/// A fretting-hand-muted ("dead") string: its first 8 harmonics die in
 /// `t60_s` (tens of milliseconds) under a burst of pick noise decaying ten
 /// times as fast. Added into `out`; no sample of it exceeds `peak`, and it
 /// is silent from 2 t60 on.
@@ -871,6 +925,25 @@ test "mains reaches its RMS level and holds only harmonics of the mains" {
             try testing.expect(toneAmplitude(&buf, sr, 2.5 * hz) < 1e-6);
         }
     }
+}
+
+test "mainsChanging drifts, steps, jumps and switches as asked" {
+    const sr = 48000.0;
+    var buf: [96000]f32 = undefined;
+    // 50 Hz rising 20 mHz a second: its 1st harmonic 20 mHz higher after 1 s.
+    mainsChanging(&buf, sr, 50, .hum, -40, .{ .ramp_hz_per_s = 0.02 });
+    const early = crossingFrequency(&buf, sr, 0, 10);
+    const late = crossingFrequency(&buf, sr, 48000, 10);
+    try testing.expectApproxEqAbs(@as(f64, 0.02), late.hz - early.hz, 0.004);
+    // A 6 dB step at 1 s.
+    mainsChanging(&buf, sr, 60, .buzz, -40, .{ .step_at_s = 1, .step_db = 6 });
+    try testing.expectApproxEqAbs(@as(f64, 6), 20 * std.math.log10(rms(buf[48000..]) / rms(buf[0..48000])), 0.1);
+    // Off until 1 s, unchanged from the plain hum after.
+    mainsChanging(&buf, sr, 50, .hum, -40, .{ .on_s = 1 });
+    try testing.expectEqual(@as(f64, 0), rms(buf[0..47000]));
+    var plain: [96000]f32 = undefined;
+    mains(&plain, sr, 50, .hum, -40);
+    for (buf[48000..], plain[48000..]) |a, b| try testing.expectApproxEqAbs(b, a, 1e-6);
 }
 
 test "a muted string stays under its peak and is silent from twice its t60" {
