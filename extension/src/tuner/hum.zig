@@ -18,14 +18,15 @@
 //! out of a stretch of input, extrapolating their phase. Pure and
 //! allocation-free.
 const std = @import("std");
+const th = @import("thresholds.zig");
 const first_partial = @import("first_partial.zig");
 
 pub const max_components = 40;
 /// Harmonics are fitted up to this frequency.
-const top_hz = 2000.0;
+const top_hz = th.hum.top_hz;
 /// A component is kept when its amplitude is this many times the median
 /// amplitude half-way between harmonics (12 dB).
-const over_noise = 4.0;
+const over_noise = th.hum.over_noise;
 
 pub const Model = struct {
     base_hz: f64 = 0,
@@ -48,8 +49,8 @@ pub const Model = struct {
     /// the same strongest amplitude within 1.5 dB.
     pub fn agrees(self: Model, other: Model) bool {
         if (self.count == 0 or other.count == 0) return false;
-        if (@abs(self.base_hz - other.base_hz) > 0.05) return false;
-        return @abs(20 * std.math.log10(self.strongest() / other.strongest())) <= 1.5;
+        if (@abs(self.base_hz - other.base_hz) > th.hum.agree_hz) return false;
+        return @abs(20 * std.math.log10(self.strongest() / other.strongest())) <= th.hum.agree_db;
     }
 
     /// Takes out of `x` (input samples `start` on, at `rate`) the components
@@ -91,10 +92,10 @@ pub const Spectrum = struct {
 
 /// The input's amplitude and phase are measured over its last this-much
 /// (enough to part harmonics 50 Hz apart), the frequency over all of it.
-const tail_s = 0.15;
+const tail_s = th.hum.tail_s;
 /// Harmonics used to measure the mains frequency, strongest first.
-const slope_harmonics = 3;
-const advance_harmonics = 4;
+const slope_harmonics = th.hum.slope_harmonics;
+const advance_harmonics = th.hum.advance_harmonics;
 
 /// The hum in `x` (input samples `start` on, at `rate`), whose Hann power
 /// spectrum is `sp`, or null if no harmonic of 50 or 60 Hz stands 12 dB

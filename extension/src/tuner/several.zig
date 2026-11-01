@@ -22,6 +22,7 @@
 //! The spectrum should be Blackman-Harris windowed: Hann's leakage from
 //! two strong neighbours puts power in the holes. Pure and allocation-free.
 const std = @import("std");
+const th = @import("thresholds.zig");
 
 pub const Spectrum = struct {
     /// Power per bin, bin 0 at 0 Hz.
@@ -32,18 +33,18 @@ pub const Spectrum = struct {
 };
 
 /// A strong peak is within this many dB of the strongest.
-const strong_db = 20.0;
+const strong_db = th.several.strong_db;
 /// A harmonic is present if a local maximum near it is within this many
 /// dB of the strongest peak and 10 dB over the noise floor.
-const present_db = 50.0;
-const over_floor = 10.0;
+const present_db = th.several.present_db;
+const over_floor = th.several.over_floor;
 /// Peaks are matched to harmonics within 30 cents plus a stiff string's
 /// stretch at this inharmonicity (fretted bass is about 1e-3), and never
 /// more than a quarter of the spacing.
-const max_inharmonicity = 1.5e-3;
+const max_inharmonicity = th.several.max_inharmonicity;
 /// The 4-term Blackman-Harris main lobe is 4 bins of 1 / length_s either
 /// side; two partials are told apart only this many half-widths apart.
-const resolution = 2.0;
+const resolution = th.several.resolution;
 
 pub const max_peaks = 16;
 pub const floor_samples = 512;

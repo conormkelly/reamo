@@ -116,6 +116,9 @@
 //!   wanders up to 2 cents with another note a quarter of its frequency
 //!   away, and the sympathetic string outlasts the note in those cases.
 //!
+//! Every tuned threshold and constant, with its unit and how the bench
+//! answers when it moves, is in thresholds.zig.
+//!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
 //! (about 670 KB, so not on the stack) and calls `push` and `analyse` from
@@ -125,6 +128,7 @@ const fft_mod = @import("fft.zig");
 const first_partial = @import("first_partial.zig");
 const several = @import("several.zig");
 const hum = @import("hum.zig");
+const th = @import("thresholds.zig");
 
 /// What the tuner's user sets.
 pub const Settings = struct {
@@ -177,42 +181,42 @@ pub const Reading = struct {
 pub const min_sample_rate = 8000;
 pub const max_sample_rate = 384000;
 
-const window_seconds = 4096.0 / 44100.0;
+const window_seconds = th.yin.window_s;
 /// The shortest period searched, as a frequency (as in the JSFX).
-const max_pitch_hz = 2000.0;
+const max_pitch_hz = th.yin.max_pitch_hz;
 
 /// How the analyser is built. The defaults are the tuner's; the other
 /// values exist so the bench can measure what each choice buys.
 pub const Options = struct {
     /// Cut-off of the input low-pass; null for none.
-    lowpass_hz: ?f64 = 2000,
+    lowpass_hz: ?f64 = th.yin.lowpass_hz,
     /// Above this rate only every D-th filtered sample is analysed, with D
     /// the smallest whole number that brings the rate down to it.
     max_analysis_rate: f64 = 48000,
     /// With no dip under the dip threshold, the deepest dip must be under
     /// this for a pitch; null reports the deepest dip whatever its depth,
     /// as the JSFX does.
-    voicing_threshold: ?f64 = 0.3,
+    voicing_threshold: ?f64 = th.yin.voicing,
     /// YIN's absolute threshold: the first dip under it is the period.
-    dip_threshold: f64 = 0.15,
+    dip_threshold: f64 = th.yin.dip,
     /// An onset is a 5 ms block with this many dB more energy than the
     /// mean of the blocks 10 to 40 ms before it (8 times).
-    onset_db: f64 = 9.030899869919435,
+    onset_db: f64 = th.onset.jump_db,
     /// How YIN's period is refined to the first partial's frequency (see
     /// first_partial.zig); null reports YIN's interpolated period.
     refinement: ?first_partial.Method = .phase_slope,
     /// The refinement measures at most this much of the input since the
     /// last onset.
-    refine_window_s: f64 = 0.3,
+    refine_window_s: f64 = th.refine.window_s,
     /// The uncertainty given YIN's frequency as an estimate of the first
     /// partial (mostly the pull of a stiff string's upper partials): the
     /// reading weights YIN's and the refinement's frequencies by the
     /// inverse of their variances.
-    yin_sigma_cents: f64 = 1,
+    yin_sigma_cents: f64 = th.refine.yin_sigma_cents,
     /// After an onset, a jump of the frequency by 2, 3 or 4 times (either
     /// way) is held back until this many analyses in a row agree; 0 for
     /// none.
-    octave_hold: u8 = 3,
+    octave_hold: u8 = th.hold.octave_analyses,
     /// Whether the shown pitch is smoothed: readings far from the median
     /// of the last five replaced by it (a Hampel filter), then a one-euro
     /// filter, whose cutoff rises with the pitch's rate of change, so it
@@ -229,18 +233,18 @@ pub const Options = struct {
     euro_rate_hz: f64 = 1,
     /// How long after an onset (or a jump of more than a semitone) the
     /// reading is `settling`.
-    settle_s: f64 = 0.12,
+    settle_s: f64 = th.hold.settle_s,
     /// `stable` needs the shown pitch's least-squares slope over this long
     /// under `stable_cents_per_s`.
-    stable_s: f64 = 0.3,
-    stable_cents_per_s: f64 = 0.5,
+    stable_s: f64 = th.hold.stable_s,
+    stable_cents_per_s: f64 = th.hold.stable_cents_per_s,
     /// `stable` also needs the shown pitch within this RMS of that line,
     /// cents; null for no such check.
-    stable_spread_cents: ?f64 = 0.1,
+    stable_spread_cents: ?f64 = th.hold.stable_spread_cents,
     /// A note shows only while the window's level stands this many dB over
     /// a noise floor learned while no note shows (it follows the level down
     /// at once and up at `floor_rise_db_per_s`); null for no learned floor.
-    floor_margin_db: ?f64 = 12,
+    floor_margin_db: ?f64 = th.gate.floor_margin_db,
     /// Whether a note needs an onset to start showing: hum and noise have
     /// none. A note that stops showing starts again only at a new onset,
     /// unless it dropped out for under `resume_s` with the level still up.
@@ -249,7 +253,7 @@ pub const Options = struct {
     /// within this many dB of the window's mean: once a string has stopped
     /// (a muted stroke, a damped note) the window still holds its tail for
     /// 93 ms, but nothing is sounding now. Null for no such check.
-    release_drop_db: ?f64 = 20,
+    release_drop_db: ?f64 = th.gate.release_drop_db,
     /// Whether a note within `mains_cents` of a harmonic of 50 or 60 Hz
     /// whose level has fallen less than `mains_decay_db` over the last
     /// `mains_hold_s` stops showing, as mains hum or buzz. Off: hum and
@@ -267,7 +271,7 @@ pub const Options = struct {
     /// null for none. Hum, buzz and noise switching on rise too: noise has
     /// no pitch, and hum and buzz wait as after any onset
     /// (`mains_start_hold`).
-    slow_onset_db: ?f64 = 12,
+    slow_onset_db: ?f64 = th.onset.rise_db,
     /// Whether a note whose input since its onset repeats at the period of
     /// 50 or 60 Hz mains (see `mainsPeriodic`) waits to start until its
     /// level is seen to fall: by `mains_fall_db` over each of the last two
@@ -299,7 +303,7 @@ pub const Options = struct {
     /// holds for one string, but another note under it (a string ringing
     /// in sympathy) pulls YIN's period by tens of cents while the first
     /// partial's phase slope stays within a cent. Null to always combine.
-    yin_consistency: ?f64 = 3,
+    yin_consistency: ?f64 = th.refine.yin_consistency,
     /// Whether, while a note shows, the fine input less itself a period of
     /// that note earlier (whatever isn't that note) is watched for a jump
     /// as an onset is, and the note such an onset starts measured with the
@@ -319,74 +323,74 @@ pub const Options = struct {
     subharmonic_check: bool = true,
 };
 
-const subharmonic_min_dip = 0.03;
-const subharmonic_ratio = 0.25;
+const subharmonic_min_dip = th.yin.subharmonic_min_dip;
+const subharmonic_ratio = th.yin.subharmonic_ratio;
 
 /// The hum is learned every `hum_hop_s` from the idle input since the
 /// last onset, at least `hum_learn_min_s` and at most `hum_learn_max_s` of
 /// it (the longer, the more exactly the mains frequency is known, and the
 /// further its phase can be carried through a note).
-const hum_learn_min_s = 0.15;
-const hum_learn_max_s = 0.5;
-const hum_hop_s = 0.05;
+const hum_learn_min_s = th.hum.learn_min_s;
+const hum_learn_max_s = th.hum.learn_max_s;
+const hum_hop_s = th.hum.hop_s;
 /// Once two learns agree, the hum is learned again only this often.
-const hum_relearn_s = 0.25;
+const hum_relearn_s = th.hum.relearn_s;
 
-const floor_rise_db_per_s = 20.0;
-const resume_s = 0.25;
+const floor_rise_db_per_s = th.gate.floor_rise_db_per_s;
+const resume_s = th.gate.resume_s;
 /// Longer than B0's period, so a low note's waveform doesn't swing it.
-const release_s = 0.04;
+const release_s = th.gate.release_s;
 /// Input samples beyond this magnitude are taken for silence.
-const max_sample = 1000.0;
-const onset_floor_hold_s = 0.25;
+const max_sample = th.gate.max_sample;
+const onset_floor_hold_s = th.gate.onset_floor_hold_s;
 /// An onset starts a note only within this long of the first analysis
 /// that saw it.
-const onset_life_s = 0.25;
-const mains_cents = 15.0;
-const mains_decay_db = 1.0;
-const mains_hold_s = 1.0;
+const onset_life_s = th.onset.life_s;
+const mains_cents = th.mains.rule_cents;
+const mains_decay_db = th.mains.decay_db;
+const mains_hold_s = th.mains.hold_s;
 /// Longer than the window, so a step in the level can't fall over two
 /// spans in a row.
-const mains_fall_s = 0.1;
+const mains_fall_s = th.mains.fall_s;
 /// The slow onset looks back this far, over the lowest window level in
 /// each of `rise_buckets` spans.
-const slow_onset_s = 2.0;
-const rise_buckets: usize = 40;
+const slow_onset_s = th.onset.rise_span_s;
+const rise_buckets = th.onset.rise_buckets;
 /// A rise starts where the level last stood within this of its lowest.
-const rise_quiet_db = 3.0;
-const mains_fall_db = 0.1;
+const rise_quiet_db = th.onset.rise_quiet_db;
+const mains_fall_db = th.mains.fall_db;
 /// The input since an onset repeats at the mains period if, at a lag
 /// within `mains_period_tolerance` of 1/50 or 1/60 s, its normalised
 /// difference with itself is under `mains_periodic_max`; at least
 /// `mains_periodic_min_s` of it must overlap.
-const mains_period_tolerance = 0.01;
-const mains_periodic_max = 0.01;
-const mains_periodic_min_s = 0.005;
+const mains_period_tolerance = th.mains.period_tolerance;
+const mains_periodic_max = th.mains.periodic_max;
+const mains_periodic_min_s = th.mains.periodic_min_s;
 /// The first readings of hum or buzz that has just switched on are within
 /// this of 50 or 60 Hz times 1 to 4 (33 cents seen); only such readings
 /// wait for the input to be judged, and no note in tune at A = 440 Hz is
 /// within it (G1, G2, D3 and G3 are 35-37 cents away, F#3 47).
-const mains_first_cents = 45.0;
+const mains_first_cents = th.mains.first_cents;
 /// Hum and buzz read 50 or 60 Hz, or a low multiple where the fundamental
 /// is weak: 4 x 60 Hz, and the first readings' 30 cents. Higher notes
 /// repeat at the mains period wherever they lie within 17 cents of any
 /// multiple, and are never taken for it.
-const mains_reading_max_hz = 4 * 60 * 1.02;
+const mains_reading_max_hz = th.mains.reading_max_hz;
 /// Window levels kept for the mains rule (a little over 2 s at 30 Hz).
 const level_history_len = 72;
 
 /// Analyses kept for the Hampel filter, and entries (at most one every
 /// stable_s / 20) for the stability slope.
-const hampel_len = 5;
+const hampel_len = th.hold.hampel_len;
 const history_len = 32;
 /// The Hampel filter replaces a reading more than 3 scaled median absolute
 /// deviations from the median, and at least this many cents.
-const hampel_floor_cents = 1.0;
+const hampel_floor_cents = th.hold.hampel_floor_cents;
 
 /// The refinement's input is the analysed signal low-passed again and
 /// decimated to a rate from this up to twice it (the first partial is
 /// under 2 kHz); rates under it are kept as they are.
-const fine_rate_floor = 11025.0;
+const fine_rate_floor = th.refine.fine_rate_floor;
 /// The longest period the refinement averages over: YIN's longest
 /// (half the window) at the fastest fine rate.
 const max_fine_period: usize = @as(usize, @intFromFloat(@ceil(2 * fine_rate_floor * window_seconds / 2))) + 1;
@@ -394,9 +398,9 @@ const max_fine_period: usize = @as(usize, @intFromFloat(@ceil(2 * fine_rate_floo
 /// An onset is a 5 ms block of fine-rate input with `Options.onset_db`
 /// more energy than the mean of the blocks 10 to 40 ms before it, at
 /// least 50 ms after the last one.
-const onset_block_s = 0.005;
-const onset_history = 8;
-const onset_refractory_s = 0.05;
+const onset_block_s = th.onset.block_s;
+const onset_history = th.onset.history;
+const onset_refractory_s = th.onset.refractory_s;
 
 /// The tuner's analyser.
 pub const Analyser = AnalyserWith(.{});

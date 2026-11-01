@@ -64,7 +64,7 @@ pub fn Work(comptime max_period: usize) type {
 
 /// Past this phase scatter (radians RMS about the line) the phase can't be
 /// unwrapped reliably and `std_error_hz` no longer bounds the error.
-pub const max_residual_rad = 0.25;
+pub const max_residual_rad = @import("thresholds.zig").refine.max_residual_rad;
 
 pub const Estimate = struct {
     hz: f64,
