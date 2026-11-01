@@ -21,14 +21,18 @@
 //! - the main thread's 30 Hz subscription poll sends the latest reading to
 //!   each phone, and takes the phones' settings to the worker.
 //!
-//! The analysis is off the main thread because it is REAPER's UI thread,
-//! and a tick isn't always cheap. Measured in ReleaseSafe at 48 kHz (one
-//! tick: 1600 samples pushed, one analysis): about 0.15 ms once a note has
-//! started, but about 3.4 ms on every tick from the analyser's start until
-//! its first onset, which over a mix already playing, or hum, can be
-//! indefinitely: a tenth of the UI's 33 ms frame. On the worker that costs
-//! the UI nothing, and the reading and settings cross under a lock held
-//! only to copy them.
+//! The analysis is off the main thread because that is REAPER's UI
+//! thread. A tick (1/30 s of samples pushed, one analysis) costs 0.17 ms on
+//! average and at most 0.44 ms, ReleaseSafe at 44.1, 48 and 96 kHz over a
+//! 60 s session of notes and hum: half a percent of a core. That alone
+//! would fit in the poll, but on the worker the UI pays nothing for it
+//! whatever the analyser comes to cost (its tick has cost 20 times this
+//! before), and track tuners will add an analysis per tuned source. The
+//! reading and settings cross under a lock held only to copy them.
+//!
+//! A note shows no name, and so no pitch, until the analyser's window is
+//! wholly past its onset: about 0.1 s after a pluck, the first tick past
+//! the 93 ms window.
 //!
 //! The analyser shows a note only from an onset: a string already ringing
 //! when the tuner opens shows once it is plucked again.
@@ -51,9 +55,8 @@ pub const reference_max_hz = 480.0;
 pub const silence_min_db = -90.0;
 pub const silence_max_db = -30.0;
 
-/// The analysis rate: the tuner's 30 Hz. The analyser's `stable` flag needs
-/// analyses at most about 128 Hz apart, and the phones are sent readings at
-/// 30 Hz.
+/// The analysis rate: the tuner's 30 Hz, the rate the phones are sent
+/// readings at.
 const default_tick_ns: u64 = std.time.ns_per_s / 30;
 
 /// Ticks without a sample before the reading clears and the analyser
@@ -213,7 +216,7 @@ pub const MasterTuner = struct {
     }
 
     /// The absolute silence threshold, held to the tuner's range. It takes
-    /// effect with the analyser's next input. Main thread.
+    /// effect at the worker's next tick. Main thread.
     pub fn setSilenceDb(self: *MasterTuner, db: f64) void {
         if (!std.math.isFinite(db)) return;
         self.lock.lock();
