@@ -462,16 +462,19 @@ backtraces in `reaper.out`.
   Written as it goes, so a crash leaves it.
 - `soak-threads.csv`: per sample, each thread that used CPU: tid, name,
   group, CPU %. REAPER names its threads (`reaper/audio_dm`,
-  `reaper/mediaafx`, ...); the main thread is `main`; REAmo's threads
-  (HTTP/WebSocket server, audio stream) have no name and show as
-  `unnamed`. The control runs none. A row with no tid,
+  `reaper/mediaafx`, ...); the main thread is `main`. A thread nobody
+  names keeps the name of the thread that created it: other threads
+  named `reaper` show as `unnamed`. In these runs those were REAmo's
+  (HTTP/WebSocket server, audio stream) and the control ran none, but
+  that is an observation, not a guarantee. A row with no tid,
   `exited during sample`, is the process's CPU that no thread alive at
   the sample's end accounts for (threads that exited in it, such as an
   audio stream's), so the groups add up to the process's CPU, give or
   take a tick.
 - `soak-summary.json`: settings, seed, metrics, limits, refusals,
   problems, RSS growth by mapping (`[heap]`, anonymous, libraries), CPU by
-  thread group and the busiest threads, and `baseline`: the control's
+  thread group and the busiest threads, threads per group when sampling
+  began (`threads_by_group_at_start`), and `baseline`: the control's
   numbers beside the soak's.
 
 `out/long-session-baseline/` keeps the control's, without `baseline`.
@@ -486,15 +489,16 @@ Narrow it in this order:
    library's mapping, `[heap]` (the main malloc arena) or anonymous
    (other malloc arenas, mmaps, thread stacks). `extension_memory`
    (`debug/memoryStats`) covers only REAmo's polling-state arenas (the
-   30, 5 and 1 Hz tiers); growth outside them shows in the mappings only. `cpu_pct_by_thread_group`
-   and `soak-threads.csv` say which thread: `unnamed` is REAmo's server
-   or audio stream threads; `main` runs REAmo's timer and command
-   handlers as well as REAPER's UI; `reaper/audio_dm` runs REAmo's audio
-   hook as well as REAPER's audio; other `reaper/*` threads are REAPER's.
+   30, 5 and 1 Hz tiers); growth outside them shows in the mappings
+   only. `cpu_pct_by_thread_group` and `soak-threads.csv` say which
+   thread, and `threads_by_group_at_start` how many each group had:
+   `unnamed` has been REAmo's server and audio stream threads (the
+   control had none); `main` runs REAmo's timer and command handlers as
+   well as REAPER's UI; `reaper/audio_dm` runs REAmo's audio hook as well
+   as REAPER's audio; other `reaper/*` threads are REAPER's.
 3. **Which ops.** Rerun with `SOAK_OPS` cut down (`peaks`, `-audio`,
    `trackFx`, ...): the op family the growth follows points at its
    command handlers.
-4. **Profile the narrowed case.** Profiling is being evaluated separately.
 
 ### Where the limits come from
 
@@ -513,9 +517,9 @@ Measured on REAPER 7.83, aarch64 Docker, up to seven runs at once:
   flat; CPU drift within 1.1 points.
 - Soak beside the control, 60 minutes, 20-minute warm-up: the control
   (REAPER alone) held at 180 MB with no growth (slope 0.00 MB/h), CPU
-  15.4 % (main thread 3.2 %), 30 threads, none unnamed, 18 open files. The
-  soak held at 237 MB, 1.2 MB growth, 1.3 MB/h, CPU 18.3 % (main 5.6 %,
-  REAmo's unnamed threads 0.3 %), drift -0.5 points in both. The
+  15.4 % (main thread 3.2 %), 30 threads, none of them unnamed, 18 open
+  files. The soak held at 237 MB, 1.2 MB growth, 1.3 MB/h, CPU 18.3 %
+  (main 5.6 %, unnamed threads 0.3 %), drift -0.5 points in both. The
   difference is REAmo under the phones' load: 57 MB, 2.9 points of CPU
   (2.4 on the main thread), 10 to 11 threads.
 

@@ -23,7 +23,7 @@ made, and undo history grows by design, which would hide a leak.
 
 REAPER's RSS, CPU (process and main thread), threads and open files are
 sampled from /proc every SOAK_SAMPLE_SECS, and each thread's CPU with its
-name: REAPER names its threads, REAmo's are unnamed. RSS by mapping
+name: REAPER names its threads, REAmo doesn't name its own. RSS by mapping
 (libraries, [heap], anonymous) is read at the end of warm-up and at the
 end. Two probes tell a slow REAPER from a hung one, each failing after
 HANG_SECS without an answer: the desk sends a main-thread command every
@@ -718,10 +718,13 @@ def thread_ticks(pid):
 
 def thread_group(pid, tid, name):
     """REAPER names its own threads ("reaper/audio_dm", "reaper/mediaafx",
-    ...). The main thread (tid = pid) and threads nobody named carry the
-    process's name, "reaper"; without REAmo, REAPER runs none of the
-    latter, so they are REAmo's (its HTTP and WebSocket server threads and
-    the audio stream's network thread)."""
+    ...). A thread nobody names keeps the name of the thread that created
+    it, which for REAmo's threads (its HTTP and WebSocket server threads,
+    the audio stream's network thread) is "reaper", the main thread's
+    name. So a non-main thread named "reaper" is "unnamed". That these are
+    REAmo's is what the harness runs show, not a guarantee: REAPER 7.83
+    without REAmo ran none. A thread REAmo starts from a named thread
+    would carry that thread's name instead."""
     if tid == pid:
         return "main"
     return "unnamed" if name == "reaper" else name
