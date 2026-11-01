@@ -459,9 +459,9 @@ const level_history_len = th.mains.history_buckets;
 const level_bucket_s = th.mains.history_bucket_s;
 
 /// Analyses kept for the Hampel filter, and entries (at most one every
-/// stable_s / 20) for the stability slope.
+/// stable_s / `th.hold.stable_entries`) for the stability slope.
 const hampel_len = th.hold.hampel_len;
-const history_len = 32;
+const history_len = th.hold.stable_history;
 /// The Hampel filter replaces a reading more than 3 scaled median absolute
 /// deviations from the median, and at least this many cents.
 const hampel_floor_cents = th.hold.hampel_floor_cents;
@@ -534,8 +534,6 @@ pub fn AnalyserWith(comptime options: Options) type {
         fine_phase: usize,
         fine: [max_fine]f64,
         fine_count: u64,
-        /// `fine_count` at the last onset.
-        onset_at: u64,
         block_len: usize,
         block_fill: usize,
         block_energy: f64,
@@ -560,10 +558,8 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `onset_at` before the last such onset.
         comb_prev_onset_at: u64,
         /// Full blocks since the reset (onsets are looked for only once the
-        /// blocks before one are input, not the reset's silence), and onsets
-        /// in all.
+        /// blocks before one are input, not the reset's silence).
         blocks_seen: usize,
-        onset_count: u64,
         /// The fine input since the last onset (at most refine_window_s),
         /// oldest first, loaded by each analysis.
         segment: [max_fine]f64,
@@ -626,32 +622,16 @@ pub fn AnalyserWith(comptime options: Options) type {
         last_clarity: f64,
 
         /// The gate: the input it last decided at and its decision, the
-        /// learned floor (dBFS, NaN before any input), whether a note is
-        /// showing, the onset that started it and when, when it stopped and
-        /// whether it may resume, and the window levels of recent analyses.
+        /// settings it decided with, its state (`gs`) and that state before
+        /// it decided on the current input, restored whole to decide again
+        /// on the same input with new settings.
         gate_at: u64,
         gate_open: bool,
-        /// The settings the gate last decided with, and its state before it
-        /// decided on the current input.
         gate_settings: Settings,
+        gs: GateState,
         gate_before: GateState,
-        floor_db: f64,
-        /// Floor learning stops at an onset until the gate has decided on it.
-        floor_paused: bool,
         /// Kept samples to the next floor update.
         floor_countdown: usize,
-        note_active: bool,
-        note_onset_count: u64,
-        note_start: f64,
-        note_end: f64,
-        note_may_resume: bool,
-        /// The pitch measured at the note's last analysis, Hz (0 for none).
-        note_last_hz: f64,
-        /// The pitch a jump stopped a note at (0 if the last note didn't
-        /// end at a jump), and the new pitch waited on since when.
-        jump_from_hz: f64,
-        jump_wait_hz: f64,
-        jump_wait_since: f64,
         /// Per span: when its latest analysis was (-inf for none), that
         /// analysis's window level, and the loudest in the span; and the
         /// latest span's number.
@@ -663,19 +643,11 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// rise_buckets (+inf for none), and the span of the latest.
         rise_min: [rise_buckets]f64,
         rise_last: u64,
-        /// Whether the input had risen at the last analysis, with no note
-        /// showing.
-        rise_prev: bool,
         /// The onset count the lowest levels were kept since.
         rise_onset: u64,
         /// `fine_count` at the latest analysis whose level was within
         /// `rise_quiet_db` of the lowest.
         rise_quiet_at: u64,
-        /// The onset the mains hold last kept a note from starting at.
-        mains_waiting: u64,
-        /// The last onset the gate has seen, and when it first saw it.
-        onset_seen: u64,
-        onset_seen_at: f64,
 
         /// Sets up for `sample_rate` and starts from silence.
         pub fn init(self: *Self, sample_rate: f64) error{UnsupportedSampleRate}!void {
@@ -691,7 +663,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.lowpass = if (options.lowpass_hz) |hz| Biquad.lowpass(sample_rate, hz) else Biquad.passthrough;
             self.fine_decimation = @max(1, @as(usize, @intFromFloat(@floor(analysis_rate / fine_rate_floor))));
             self.fine_rate = analysis_rate / @as(f64, @floatFromInt(self.fine_decimation));
-            self.fine_lowpass = if (self.fine_decimation > 1) Biquad.lowpass(analysis_rate, 2000) else Biquad.passthrough;
+            self.fine_lowpass = if (self.fine_decimation > 1) Biquad.lowpass(analysis_rate, th.refine.fine_lowpass_hz) else Biquad.passthrough;
             self.block_len = @intFromFloat(@round(onset_block_s * self.fine_rate));
             self.fft.init();
             self.reset();
@@ -709,7 +681,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.fine_phase = 0;
             @memset(&self.fine, 0);
             self.fine_count = 0;
-            self.onset_at = 0;
+            self.gs.onset_at = 0;
             self.segment_len = 0;
             self.heard_several = false;
             self.moved_from = null;
@@ -740,34 +712,34 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.history_pos = 0;
             self.last_clarity = 0;
             self.blocks_seen = 0;
-            self.onset_count = 0;
+            self.gs.onset_count = 0;
             self.gate_at = std.math.maxInt(u64);
             self.gate_open = false;
             self.gate_settings = .{};
-            self.floor_db = std.math.nan(f64);
-            self.floor_paused = false;
+            self.gs.floor_db = std.math.nan(f64);
+            self.gs.floor_paused = false;
             self.floor_countdown = 0;
-            self.note_active = false;
-            self.note_onset_count = 0;
-            self.note_start = 0;
-            self.note_end = -std.math.inf(f64);
-            self.note_may_resume = false;
-            self.note_last_hz = 0;
-            self.jump_from_hz = 0;
-            self.jump_wait_hz = 0;
-            self.jump_wait_since = 0;
+            self.gs.note_active = false;
+            self.gs.note_onset_count = 0;
+            self.gs.note_start = 0;
+            self.gs.note_end = -std.math.inf(f64);
+            self.gs.note_may_resume = false;
+            self.gs.note_last_hz = 0;
+            self.gs.jump_from_hz = 0;
+            self.gs.jump_wait_hz = 0;
+            self.gs.jump_wait_since = 0;
             @memset(&self.level_t, -std.math.inf(f64));
             @memset(&self.level_v, 0);
             @memset(&self.level_max, -std.math.inf(f64));
             self.level_last = 0;
             @memset(&self.rise_min, std.math.inf(f64));
             self.rise_last = 0;
-            self.rise_prev = false;
+            self.gs.rise_prev = false;
             self.rise_onset = 0;
             self.rise_quiet_at = 0;
-            self.onset_seen = 0;
-            self.onset_seen_at = 0;
-            self.mains_waiting = 0;
+            self.gs.onset_seen = 0;
+            self.gs.onset_seen_at = 0;
+            self.gs.mains_waiting = 0;
             self.block_fill = 0;
             self.block_energy = 0;
             @memset(&self.blocks, 0);
@@ -816,15 +788,15 @@ pub fn AnalyserWith(comptime options: Options) type {
             const step_s = th.gate.floor_step_s;
             // This call is one kept sample: the next update is a step on.
             self.floor_countdown = @as(usize, @intFromFloat(@round(step_s * self.analysis_rate))) -| 1;
-            if (self.note_active or self.floor_paused) return;
+            if (self.gs.note_active or self.gs.floor_paused) return;
             // While a note that dropped out may still resume, the input is
             // that note, not the floor.
             const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
-            if (self.note_may_resume and now - self.note_end < resume_s) return;
+            if (self.gs.note_may_resume and now - self.gs.note_end < resume_s) return;
             // A window not yet full of input reads low.
             if (self.kept_count < self.window) return;
             const level = self.windowLevelDb();
-            self.floor_db = if (std.math.isNan(self.floor_db)) level else @min(level, self.floor_db + floor_rise_db_per_s * step_s);
+            self.gs.floor_db = if (std.math.isNan(self.gs.floor_db)) level else @min(level, self.gs.floor_db + floor_rise_db_per_s * step_s);
         }
 
         fn pushFine(self: *Self, y: f64) void {
@@ -845,14 +817,14 @@ pub fn AnalyserWith(comptime options: Options) type {
             var before: f64 = 0;
             for (2..onset_history) |k| before += self.blocks[(self.blocks_pos + onset_history - k) % onset_history];
             before /= onset_history - 2;
-            const since_last = self.fine_count - self.onset_at;
+            const since_last = self.fine_count - self.gs.onset_at;
             const refractory: u64 = @intFromFloat(onset_refractory_s * self.fine_rate);
             const heard = self.blocks_seen >= onset_history;
-            const free = self.onset_count == 0 or since_last >= refractory;
+            const free = self.gs.onset_count == 0 or since_last >= refractory;
             if (heard and self.block_energy > onset_ratio * before and self.block_energy > 0 and free) {
-                self.onset_at = self.fine_count - self.block_len;
-                self.onset_count += 1;
-                self.floor_paused = true;
+                self.gs.onset_at = self.fine_count - self.block_len;
+                self.gs.onset_count += 1;
+                self.gs.floor_paused = true;
             } else if (self.comb_period > 0) {
                 // A new sound over a ringing note need not add energy (the
                 // ringing one damped as the next is plucked), but what isn't
@@ -861,11 +833,11 @@ pub fn AnalyserWith(comptime options: Options) type {
                 for (2..onset_history) |k| comb_before += self.comb_blocks[(self.blocks_pos + onset_history - k) % onset_history];
                 comb_before /= onset_history - 2;
                 if (self.comb_seen >= onset_history and free and self.comb_energy > onset_ratio * comb_before and onset_ratio * self.comb_energy > self.block_energy) {
-                    self.comb_prev_onset_at = self.onset_at;
-                    self.onset_at = self.fine_count - self.block_len;
-                    self.onset_count += 1;
-                    self.floor_paused = true;
-                    self.comb_onset = self.onset_count;
+                    self.comb_prev_onset_at = self.gs.onset_at;
+                    self.gs.onset_at = self.fine_count - self.block_len;
+                    self.gs.onset_count += 1;
+                    self.gs.floor_paused = true;
+                    self.comb_onset = self.gs.onset_count;
                     self.comb_old_hz = self.fine_rate / self.comb_period;
                 }
             }
@@ -895,7 +867,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// the comparison's history afresh.
         fn setComb(self: *Self, hz: ?f64) void {
             const period = if (hz) |f| self.fine_rate / f else 0;
-            if (period == 0 or self.comb_period == 0 or @abs(period / self.comb_period - 1) > 0.01) self.comb_seen = 0;
+            if (period == 0 or self.comb_period == 0 or @abs(period / self.comb_period - 1) > th.onset.comb_period_change) self.comb_seen = 0;
             self.comb_period = period;
         }
 
@@ -903,7 +875,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `refine_window_s` of it, into `segment`.
         fn loadSegment(self: *Self) void {
             const want: u64 = @intFromFloat(options.refine_window_s * self.fine_rate);
-            const since_onset = self.fine_count - self.onset_at;
+            const since_onset = self.fine_count - self.gs.onset_at;
             const n: usize = @intCast(@min(@min(want, since_onset), @min(self.fine_count, max_fine)));
             const start = self.fine_count - n;
             for (self.segment[0..n], 0..) |*d, i| d.* = self.fine[@intCast((start + i) % max_fine)];
@@ -916,7 +888,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             const period = self.fine_rate / hz;
             const skip: usize = @intFromFloat(@ceil(period) + 1);
             const n = self.segment_len;
-            if (n <= skip + 16) {
+            if (n <= skip + th.refine.min_segment) {
                 self.segment_len = 0;
                 return;
             }
@@ -939,10 +911,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             const e = first_partial.estimate(max_fine_period, &self.refine_work, self.segment[0..self.segment_len], self.fine_rate, guess_hz, method) orelse return null;
             // A partial a quarter-tone or more from the guess is not the
             // one YIN found.
-            if (!(@abs(1200 * @log2(e.hz / guess_hz)) < 50)) return null;
-            // 1200 / ln 2 cents per unit of relative frequency; the standard
-            // error runs up to 15% under the observed scatter.
-            self.last_sigma = 1.15 * 1731.234 * e.std_error_hz / e.hz;
+            if (!(@abs(1200 * @log2(e.hz / guess_hz)) < th.hold.quarter_tone_cents)) return null;
+            self.last_sigma = th.refine.sigma_scale * th.refine.cents_per_unit * e.std_error_hz / e.hz;
             return .{ .hz = e.hz, .sigma_cents = self.last_sigma };
         }
 
@@ -951,7 +921,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// zero-padded to a power of two) for partials `spacing_hz` apart,
         /// or null with the guard off.
         fn judgeSeveral(self: *Self, spacing_hz: f64) ?several.Judgement {
-            if (!options.several_guard or self.segment_len < 16) return null;
+            if (!options.several_guard or self.segment_len < th.refine.min_segment) return null;
             var n_fft = std.math.ceilPowerOfTwo(usize, self.segment_len) catch unreachable;
             n_fft = @min(n_fft, max_fft);
             const len = @min(self.segment_len, n_fft);
@@ -963,7 +933,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 .bin_hz = self.fine_rate / @as(f64, @floatFromInt(n_fft)),
                 .length_s = @as(f64, @floatFromInt(len)) / self.fine_rate,
             };
-            return several.judge(sp, 25, max_pitch_hz, spacing_hz, &self.several_scratch);
+            return several.judge(sp, th.several.judge_min_hz, max_pitch_hz, spacing_hz, &self.several_scratch);
         }
 
         /// `f`, unless it is 2, 3 or 4 times (or a half, third or quarter
@@ -977,9 +947,9 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.hold_at = self.kept_count;
             self.hold_factor = 1;
             const lf = @log2(f);
-            const quarter_tone = 1.0 / 24.0;
-            if (self.onset_at != self.hold_onset) {
-                self.hold_onset = self.onset_at;
+            const quarter_tone = th.hold.quarter_tone_cents / 1200.0;
+            if (self.gs.onset_at != self.hold_onset) {
+                self.hold_onset = self.gs.onset_at;
                 self.hold_set = false;
                 self.hold_log2 = lf;
                 self.hold_count = 0;
@@ -989,7 +959,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             // after an onset is the least sure (over a ringing note it can be
             // the two notes' common subharmonic).
             if (!self.hold_set) {
-                const settled_window = !options.hold_after_window or (self.fine_count - self.onset_at) * self.fine_decimation >= self.window;
+                const settled_window = !options.hold_after_window or (self.fine_count - self.gs.onset_at) * self.fine_decimation >= self.window;
                 self.hold_set = settled_window and @abs(lf - self.hold_log2) <= quarter_tone;
                 self.hold_log2 = lf;
                 return f;
@@ -1030,8 +1000,8 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `init` with another sample rate starts the count again, so a
         /// value from before a rate change means nothing after it.
         pub fn lastOnset(self: *const Self) ?u64 {
-            if (self.onset_count == 0) return null;
-            return self.onset_at * self.fine_decimation * self.decimation;
+            if (self.gs.onset_count == 0) return null;
+            return self.gs.onset_at * self.fine_decimation * self.decimation;
         }
 
         /// The pitch of the last 92.9 ms of input.
@@ -1044,7 +1014,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.setComb(null);
                 var r = Reading.none;
                 r.multiple = self.heard_several;
-                r.starting = self.note_active and !self.gate_open;
+                r.starting = self.gs.note_active and !self.gate_open;
                 return r;
             };
             self.setComb(shown.hz);
@@ -1071,7 +1041,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             // reads as that note still (the same string plucked again).
             var combed = false;
             var best: usize = 0;
-            if (options.comb_onset and self.comb_onset != 0 and self.comb_onset == self.onset_count) {
+            if (options.comb_onset and self.comb_onset != 0 and self.comb_onset == self.gs.onset_count) {
                 self.difference(self.comb_old_hz);
                 var related = false;
                 if (self.pickPeriod(settings.range)) |b| {
@@ -1080,7 +1050,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                     // What is left of a note re-plucked a few cents off is
                     // their beat, which dips nowhere clearly.
                     const clear = !options.comb_confirm or self.cmnd[b] < options.dip_threshold;
-                    if (clear and !(options.comb_unrelated and related) and @abs(1200 * @log2(hz / self.comb_old_hz)) >= 50) {
+                    if (clear and !(options.comb_unrelated and related) and @abs(1200 * @log2(hz / self.comb_old_hz)) >= th.hold.quarter_tone_cents) {
                         best = b;
                         combed = true;
                     }
@@ -1092,11 +1062,11 @@ pub fn AnalyserWith(comptime options: Options) type {
                     // means no new note after all: the onset is taken back
                     // and the note carries on. One harmonically related (a
                     // bass line's octave) stays a new note.
-                    if (options.comb_confirm and !related and (self.fine_count - self.onset_at) * self.fine_decimation >= self.window) {
+                    if (options.comb_confirm and !related and (self.fine_count - self.gs.onset_at) * self.fine_decimation >= self.window) {
                         // The count stays (it orders onsets); a showing note
                         // takes it as its own once the gate sees the window
                         // past its (restored) onset.
-                        self.onset_at = self.comb_prev_onset_at;
+                        self.gs.onset_at = self.comb_prev_onset_at;
                         self.comb_onset = 0;
                     }
                 }
@@ -1148,7 +1118,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.hum_fit = 0;
             if (hum_out and self.last_sigma > 0) {
                 if (first_partial.estimate(max_fine_period, &self.refine_work, self.windowed[0..self.segment_len], self.fine_rate, coarse, .phase_slope)) |raw| {
-                    self.hum_fit = (self.last_sigma / 1.15 / 1731.234 * raw.hz) / raw.std_error_hz;
+                    self.hum_fit = (self.last_sigma / th.refine.sigma_scale / th.refine.cents_per_unit * raw.hz) / raw.std_error_hz;
                 }
             }
             return .{ .hz = hz, .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
@@ -1185,48 +1155,48 @@ pub fn AnalyserWith(comptime options: Options) type {
             // level last stood near its lowest, from a floor at that level,
             // not the one learned as it rose. This input was measured from
             // the onset before, so a note can start only from the next.
-            const rose = !self.note_active and self.risen(level);
-            const rise_onset = rose and !self.rise_prev;
+            const rose = !self.gs.note_active and self.risen(level);
+            const rise_onset = rose and !self.gs.rise_prev;
             if (rise_onset) {
-                self.onset_at = self.rise_quiet_at;
-                self.onset_count += 1;
-                self.floor_paused = true;
-                self.floor_db = @min(self.floor_db, std.mem.min(f64, &self.rise_min));
+                self.gs.onset_at = self.rise_quiet_at;
+                self.gs.onset_count += 1;
+                self.gs.floor_paused = true;
+                self.gs.floor_db = @min(self.gs.floor_db, std.mem.min(f64, &self.rise_min));
             }
-            self.rise_prev = rose;
+            self.gs.rise_prev = rose;
             // Every analysis sees a new onset, pitched or not.
             const fresh_onset = self.onsetFresh(now);
 
-            const loud = if (options.floor_margin_db) |margin| std.math.isNan(self.floor_db) or level >= self.floor_db + margin else true;
+            const loud = if (options.floor_margin_db) |margin| std.math.isNan(self.gs.floor_db) or level >= self.gs.floor_db + margin else true;
             const pitched = m != null and level >= settings.silence_db;
-            const last_hz = self.note_last_hz;
-            if (self.note_active) {
+            const last_hz = self.gs.note_last_hz;
+            if (self.gs.note_active) {
                 // Without a new onset the name may only move as far as a
                 // pitch moving continuously goes between two analyses: a
                 // bigger jump is the note fading into something else.
                 // Readings while the name is still held back don't count:
                 // they were never shown.
                 const named = !options.names_after_window or self.sinceOnset() >= self.window;
-                const jumped = options.jump_stops and pitched and self.onset_count == self.note_onset_count and self.note_last_hz > 0 and @abs(1200 * @log2(m.?.hz / self.note_last_hz)) > th.hold.jump_cents;
+                const jumped = options.jump_stops and pitched and self.gs.onset_count == self.gs.note_onset_count and self.gs.note_last_hz > 0 and @abs(1200 * @log2(m.?.hz / self.gs.note_last_hz)) > th.hold.jump_cents;
                 const keep = pitched and loud and !jumped and self.sounding() and !self.mainsHeld(m.?.hz, now);
                 if (!keep) {
-                    self.note_active = false;
-                    self.note_end = now;
+                    self.gs.note_active = false;
+                    self.gs.note_end = now;
                     // Only a moment without a pitch, the level still up, may
                     // resume without a new onset.
-                    self.note_may_resume = !pitched and loud;
-                    self.jump_from_hz = if (jumped) self.note_last_hz else 0;
-                    self.jump_wait_hz = 0;
-                    self.note_last_hz = 0;
+                    self.gs.note_may_resume = !pitched and loud;
+                    self.gs.jump_from_hz = if (jumped) self.gs.note_last_hz else 0;
+                    self.gs.jump_wait_hz = 0;
+                    self.gs.note_last_hz = 0;
                 } else {
                     // A later onset that the window has passed without
                     // being taken back started a new note on this one: it
                     // becomes the note's own, so the jump rule applies.
-                    if (self.onset_count != self.note_onset_count and self.sinceOnset() >= self.window) self.note_onset_count = self.onset_count;
-                    self.note_last_hz = if (named) m.?.hz else 0;
+                    if (self.gs.onset_count != self.gs.note_onset_count and self.sinceOnset() >= self.window) self.gs.note_onset_count = self.gs.onset_count;
+                    self.gs.note_last_hz = if (named) m.?.hz else 0;
                 }
             } else if (pitched and self.sounding()) {
-                const resuming = loud and self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
+                const resuming = loud and self.gs.note_may_resume and now - self.gs.note_end < resume_s and self.gs.onset_count == self.gs.note_onset_count;
                 const at_onset = loud and !rise_onset and (!options.onset_gate or fresh_onset);
                 // After a jump stopped a note, a pitch that holds within a
                 // quarter tone for a window starts showing: a legato note,
@@ -1235,25 +1205,25 @@ pub fn AnalyserWith(comptime options: Options) type {
                 // under. Not a half, third or quarter of the old one: a
                 // note fading under hum falls to those.
                 var legato = false;
-                if (options.legato_restart and !at_onset and self.jump_from_hz > 0 and loud and self.onset_count == self.note_onset_count) {
-                    if (combRelated(m.?.hz, self.jump_from_hz) and !(options.restart_upward and m.?.hz > self.jump_from_hz)) {
-                        self.jump_wait_hz = 0;
-                    } else if (self.jump_wait_hz > 0 and @abs(1200 * @log2(m.?.hz / self.jump_wait_hz)) < 50) {
-                        legato = now - self.jump_wait_since >= window_seconds;
+                if (options.legato_restart and !at_onset and self.gs.jump_from_hz > 0 and loud and self.gs.onset_count == self.gs.note_onset_count) {
+                    if (combRelated(m.?.hz, self.gs.jump_from_hz) and !(options.restart_upward and m.?.hz > self.gs.jump_from_hz)) {
+                        self.gs.jump_wait_hz = 0;
+                    } else if (self.gs.jump_wait_hz > 0 and @abs(1200 * @log2(m.?.hz / self.gs.jump_wait_hz)) < th.hold.quarter_tone_cents) {
+                        legato = now - self.gs.jump_wait_since >= window_seconds;
                     } else {
-                        self.jump_wait_hz = m.?.hz;
-                        self.jump_wait_since = now;
+                        self.gs.jump_wait_hz = m.?.hz;
+                        self.gs.jump_wait_since = now;
                     }
                 }
                 const mains_wait = at_onset and self.mainsLike(m.?.hz, now, self.sinceOnset());
-                if (mains_wait) self.mains_waiting = self.onset_count;
+                if (mains_wait) self.gs.mains_waiting = self.gs.onset_count;
                 if (resuming or legato or (at_onset and !mains_wait)) {
-                    self.jump_from_hz = 0;
-                    self.jump_wait_hz = 0;
-                    if (!resuming) self.note_start = now;
-                    self.note_last_hz = if (!options.names_after_window or self.sinceOnset() >= self.window) m.?.hz else 0;
-                    self.note_active = true;
-                    self.note_onset_count = self.onset_count;
+                    self.gs.jump_from_hz = 0;
+                    self.gs.jump_wait_hz = 0;
+                    if (!resuming) self.gs.note_start = now;
+                    self.gs.note_last_hz = if (!options.names_after_window or self.sinceOnset() >= self.window) m.?.hz else 0;
+                    self.gs.note_active = true;
+                    self.gs.note_onset_count = self.gs.onset_count;
                 }
             }
             // While the window still holds input from before the onset that
@@ -1261,57 +1231,28 @@ pub fn AnalyserWith(comptime options: Options) type {
             // A note already showing when a later onset comes keeps its
             // name until that onset proves a new note, and shows none
             // while a reading from the mixed window moves off it.
-            const fresh_note = self.onset_count == self.note_onset_count;
+            const fresh_note = self.gs.onset_count == self.gs.note_onset_count;
             const mixed_off = !fresh_note and m != null and last_hz > 0 and @abs(1200 * @log2(m.?.hz / last_hz)) >= th.hold.mixed_cents;
-            const held = options.names_after_window and self.note_active and (fresh_note or mixed_off) and self.sinceOnset() < self.window;
-            self.gate_open = self.note_active and !held;
-            if (!self.note_active) self.learnHum();
+            const held = options.names_after_window and self.gs.note_active and (fresh_note or mixed_off) and self.sinceOnset() < self.window;
+            self.gate_open = self.gs.note_active and !held;
+            if (!self.gs.note_active) self.learnHum();
             // An onset holds the floor until a note it started has ended, or
             // for `onset_floor_hold_s` if none shows (the window takes a while
             // to fill with a new note).
-            if (!self.note_active and self.floor_paused) {
-                const since_onset = @as(f64, @floatFromInt(self.fine_count - self.onset_at)) / self.fine_rate;
-                const hold_s: f64 = if (self.mains_waiting == self.onset_count) th.mains.wait_s else onset_floor_hold_s;
-                if (self.note_onset_count == self.onset_count or since_onset >= hold_s) self.floor_paused = false;
+            if (!self.gs.note_active and self.gs.floor_paused) {
+                const since_onset = @as(f64, @floatFromInt(self.fine_count - self.gs.onset_at)) / self.fine_rate;
+                const hold_s: f64 = if (self.gs.mains_waiting == self.gs.onset_count) th.mains.wait_s else onset_floor_hold_s;
+                if (self.gs.note_onset_count == self.gs.onset_count or since_onset >= hold_s) self.gs.floor_paused = false;
             }
             return if (self.gate_open) m else null;
         }
 
         fn saveGate(self: *Self) void {
-            self.gate_before = .{
-                .note_last_hz = self.note_last_hz,
-                .jump_from_hz = self.jump_from_hz,
-                .jump_wait_hz = self.jump_wait_hz,
-                .jump_wait_since = self.jump_wait_since,
-                .rise_prev = self.rise_prev,
-                .floor_db = self.floor_db,
-                .onset_at = self.onset_at,
-                .onset_count = self.onset_count,
-                .note_active = self.note_active,
-                .note_onset_count = self.note_onset_count,
-                .note_start = self.note_start,
-                .note_end = self.note_end,
-                .note_may_resume = self.note_may_resume,
-                .floor_paused = self.floor_paused,
-            };
+            self.gate_before = self.gs;
         }
 
         fn restoreGate(self: *Self) void {
-            const g = self.gate_before;
-            self.note_last_hz = g.note_last_hz;
-            self.jump_from_hz = g.jump_from_hz;
-            self.jump_wait_hz = g.jump_wait_hz;
-            self.jump_wait_since = g.jump_wait_since;
-            self.rise_prev = g.rise_prev;
-            self.floor_db = g.floor_db;
-            self.onset_at = g.onset_at;
-            self.onset_count = g.onset_count;
-            self.note_active = g.note_active;
-            self.note_onset_count = g.note_onset_count;
-            self.note_start = g.note_start;
-            self.note_end = g.note_end;
-            self.note_may_resume = g.note_may_resume;
-            self.floor_paused = g.floor_paused;
+            self.gs = self.gate_before;
         }
 
         /// Every `hum_hop_s` of idle input (`hum_relearn_s` once two have
@@ -1322,7 +1263,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             if (!options.hum_model or !fine_needed) return;
             const hop: f64 = if (self.hum_valid) hum_relearn_s else hum_hop_s;
             if (@as(f64, @floatFromInt(self.fine_count - self.hum_learned_at)) < hop * self.fine_rate) return;
-            const idle: u64 = if (self.onset_count > 0) self.fine_count - self.onset_at else self.fine_count;
+            const idle: u64 = if (self.gs.onset_count > 0) self.fine_count - self.gs.onset_at else self.fine_count;
             const most: u64 = @min(@as(u64, @intFromFloat(hum_learn_max_s * self.fine_rate)), @min(max_fine, max_fft));
             const n: usize = @intCast(@min(idle, most));
             if (@as(f64, @floatFromInt(n)) < hum_learn_min_s * self.fine_rate) return;
@@ -1351,15 +1292,15 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// own; counting from the first analysis to see it gives a caller
         /// that analyses seldom its chance.
         fn onsetFresh(self: *Self, now: f64) bool {
-            if (self.onset_count <= self.note_onset_count) return false;
-            if (self.onset_seen != self.onset_count) {
-                self.onset_seen = self.onset_count;
-                self.onset_seen_at = now;
+            if (self.gs.onset_count <= self.gs.note_onset_count) return false;
+            if (self.gs.onset_seen != self.gs.onset_count) {
+                self.gs.onset_seen = self.gs.onset_count;
+                self.gs.onset_seen_at = now;
             }
             // While the mains hold waits on this onset for its level to
             // fall, the onset lives as long as that evidence takes.
-            const life: f64 = if (self.mains_waiting == self.onset_count) th.mains.wait_s else onset_life_s;
-            return now - self.onset_seen_at <= life;
+            const life: f64 = if (self.gs.mains_waiting == self.gs.onset_count) th.mains.wait_s else onset_life_s;
+            return now - self.gs.onset_seen_at <= life;
         }
 
         /// Keeps `level` among the lowest of its span of time, counting only
@@ -1367,12 +1308,12 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// since an onset is that onset's): an onset starts the lowest
         /// afresh.
         fn noteLevel(self: *Self, t: f64, level: f64) void {
-            if (self.onset_count != self.rise_onset) {
-                self.rise_onset = self.onset_count;
+            if (self.gs.onset_count != self.rise_onset) {
+                self.rise_onset = self.gs.onset_count;
                 @memset(&self.rise_min, std.math.inf(f64));
             }
             if (self.kept_count < self.window) return;
-            if (self.onset_count > 0 and (self.fine_count - self.onset_at) * self.fine_decimation < self.window) return;
+            if (self.gs.onset_count > 0 and (self.fine_count - self.gs.onset_at) * self.fine_decimation < self.window) return;
             const span: u64 = @intFromFloat(@floor(t / (slow_onset_s / @as(f64, @floatFromInt(rise_buckets)))));
             if (span > self.rise_last) {
                 const fresh = @min(span - self.rise_last, rise_buckets);
@@ -1395,8 +1336,8 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// onset was found in (all of them with no onset): a sound that
         /// starts within that block has silence before it there.
         fn sinceOnset(self: *const Self) usize {
-            if (self.onset_count == 0) return self.window;
-            const fine_since = (self.fine_count - self.onset_at) -| self.block_len;
+            if (self.gs.onset_count == 0) return self.window;
+            const fine_since = (self.fine_count - self.gs.onset_at) -| self.block_len;
             return @intCast(@min(fine_since * self.fine_decimation, self.window));
         }
 
@@ -1433,7 +1374,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             // Once an onset's input has been found to repeat at the mains
             // period, that stands while the hold waits: a click later in
             // the window would otherwise pass hum for a note.
-            if (self.mains_waiting != self.onset_count and !self.mainsPeriodic(since_onset)) return false;
+            if (self.gs.mains_waiting != self.gs.onset_count and !self.mainsPeriodic(since_onset)) return false;
             // Read at a multiple of the mains frequency, hum or buzz has
             // its fundamental too, so it doesn't repeat at the reading's
             // own period; a note there (a synth tone at 120 Hz) does.
@@ -1576,7 +1517,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// fallen less than `mains_decay_db` over the last `mains_hold_s`,
         /// measured from a window wholly inside the note.
         fn mainsHeld(self: *const Self, hz: f64, now: f64) bool {
-            if (!options.mains_rule or now - self.note_start < mains_hold_s) return false;
+            if (!options.mains_rule or now - self.gs.note_start < mains_hold_s) return false;
             var near = false;
             for ([_]f64{ 50, 60 }) |base| {
                 const k = @round(hz / base);
@@ -1588,7 +1529,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 const i = self.levelSlot(back);
                 if (std.math.isInf(self.level_t[i]) or self.level_t[i] > now - mains_hold_s) continue;
                 // Only a window wholly inside the note gives its level.
-                if (self.level_t[i] < self.note_start + window_seconds) return false;
+                if (self.level_t[i] < self.gs.note_start + window_seconds) return false;
                 return self.level_v[i] - latest < mains_decay_db;
             }
             return false;
@@ -1613,11 +1554,11 @@ pub fn AnalyserWith(comptime options: Options) type {
             if (fresh) {
                 // An onset, a gap with no pitch, or a jump of over a
                 // semitone starts the note afresh.
-                const new_onset = self.onset_at != self.track_onset;
-                if (!self.track_voiced or new_onset or @abs(x - self.track_value) > 100) {
-                    self.track_onset = self.onset_at;
+                const new_onset = self.gs.onset_at != self.track_onset;
+                if (!self.track_voiced or new_onset or @abs(x - self.track_value) > th.hold.track_restart_cents) {
+                    self.track_onset = self.gs.onset_at;
                     self.track_start = if (new_onset and fine_needed)
-                        now - @as(f64, @floatFromInt(self.fine_count - self.onset_at)) / self.fine_rate
+                        now - @as(f64, @floatFromInt(self.fine_count - self.gs.onset_at)) / self.fine_rate
                     else
                         now;
                     self.track_value = x;
@@ -1633,10 +1574,10 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.track_voiced = true;
                 self.track_time = now;
                 self.last_clarity = got.clarity;
-                // At most one entry every `stable_s` / 20, so the history
+                // At most one entry every `stable_s` / `stable_entries`, so the history
                 // spans `stable_s` however often the caller analyses.
                 const latest = self.history_t[(self.history_pos + history_len - 1) % history_len];
-                if (self.history_len_used == 0 or now - latest >= options.stable_s / 20) {
+                if (self.history_len_used == 0 or now - latest >= options.stable_s / th.hold.stable_entries) {
                     self.history_t[self.history_pos] = now;
                     self.history_v[self.history_pos] = self.track_value;
                     self.history_pos = (self.history_pos + 1) % history_len;
@@ -1697,7 +1638,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 stt += t * t;
                 stv += t * self.history_v[i];
             }
-            if (now - oldest < options.stable_s - 0.05 or n < 3) return false;
+            if (now - oldest < options.stable_s - th.hold.stable_slack_s or n < 3) return false;
             const den = n * stt - st * st;
             if (den <= 0) return false;
             const slope = (n * stv - st * sv) / den;
@@ -1787,7 +1728,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                     min_tau = @intFromFloat(std.math.clamp(@floor(self.analysis_rate / r.high_hz), lags_from, lags_to));
                 }
                 if (r.low_hz > 0 and std.math.isFinite(r.low_hz)) {
-                    end = @intFromFloat(std.math.clamp(@ceil(self.analysis_rate / r.low_hz) + 2, lags_from, lags_to));
+                    end = @intFromFloat(std.math.clamp(@ceil(self.analysis_rate / r.low_hz) + th.yin.range_lag_margin, lags_from, lags_to));
                 }
                 if (min_tau + 3 >= end) return null;
             }
@@ -1846,27 +1787,42 @@ pub fn AnalyserWith(comptime options: Options) type {
 fn combRelated(hz: f64, other: f64) bool {
     const ratios = [_]f64{ 2, 3, 4, 0.5, 1.0 / 3.0, 0.25 };
     for (ratios) |r| {
-        if (@abs(1200 * @log2(hz / (other * r))) < 50) return true;
+        if (@abs(1200 * @log2(hz / (other * r))) < th.hold.quarter_tone_cents) return true;
     }
     return false;
 }
 
 /// The gate's state that one decision changes.
 const GateState = struct {
-    note_last_hz: f64,
-    jump_from_hz: f64,
-    jump_wait_hz: f64,
-    jump_wait_since: f64,
-    rise_prev: bool,
-    floor_db: f64,
+    /// `fine_count` at the last onset, and onsets in all.
     onset_at: u64,
     onset_count: u64,
+    /// The last onset the gate has seen, and when it first saw it.
+    onset_seen: u64,
+    onset_seen_at: f64,
+    /// The learned floor (dBFS, NaN before any input); its learning stops
+    /// at an onset until the gate has decided on it.
+    floor_db: f64,
+    floor_paused: bool,
+    /// Whether a note is showing, the onset that started it and when, when
+    /// it stopped and whether it may resume without an onset.
     note_active: bool,
     note_onset_count: u64,
     note_start: f64,
     note_end: f64,
     note_may_resume: bool,
-    floor_paused: bool,
+    /// The pitch measured at the note's last analysis, Hz (0 for none).
+    note_last_hz: f64,
+    /// The pitch a jump stopped a note at (0 if the last note didn't end
+    /// at a jump), and the new pitch waited on since when.
+    jump_from_hz: f64,
+    jump_wait_hz: f64,
+    jump_wait_since: f64,
+    /// Whether the input had risen at the last analysis, with no note
+    /// showing.
+    rise_prev: bool,
+    /// The onset the mains hold last kept a note from starting at.
+    mains_waiting: u64,
 };
 
 /// Whether two settings gate alike (the reference pitch doesn't gate).

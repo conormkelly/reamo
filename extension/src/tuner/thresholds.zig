@@ -18,7 +18,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 9;
+pub const version = 10;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -49,6 +49,9 @@ pub const yin = struct {
     /// stands 12-17 dB over a weak fundamental has one; a clean note has
     /// nothing at half its pitch within 35 dB. Not swept.
     pub const subharmonic_confirm_db = 25.0;
+    /// With a range, lags up to this many samples past its low limit's
+    /// period are searched, so a dip right at the limit is found.
+    pub const range_lag_margin = 2.0;
 };
 
 /// The first-partial refinement and its combination with YIN.
@@ -69,6 +72,16 @@ pub const refine = struct {
     /// A phase fit whose residual exceeds this RMS, radians, has no
     /// standard error (infinite). Not swept.
     pub const max_residual_rad = 0.25;
+    /// The refinement's standard error is scaled up by this: it runs up to
+    /// 15% under the observed scatter.
+    pub const sigma_scale = 1.15;
+    /// Cents per unit of relative frequency, 1200 / ln 2 (1731.2340...),
+    /// to the three decimals the analyser has always used.
+    pub const cents_per_unit = 1731.234;
+    /// The fine input's second low-pass, Hz: the first partial is under it.
+    pub const fine_lowpass_hz = 2000.0;
+    /// The fewest fine samples a segment needs to be measured or judged.
+    pub const min_segment: usize = 16;
 };
 
 /// What starts a note.
@@ -100,6 +113,9 @@ pub const onset = struct {
     /// A rise starts where the level last stood within this of its
     /// lowest, dB. Not swept.
     pub const rise_quiet_db = 3.0;
+    /// The comb onset's history starts afresh when the showing note's
+    /// period changes by more than this share (1%).
+    pub const comb_period_change = 0.01;
 };
 
 /// The gate: what keeps a note showing.
@@ -212,6 +228,8 @@ pub const several = struct {
     /// Two partials are told apart only this many main-lobe half-widths
     /// apart.
     pub const resolution = 2.0;
+    /// The lowest frequency judged, Hz.
+    pub const judge_min_hz = 25.0;
 };
 
 /// Holds and the flags on a reading.
@@ -227,6 +245,15 @@ pub const hold = struct {
     pub const stable_s = 0.3;
     pub const stable_cents_per_s = 0.5;
     pub const stable_spread_cents = 0.1;
+    /// The stable flag's history: entries kept, at most one every
+    /// stable_s / `stable_entries`; it must reach back to within
+    /// `stable_slack_s` of `stable_s`.
+    pub const stable_history: usize = 32;
+    pub const stable_entries = 20.0;
+    pub const stable_slack_s = 0.05;
+    /// A reading more than this from the tracked pitch, cents, starts the
+    /// note's tracking afresh (settling, stable history).
+    pub const track_restart_cents = 100.0;
     /// Without a new onset, a showing note's reading may move at most this
     /// far between analyses, cents; a bigger jump stops the note. A peg
     /// turn moves a few cents per analysis. Not swept.
