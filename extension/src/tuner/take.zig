@@ -331,7 +331,8 @@ test "re-plucking a string makes a second note with its own truth" {
 
 test "an octave error by the analyser shows against the truth" {
     // The Karplus-Strong 880 Hz pluck whose fundamental starts 20 dB under
-    // its octave: the analyser reads A6 for a while, the truth is A5.
+    // its octave, its truth A5; the readings 0.1-0.2 s after the pluck are moved
+    // to A6, as an analyser reading the octave would show them.
     const fx = try fixture();
     defer testing.allocator.destroy(fx);
     const rate = 48000.0;
@@ -340,7 +341,17 @@ test "an octave error by the analyser shows against the truth" {
     @memset(buf, 0);
     sig.pluck(buf[14400..], rate, 880, .{ .amp = 0.9, .t60_s = 3, .seed = 1014 });
     sig.addNoise(buf, 3e-5, 3);
-    const notes = try judgeTake(fx, buf, rate);
+    const x = try testing.allocator.alloc(f64, buf.len);
+    defer testing.allocator.free(x);
+    for (x, buf) |*d, v| d.* = v;
+    const reads = try readTake(&fx.analyser, buf, rate, .{}, &fx.reads);
+    for (reads) |*rd| {
+        if (rd.t >= 0.4 and rd.t < 0.5 and rd.r.freq_hz > 0) {
+            rd.r.freq_hz *= 2;
+            rd.r.note += 12;
+        }
+    }
+    const notes = try judgeNotes(testing.allocator, &fx.work, reads, x, rate, .{});
     defer testing.allocator.free(notes);
     try testing.expectEqual(@as(usize, 1), notes.len);
     try testing.expectEqual(@as(i32, 81), notes[0].truth_note);

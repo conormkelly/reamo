@@ -86,7 +86,8 @@
 //! spectrum resolves a subharmonic f's harmonics only 8 / f seconds after
 //! the onset (0.19 s for E1), and until then the subharmonic can show.
 //!
-//! The note shows from the first reading after an onset; the reading is
+//! The note shows from the first reading whose window lies wholly after
+//! the onset (93 ms); the reading is
 //! `settling` for 120 ms (a string's attack, about half its glide's time
 //! constant), and `stable` once the shown pitch's slope over 300 ms is
 //! under 0.5 cent a second.
@@ -105,9 +106,10 @@
 //!   with 16 octave readings and 492 readings flagged several;
 //! - 6 single-string readings flagged several, weak-fundamental strings
 //!   early on;
-//! - through a piezo, 16 of 48 notes show another name (D3 as D2, A2 as
-//!   A1) in their first 100 ms, while the body modes ring louder than
-//!   at any later time (target none);
+//! - lock-on 116.7 ms on average and at worst (targets 42.7 and 83.4): a
+//!   note shows no name until the window is past its onset, by the
+//!   owner's choice, because through a piezo the body modes otherwise
+//!   flash the octave under in 16 of 48 notes;
 //! - under a string ringing in sympathy 15-30 dB down, 12% of readings
 //!   from 1 s are not shown and one signal averages -4.9 cent (targets:
 //!   P95 0.5 counting unshown readings, bias 0.2): the first partial
@@ -280,16 +282,13 @@ pub const Options = struct {
     /// One held level there (an e-bow, a pad) never shows, and a note
     /// already showing is not affected.
     mains_start_hold: bool = true,
-    /// Whether, until the window lies wholly after the onset, a messy
-    /// start shows no name: a reading whose YIN dip isn't under the dip
-    /// threshold, or more than a quarter tone from the one before it. An
-    /// acoustic's body modes ring loudest at the pluck and can read as the
-    /// octave under for the first 100 ms; a wrong name, even briefly, is
-    /// worse than that much delay.
-    early_check: bool = true,
-    /// With `early_check`, every start shows no name until the window lies
-    /// wholly after the onset.
-    early_all: bool = false,
+    /// Whether a note shows no name until the window lies wholly after
+    /// its onset (93 ms). An acoustic's body modes ring loudest at the
+    /// pluck and can read as the octave under for the first 100 ms, and
+    /// the first two readings can agree on it, so no check of the early
+    /// readings tells; a wrong name, even briefly, is worse than that
+    /// much delay.
+    names_after_window: bool = true,
     /// Whether the octave hold anchors only on analyses whose window lies
     /// wholly after the onset: an acoustic's body modes ring loudest at
     /// the pluck and can make the first readings the note's octave under,
@@ -572,10 +571,6 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// Whether the input had risen at the last analysis, with no note
         /// showing.
         rise_prev: bool,
-        /// The reading measured at the last analysis (0 for none) and the
-        /// onset count then.
-        early_prev_hz: f64,
-        early_onset: u64,
         /// The onset count the lowest levels were kept since.
         rise_onset: u64,
         /// `fine_count` at the latest analysis whose level was within
@@ -665,8 +660,6 @@ pub fn AnalyserWith(comptime options: Options) type {
             @memset(&self.rise_min, std.math.inf(f64));
             self.rise_last = 0;
             self.rise_prev = false;
-            self.early_prev_hz = 0;
-            self.early_onset = 0;
             self.rise_onset = 0;
             self.rise_quiet_at = 0;
             self.onset_seen = 0;
@@ -958,9 +951,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             };
         }
 
-        /// `clear`: YIN's dip at the period is under the dip threshold, not
-        /// the deepest of none that are.
-        const Measured = struct { hz: f64, clarity: f64, clear: bool };
+        const Measured = struct { hz: f64, clarity: f64 };
 
         /// The first partial's frequency now, unsmoothed, or null for no pitch.
         fn measure(self: *Self, settings: Settings) ?Measured {
@@ -1022,7 +1013,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.hum_fit = (self.last_sigma / 1.15 / 1731.234 * raw.hz) / raw.std_error_hz;
                 }
             }
-            return .{ .hz = hz, .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1), .clear = self.cmnd[best] < options.dip_threshold };
+            return .{ .hz = hz, .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
         }
 
         /// The RMS of the window's input (before the low-pass), dBFS.
@@ -1091,16 +1082,9 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.note_onset_count = self.onset_count;
                 }
             }
-            // While the window still holds input from before the onset, a
-            // messy start shows no name: a reading whose YIN dip isn't
-            // clear, or that disagrees with the one before it.
-            var held = false;
-            if (options.early_check and self.note_active and self.sinceOnset() < self.window) {
-                const prev = if (self.early_onset == self.onset_count) self.early_prev_hz else 0;
-                held = options.early_all or (prev > 0 and @abs(1200 * @log2(m.?.hz / prev)) >= 50);
-            }
-            self.early_prev_hz = if (m) |v| v.hz else 0;
-            self.early_onset = self.onset_count;
+            // While the window still holds input from before the onset, the
+            // note shows no name.
+            const held = options.names_after_window and self.note_active and self.sinceOnset() < self.window;
             self.gate_open = self.note_active and !held;
             if (!self.note_active) self.learnHum();
             // An onset holds the floor until a note it started has ended, or
@@ -1115,8 +1099,6 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn saveGate(self: *Self) void {
             self.gate_before = .{
-                .early_prev_hz = self.early_prev_hz,
-                .early_onset = self.early_onset,
                 .rise_prev = self.rise_prev,
                 .floor_db = self.floor_db,
                 .onset_at = self.onset_at,
@@ -1132,8 +1114,6 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn restoreGate(self: *Self) void {
             const g = self.gate_before;
-            self.early_prev_hz = g.early_prev_hz;
-            self.early_onset = g.early_onset;
             self.rise_prev = g.rise_prev;
             self.floor_db = g.floor_db;
             self.onset_at = g.onset_at;
@@ -1581,8 +1561,6 @@ pub fn AnalyserWith(comptime options: Options) type {
 
 /// The gate's state that one decision changes.
 const GateState = struct {
-    early_prev_hz: f64,
-    early_onset: u64,
     rise_prev: bool,
     floor_db: f64,
     onset_at: u64,
@@ -1810,8 +1788,9 @@ test "after an onset, a jump of the pitch by an octave is held until three analy
 test "a new note over a ringing one is not held back when the first reading after its onset is their common subharmonic" {
     // E4 drops to -12 dB as B3 is plucked; 33 ms on, YIN reads their common
     // subharmonic (82.3 Hz, a 4:3 pair's), then B3. B3 is 3 times the
-    // first reading, but nothing should hold it back for that.
-    const a = try testing.allocator.create(Analyser);
+    // first reading, but nothing should hold it back for that. Names are
+    // shown from the first reading, as the hold is what is tested.
+    const a = try testing.allocator.create(AnalyserWith(.{ .names_after_window = false }));
     defer testing.allocator.destroy(a);
     try a.init(44100);
     const buf = try generate(44100 * 2);
@@ -2477,12 +2456,12 @@ test "a piezo pluck whose body modes make its first readings two octaves under i
     try testing.expect(octave_reads[1] > 0);
 }
 
-test "in a piezo note's first 93 ms a name that disagrees with the reading before it is not shown, so fewer wrong names show" {
+test "a piezo note shows no wrong name, even in its first 93 ms" {
     var wrong = [_]usize{ 0, 0 };
-    inline for ([_]bool{ true, false }, 0..) |check, which| {
+    inline for ([_]bool{ true, false }, 0..) |after_window, which| {
         for ([_]f64{ 110, 146.832, 329.628 }) |f0| {
             for ([_]u64{ 1, 2, 3 }) |seed| {
-                const a = try testing.allocator.create(AnalyserWith(.{ .early_check = check }));
+                const a = try testing.allocator.create(AnalyserWith(.{ .names_after_window = after_window }));
                 defer testing.allocator.destroy(a);
                 try a.init(48000);
                 prime(a);
@@ -2509,7 +2488,9 @@ test "in a piezo note's first 93 ms a name that disagrees with the reading befor
             }
         }
     }
-    try testing.expect(wrong[0] < wrong[1]);
+    try testing.expectEqual(@as(usize, 0), wrong[0]);
+    // Shown from the first reading, the body modes flash the octave under.
+    try testing.expect(wrong[1] > 0);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
