@@ -1440,6 +1440,7 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .subharmonic_check = false }), "no-subharmonic-check", "the analyser without the subharmonic check", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .stable_spread_cents = null }), "no-stable-spread", "stable on the slope alone", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .slow_onset_db = null }), "no-slow-onset", "notes start only at an energy jump", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .hold_after_window = false }), "hold-from-first", "the octave hold anchored on the first two readings after an onset", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .yin_consistency = null }), "no-yin-consistency", "YIN and the first partial always combined", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .comb_onset = false }), "no-comb-onset", "no onsets from what isn't the ringing note", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .mains_start_hold = false }), "no-mains-hold", "notes that repeat at the mains period start at an onset like any other", allocator),

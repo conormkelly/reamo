@@ -269,6 +269,11 @@ pub const Options = struct {
     /// One held level there (an e-bow, a pad) never shows, and a note
     /// already showing is not affected.
     mains_start_hold: bool = true,
+    /// Whether the octave hold anchors only on analyses whose window lies
+    /// wholly after the onset: an acoustic's body modes ring loudest at
+    /// the pluck and can make the first readings the note's octave under,
+    /// which a hold anchored there then keeps.
+    hold_after_window: bool = true,
     /// The first partial alone is reported when it and YIN disagree by more
     /// than this many of their combined standard errors: YIN's 1 cent
     /// holds for one string, but another note under it (a string ringing
@@ -854,7 +859,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             // after an onset is the least sure (over a ringing note it can be
             // the two notes' common subharmonic).
             if (!self.hold_set) {
-                self.hold_set = @abs(lf - self.hold_log2) <= quarter_tone;
+                const settled_window = !options.hold_after_window or (self.fine_count - self.onset_at) * self.fine_decimation >= self.window;
+                self.hold_set = settled_window and @abs(lf - self.hold_log2) <= quarter_tone;
                 self.hold_log2 = lf;
                 return f;
             }
@@ -1723,13 +1729,16 @@ test "with a range set, a pluck whose fundamental starts 20 dB under its octave 
 }
 
 test "after an onset, a jump of the pitch by an octave is held until three analyses in a row agree" {
-    const held = try newAnalyser(48000);
+    // Without the comb onset, which takes the switch for a new note.
+    const held = try testing.allocator.create(AnalyserWith(.{ .comb_onset = false }));
     defer testing.allocator.destroy(held);
-    const free = try testing.allocator.create(AnalyserWith(.{ .octave_hold = 0 }));
+    try held.init(48000);
+    prime(held);
+    const free = try testing.allocator.create(AnalyserWith(.{ .octave_hold = 0, .comb_onset = false }));
     defer testing.allocator.destroy(free);
     try free.init(48000);
     prime(free);
-    // E2, then E3 at the same level: no onset between them.
+    // E2, then E3 at the same level: no energy onset between them.
     const buf = try generate(48000);
     defer testing.allocator.destroy(buf);
     signals.sine(buf[0..24000], 48000, 82.4069, 0.3, 0);
@@ -2374,6 +2383,50 @@ test "a string with another ringing 15 dB under it in sympathy reads its first p
             try testing.expect(worst > 10);
         } else try testing.expect(worst <= 2);
     }
+}
+
+test "a piezo pluck whose body modes make its first readings two octaves under is not held there" {
+    var octave_reads = [_]usize{ 0, 0 };
+    inline for ([_]bool{ true, false }, 0..) |after_window, which| {
+        for ([_]u64{ 1, 2, 3 }) |seed| {
+            const a = try testing.allocator.create(AnalyserWith(.{ .hold_after_window = after_window }));
+            defer testing.allocator.destroy(a);
+            try a.init(48000);
+            prime(a);
+            const buf = try generate(48000 * 2);
+            defer testing.allocator.destroy(buf);
+            @memset(buf[0..2400], 0);
+            const f0: f64 = 329.628;
+            signals.pluckedString(buf[2400..], 48000, .{ .f0 = f0, .inharmonicity = 1.1e-5, .seed = seed });
+            // Body modes at 98, 163 and 231 Hz, 12, 8 and 6 dB under the
+            // note's first 0.1 s.
+            const level = signals.rms(buf[2400..7200]);
+            for ([_][3]f64{ .{ 98, 0.6, -12 }, .{ 163, 0.4, -8 }, .{ 231, 0.3, -6 } }) |mode| {
+                const amp = level * std.math.pow(f64, 10, mode[2] / 20) * std.math.sqrt2;
+                for (buf[2400..], 0..) |*v, i| {
+                    const t = @as(f64, @floatFromInt(i)) / 48000;
+                    v.* += @floatCast(amp * @exp(-@log(1000.0) / mode[1] * t) * @sin(2 * std.math.pi * mode[0] * t));
+                }
+            }
+            // A 1 ms pick click at the note's peak.
+            var peak: f32 = 0;
+            for (buf[2400..7200]) |v| peak = @max(peak, @abs(v));
+            var rng = signals.MinStd.init(seed + 30);
+            for (buf[2400..2448]) |*v| v.* += peak * @as(f32, @floatCast(rng.next()));
+            signals.addNoise(buf, 3e-5, 11);
+            const note: i32 = @intFromFloat(@round(69 + 12 * @log2(f0 / 440)));
+            var pos: usize = 0;
+            while (pos + 1600 <= buf.len) : (pos += 1600) {
+                a.push(buf[pos .. pos + 1600]);
+                const r = a.analyse(.{});
+                const t = (@as(f64, @floatFromInt(pos + 1600)) - 2400) / 48000;
+                if (t >= 0.1 and r.freq_hz > 0 and (r.note == note - 12 or r.note == note - 24)) octave_reads[which] += 1;
+            }
+        }
+    }
+    try testing.expectEqual(@as(usize, 0), octave_reads[0]);
+    // Anchored on the first two readings, the hold keeps them.
+    try testing.expect(octave_reads[1] > 0);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
