@@ -6,7 +6,8 @@ each note starting after silence is the "pluck" (an onset) the analyser
 needs before it shows a note. Across open/close cycles, two phones on the master
 and audio streaming running beside it:
 - the tuner reads A3 within 2 cents, and its events carry the analyser's
-  clarity and settling, stable and multiple flags;
+  clarity and settling, stable, multiple and starting flags (starting
+  while a new note's name is held back, its first ~0.1 s);
 - a tone already sounding when the tuner opens shows no note until it is
   plucked again (accepted with the analyser: it needs an onset);
 - REAPER's monitoring FX chain gets no plugin, and the project gets no
@@ -39,8 +40,10 @@ problems = []
 
 
 def phase():
-    """Where the playhead is in the 3 s note-and-gap cycle."""
-    return reaper("return reaper.GetPlayPosition()") % PERIOD
+    """Where the audio being processed now is in the 3 s note-and-gap
+    cycle: GetPlayPosition2, what the hook taps, not GetPlayPosition, what
+    is heard, which trails it by the device's output latency."""
+    return reaper("return reaper.GetPlayPosition2()") % PERIOD
 
 
 def wait_phase(c, lo, hi):
@@ -77,8 +80,8 @@ def readings(c, seconds):
 
 def shows_a3(c, what, want_cents=0.0):
     """Wait for the next note's start and read it to its end; returns the readings."""
-    wait_phase(c, PERIOD - 0.6, PERIOD - 0.3)
-    seen = readings(c, 0.3 + NOTE_LEN - 0.2)
+    wait_phase(c, PERIOD - 0.75, PERIOD - 0.45)
+    seen = readings(c, 0.45 + NOTE_LEN - 0.2)
     notes = [p for p in seen if p["freq"] > 0]
     if not notes:
         problems.append(f"{what}: no note from the pluck; last events {seen[-3:]}")
@@ -122,9 +125,12 @@ with Client() as a:
 
     seen = shows_a3(a, "first pluck")
     print("first pluck, last reading:", [r for r in seen if r["freq"] > 0][-1:])
-    for key in ("clarity", "conf", "settling", "stable", "multiple"):
+    for key in ("clarity", "conf", "settling", "stable", "multiple", "starting"):
         if seen and key not in seen[-1]:
             problems.append(f"tuner event has no {key}: {seen[-1]}")
+    # The name is held back for about 0.1 s after the pluck: 2-4 readings at 30 Hz.
+    if not any(r.get("starting") and r["freq"] == 0 for r in seen):
+        problems.append(f"no reading said starting as the note began: {seen[:6]}")
     if not any(r.get("stable") for r in seen):
         problems.append(f"a steady 2 s note never read stable: {seen[-2:]}")
     if seen and "clarity" in seen[-1] and abs(seen[-1]["clarity"] - seen[-1]["conf"]) > 1e-9:
