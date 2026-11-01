@@ -14,8 +14,12 @@
 //!   reachable from a type the code works on or a parameter it takes;
 //! - `allocationIn`: the function's body, and the body of every function
 //!   in the same file it calls, names no allocator, heap, allocating call
-//!   or container (`allocating`), comments and string literals aside. A
-//!   function in another file is checked only if a test names it too.
+//!   or container (`allocating`), comments and string literals aside.
+//!   Followed: a bare `name(` call, and `R.name(` where R is `self`,
+//!   `Self`, a struct this file declares (`const R = struct`, `extern` or
+//!   `packed` too) or an alias of `@This()`. Not followed: a call on any
+//!   other value, or into another file, which is checked only if a test
+//!   names that function too.
 //! - `forbiddenIn`: the same scan for any other words, such as logging on
 //!   the audio thread.
 const std = @import("std");
@@ -72,7 +76,9 @@ pub fn paramsReachAllocation(comptime F: type) bool {
 pub const allocating = [_][]const u8{
     // allocators and the heap
     "alloc",  "Alloc",       "realloc",       "malloc",  "calloc",   "gpa", "arena",
-    "std.heap",
+    "std.heap", "page_allocator", "c_allocator", "raw_c_allocator", "smp_allocator", "wasm_allocator",
+    // an allocator's own vtable calls
+    ".rawAlloc(", ".rawFree(", ".rawResize(", ".rawRemap(",
     // allocating calls on an allocator or a container
     ".create(", ".destroy(", ".free(",       ".dupe(",  ".dupeZ(", ".resize(", ".remap(",
     ".append(", ".appendSlice(", ".insert(", ".put(",   ".getOrPut", ".ensure", ".toOwnedSlice(",
@@ -100,8 +106,52 @@ pub fn allocationIn(source: []const u8, name: []const u8) error{FunctionNotFound
 pub fn forbiddenIn(source: []const u8, name: []const u8, words: []const []const u8) error{FunctionNotFound}!?[]const u8 {
     const code = if (std.mem.indexOf(u8, source, "\ntest \"")) |at| source[0..at] else source;
     var seen = Seen{};
-    return scan(code, name, words, &seen);
+    var receivers = Receivers.of(code);
+    return scan(code, name, words, &seen, &receivers);
 }
+
+/// The names a call can go through to reach this file's own functions:
+/// `self`, `Self`, every struct the file declares, and every alias of
+/// `@This()`.
+const Receivers = struct {
+    names: [max_functions][]const u8 = undefined,
+    len: usize = 0,
+
+    fn add(self: *Receivers, name: []const u8) void {
+        if (self.len < max_functions) {
+            self.names[self.len] = name;
+            self.len += 1;
+        }
+    }
+
+    fn of(code: []const u8) Receivers {
+        var r = Receivers{};
+        r.add("self");
+        r.add("Self");
+        var from: usize = 0;
+        while (std.mem.indexOfPos(u8, code, from, "const ")) |at| : (from = at + 6) {
+            if (at > 0 and isIdent(code[at - 1])) continue;
+            var end = at + 6;
+            while (end < code.len and isIdent(code[end])) end += 1;
+            if (end == at + 6) continue;
+            const rest = std.mem.trimLeft(u8, code[end..], " \t");
+            if (!std.mem.startsWith(u8, rest, "=")) continue;
+            const value = std.mem.trimLeft(u8, rest[1..], " \t");
+            for ([_][]const u8{ "@This()", "struct", "extern struct", "packed struct" }) |kind| {
+                if (std.mem.startsWith(u8, value, kind)) {
+                    r.add(code[at + 6 .. end]);
+                    break;
+                }
+            }
+        }
+        return r;
+    }
+
+    fn has(self: *const Receivers, name: []const u8) bool {
+        for (self.names[0..self.len]) |n| if (std.mem.eql(u8, n, name)) return true;
+        return false;
+    }
+};
 
 const max_functions = 64;
 const Seen = struct {
@@ -184,18 +234,18 @@ fn isIdent(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
-fn resolvesHere(b: []const u8, at: usize) bool {
+fn resolvesHere(b: []const u8, at: usize, receivers: *const Receivers) bool {
     if (at == 0) return true;
     if (b[at - 1] == '@') return false;
     if (b[at - 1] != '.') return true;
-    for ([_][]const u8{ "self.", "Self." }) |receiver| {
-        if (at >= receiver.len and std.mem.eql(u8, b[at - receiver.len .. at], receiver) and
-            (at == receiver.len or !isIdent(b[at - receiver.len - 1]))) return true;
-    }
-    return false;
+    // `R.name(`: followed when R, a whole identifier, is one of the file's.
+    var start = at - 1;
+    while (start > 0 and isIdent(b[start - 1])) start -= 1;
+    if (start > 0 and b[start - 1] == '.') return false; // `a.R.name(`
+    return receivers.has(b[start .. at - 1]);
 }
 
-fn scan(source: []const u8, name: []const u8, words: []const []const u8, seen: *Seen) error{FunctionNotFound}!?[]const u8 {
+fn scan(source: []const u8, name: []const u8, words: []const []const u8, seen: *Seen, receivers: *const Receivers) error{FunctionNotFound}!?[]const u8 {
     const b = body(source, name) orelse return error.FunctionNotFound;
     if (seen.len < max_functions) {
         seen.names[seen.len] = name;
@@ -214,11 +264,11 @@ fn scan(source: []const u8, name: []const u8, words: []const []const u8, seen: *
             if (isIdent(word[0]) and !word_start) continue;
             return word;
         }
-        // A call this file resolves, `name(` or `self.name(` (or
-        // `Self.`), to a function it defines: scan that too. A call on any
-        // other value is to its own type's function, which may live
-        // elsewhere and is checked only if a test names it.
-        if (isIdent(c) and word_start and !std.ascii.isDigit(c) and resolvesHere(b, at)) {
+        // A call this file resolves (see `Receivers`) to a function it
+        // defines: scan that too. A call on any other value is to its own
+        // type's function, which may live elsewhere and is checked only if
+        // a test names it.
+        if (isIdent(c) and word_start and !std.ascii.isDigit(c) and resolvesHere(b, at, receivers)) {
             var end = at;
             while (end < b.len and isIdent(b[end])) end += 1;
             if (end < b.len and b[end] == '(' and n_callees < max_functions) {
@@ -230,7 +280,7 @@ fn scan(source: []const u8, name: []const u8, words: []const []const u8, seen: *
     for (callees[0..n_callees]) |callee| {
         if (std.mem.eql(u8, callee, "fn") or seen.has(callee)) continue;
         if (body(source, callee) == null) continue; // not this file's
-        if (try scan(source, callee, words, seen)) |word| return word;
+        if (try scan(source, callee, words, seen, receivers)) |word| return word;
     }
     return null;
 }
@@ -384,4 +434,53 @@ test "a call on another value isn't followed into a same-named function here" {
         \\};
     ;
     try testing.expectEqual(@as(?[]const u8, null), try allocationIn(src, "tick"));
+}
+
+test "an allocator's vtable calls and the std heap's allocators are found under any alias" {
+    const src =
+        \\const pa = std.heap.page_allocator;
+        \\const h = std.heap;
+        \\fn viaConst() void {
+        \\    _ = pa.rawAlloc(16, .@"8", @returnAddress());
+        \\}
+        \\fn viaNamespace() void {
+        \\    _ = h.page_allocator.rawAlloc(16, .@"8", @returnAddress());
+        \\}
+        \\fn viaC() void {
+        \\    const a = h.c_allocator;
+        \\    _ = a;
+        \\}
+    ;
+    try testing.expectEqualStrings(".rawAlloc(", (try allocationIn(src, "viaConst")).?);
+    try testing.expect((try allocationIn(src, "viaNamespace")) != null);
+    try testing.expectEqualStrings("c_allocator", (try allocationIn(src, "viaC")).?);
+}
+
+test "calls through the file's own struct names and @This() aliases are followed" {
+    const src =
+        \\const Me = @This();
+        \\pub const MonoRing = struct {
+        \\    pub fn write(self: *MonoRing) void {
+        \\        _ = self;
+        \\        MonoRing.grab();
+        \\    }
+        \\    fn grab() void {
+        \\        _ = std.heap.page_allocator.create(u8) catch return;
+        \\    }
+        \\};
+        \\fn top() void {
+        \\    Me.helper();
+        \\}
+        \\fn helper() void {
+        \\    _ = std.heap.c_allocator.alloc(u8, 4) catch return;
+        \\}
+        \\fn elsewhere(o: Other) void {
+        \\    o.Thing.grab();
+        \\    Other.grab();
+        \\}
+    ;
+    try testing.expectEqualStrings("std.heap", (try allocationIn(src, "write")).?);
+    try testing.expectEqualStrings("std.heap", (try allocationIn(src, "top")).?);
+    // Other isn't declared here, so its grab is its own, not this file's.
+    try testing.expectEqual(@as(?[]const u8, null), try allocationIn(src, "elsewhere"));
 }
