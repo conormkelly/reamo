@@ -52,12 +52,13 @@ keep_failure() {
         fi
         echo
         echo "run it again:"
-        # A soak's length and load are in its SOAK_* settings, and a
-        # scenario can record settings it chose itself (a random seed) as
-        # NAME=value lines in replay.env. %q quotes each value so the line
-        # pastes back into a shell as it ran.
+        # HARNESS_AUDIO is the audio device the run had (JACK for every
+        # scenario, if set); a soak's length and load are in its SOAK_*
+        # settings; and a scenario can record settings it chose itself (a
+        # random seed) as NAME=value lines in replay.env. %q quotes each
+        # value so the line pastes back into a shell as it ran.
         local env_prefix="" v line
-        for v in TOUR_ONLY $(compgen -e | grep '^SOAK_' || true); do
+        for v in TOUR_ONLY HARNESS_AUDIO $(compgen -e | grep '^SOAK_' || true); do
             [ -n "${!v:-}" ] && env_prefix+="$(printf '%s=%q ' "$v" "${!v}")"
         done
         if [ -f "$src/replay.env" ]; then
