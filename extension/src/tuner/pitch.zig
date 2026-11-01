@@ -28,9 +28,12 @@
 //!   no pitch. Noise, which the JSFX turns into notes, reads as no pitch.
 //!
 //! A note shows only from an onset (an energy jump of 9 dB over the last
-//! 10-40 ms, or with nothing showing the window's level rising 12 dB over
+//! 10-40 ms; or with nothing showing the window's level rising 12 dB over
 //! its lowest of the last 2 s, as a swell, volume pedal, e-bow or bow
-//! does; the start of the input is not one, as whatever is sounding then
+//! does; or while a note shows, the same jump in what isn't that note,
+//! the input less itself a period earlier, as when another string is
+//! plucked over it, whose note is then measured with the ringing one
+//! taken out the same way; the start of the input is not one, as whatever is sounding then
 //! was already sounding), only while the window's level stands 12 dB
 //! over a noise floor learned while nothing shows, and only while the
 //! latest 40 ms still hold energy within 20 dB of the window's mean.
@@ -266,6 +269,13 @@ pub const Options = struct {
     /// One held level there (an e-bow, a pad) never shows, and a note
     /// already showing is not affected.
     mains_start_hold: bool = true,
+    /// Whether, while a note shows, the fine input less itself a period of
+    /// that note earlier (whatever isn't that note) is watched for a jump
+    /// as an onset is, and the note such an onset starts measured with the
+    /// ringing one taken out: a string plucked over another still ringing
+    /// as loud adds no energy if the hand damps the first, and the two
+    /// together read as their common subharmonic.
+    comb_onset: bool = true,
     /// Whether the spectrum of the input since the onset is checked for
     /// several notes (see several.zig).
     several_guard: bool = true,
@@ -416,6 +426,20 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `blocks_pos - 1`.
         blocks: [onset_history]f64,
         blocks_pos: usize,
+        /// The period of the note showing at the last analysis, in fine
+        /// samples (0 for none); the energy in the current block of the
+        /// fine input less itself a period earlier (what isn't that note),
+        /// that of the last `onset_history` full blocks and how many of
+        /// them there have been since the period was set.
+        comb_period: f64,
+        comb_energy: f64,
+        comb_blocks: [onset_history]f64,
+        comb_seen: usize,
+        /// The onset count of the last onset found that way, and the note
+        /// that was ringing then (Hz): until the next onset, the note it
+        /// started is measured with that one taken out.
+        comb_onset: u64,
+        comb_old_hz: f64,
         /// Full blocks since the reset (onsets are looked for only once the
         /// blocks before one are input, not the reset's silence), and onsets
         /// in all.
@@ -610,6 +634,12 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.block_energy = 0;
             @memset(&self.blocks, 0);
             self.blocks_pos = 0;
+            self.comb_period = 0;
+            self.comb_energy = 0;
+            @memset(&self.comb_blocks, 0);
+            self.comb_seen = 0;
+            self.comb_onset = 0;
+            self.comb_old_hz = 0;
         }
 
         /// Adds mono input. Non-finite samples, and any beyond
@@ -665,6 +695,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.fine[@intCast(self.fine_count % max_fine)] = v;
             self.fine_count += 1;
             self.block_energy += v * v;
+            if (options.comb_onset and self.comb_period > 0) {
+                const r = v - self.fineAt(@as(f64, @floatFromInt(self.fine_count - 1)) - self.comb_period);
+                self.comb_energy += r * r;
+            }
             self.block_fill += 1;
             if (self.block_fill < self.block_len) return;
             // Blocks 2 to onset_history back, 10 to 40 ms before this one.
@@ -674,16 +708,54 @@ pub fn AnalyserWith(comptime options: Options) type {
             const since_last = self.fine_count - self.onset_at;
             const refractory: u64 = @intFromFloat(onset_refractory_s * self.fine_rate);
             const heard = self.blocks_seen >= onset_history;
-            if (heard and self.block_energy > onset_ratio * before and self.block_energy > 0 and (self.onset_count == 0 or since_last >= refractory)) {
+            const free = self.onset_count == 0 or since_last >= refractory;
+            if (heard and self.block_energy > onset_ratio * before and self.block_energy > 0 and free) {
                 self.onset_at = self.fine_count - self.block_len;
                 self.onset_count += 1;
                 self.floor_paused = true;
+            } else if (self.comb_period > 0) {
+                // A new sound over a ringing note need not add energy (the
+                // ringing one damped as the next is plucked), but what isn't
+                // that note jumps, as much of the input as 1 / onset_ratio.
+                var comb_before: f64 = 0;
+                for (2..onset_history) |k| comb_before += self.comb_blocks[(self.blocks_pos + onset_history - k) % onset_history];
+                comb_before /= onset_history - 2;
+                if (self.comb_seen >= onset_history and free and self.comb_energy > onset_ratio * comb_before and onset_ratio * self.comb_energy > self.block_energy) {
+                    self.onset_at = self.fine_count - self.block_len;
+                    self.onset_count += 1;
+                    self.floor_paused = true;
+                    self.comb_onset = self.onset_count;
+                    self.comb_old_hz = self.fine_rate / self.comb_period;
+                }
             }
+            self.comb_blocks[self.blocks_pos] = self.comb_energy;
+            self.comb_seen = if (self.comb_period > 0) self.comb_seen + 1 else 0;
+            self.comb_energy = 0;
             self.blocks_seen += 1;
             self.blocks[self.blocks_pos] = self.block_energy;
             self.blocks_pos = (self.blocks_pos + 1) % onset_history;
             self.block_energy = 0;
             self.block_fill = 0;
+        }
+
+        /// The fine input at `pos` (in fine samples since the reset, at
+        /// most `max_fine` back), linearly interpolated.
+        fn fineAt(self: *const Self, pos: f64) f64 {
+            if (pos < 0) return 0;
+            const i: u64 = @intFromFloat(@floor(pos));
+            const frac = pos - @as(f64, @floatFromInt(i));
+            const x0 = self.fine[@intCast(i % max_fine)];
+            const x1 = self.fine[@intCast((i + 1) % max_fine)];
+            return x0 + frac * (x1 - x0);
+        }
+
+        /// Sets the period the fine input is compared with a period back
+        /// to that of `hz` (null for none); a change of more than 1% starts
+        /// the comparison's history afresh.
+        fn setComb(self: *Self, hz: ?f64) void {
+            const period = if (hz) |f| self.fine_rate / f else 0;
+            if (period == 0 or self.comb_period == 0 or @abs(period / self.comb_period - 1) > 0.01) self.comb_seen = 0;
+            self.comb_period = period;
         }
 
         /// Loads the fine input since the last onset, at most
@@ -695,6 +767,26 @@ pub fn AnalyserWith(comptime options: Options) type {
             const start = self.fine_count - n;
             for (self.segment[0..n], 0..) |*d, i| d.* = self.fine[@intCast((start + i) % max_fine)];
             self.segment_len = n;
+        }
+
+        /// The loaded segment less itself a period of `hz` earlier: a period
+        /// and a sample shorter, and empty if that leaves too little.
+        fn combSegment(self: *Self, hz: f64) void {
+            const period = self.fine_rate / hz;
+            const skip: usize = @intFromFloat(@ceil(period) + 1);
+            const n = self.segment_len;
+            if (n <= skip + 16) {
+                self.segment_len = 0;
+                return;
+            }
+            // In place, forwards: sample i reads samples i and later only.
+            for (0..n - skip) |i| {
+                const back = @as(f64, @floatFromInt(i + skip)) - period;
+                const j: usize = @intFromFloat(@floor(back));
+                const frac = back - @as(f64, @floatFromInt(j));
+                self.segment[i] = self.segment[i + skip] - (self.segment[j] + frac * (self.segment[j + 1] - self.segment[j]));
+            }
+            self.segment_len = n - skip;
         }
 
         /// The first partial's frequency near `guess_hz`, measured over the
@@ -802,10 +894,12 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.heard_several = false;
             const measured = if (level < settings.silence_db) null else self.measure(settings);
             const shown = self.track(self.gate(measured, level, settings)) orelse {
+                self.setComb(null);
                 var r = Reading.none;
                 r.multiple = self.heard_several;
                 return r;
             };
+            self.setComb(shown.hz);
             const midi = 69 + 12 * @log2(shown.hz / settings.reference_hz);
             const note = @floor(midi + 0.5);
             return .{
@@ -823,9 +917,27 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         /// The first partial's frequency now, unsmoothed, or null for no pitch.
         fn measure(self: *Self, settings: Settings) ?Measured {
-            self.difference();
             self.moved_from = null;
-            var best = self.pickPeriod(settings.range) orelse return null;
+            // After an onset found over a ringing note by what isn't that
+            // note, the input with that note taken out, unless what is left
+            // reads as that note still (the same string plucked again).
+            var combed = false;
+            var best: usize = 0;
+            if (options.comb_onset and self.comb_onset != 0 and self.comb_onset == self.onset_count) {
+                self.difference(self.comb_old_hz);
+                if (self.pickPeriod(settings.range)) |b| {
+                    const hz = self.analysis_rate / self.interpolate(b);
+                    if (@abs(1200 * @log2(hz / self.comb_old_hz)) >= 50) {
+                        best = b;
+                        combed = true;
+                    }
+                }
+                if (!combed) self.moved_from = null;
+            }
+            if (!combed) {
+                self.difference(null);
+                best = self.pickPeriod(settings.range) orelse return null;
+            }
             if (fine_needed) self.loadSegment();
             const hum_out = options.hum_model and self.hum_valid and fine_needed;
             if (hum_out) @memcpy(self.windowed[0..self.segment_len], self.segment[0..self.segment_len]);
@@ -835,6 +947,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 const top_period = self.moved_from orelse best;
                 self.hum_now.subtract(self.segment[0..self.segment_len], self.fine_count - self.segment_len, self.fine_rate, 0, 2 * self.analysis_rate / self.interpolate(top_period));
             }
+            if (combed and fine_needed) self.combSegment(self.comb_old_hz);
             if (self.moved_from) |orig| {
                 // Hum adds periodicity at multiples of the period: under hum
                 // the longer period must have a partial heard at its
@@ -1284,23 +1397,49 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// YIN's difference function d(tau) over the window, through the FFT
         /// autocorrelation r(tau): d(tau) = E(0, W-tau) + E(tau, W) - 2 r(tau),
         /// and its cumulative mean normalised form.
-        fn difference(self: *Self) void {
+        /// YIN's difference function of the window, or with `comb_hz` of
+        /// the window less itself a period of `comb_hz` earlier (a note
+        /// taken out; the frame is a period and a sample shorter, and lags
+        /// past half of it never dip).
+        fn difference(self: *Self, comb_hz: ?f64) void {
             const w = self.window;
             var sum: f64 = 0;
-            for (0..w) |i| {
-                const x = self.history[(self.write_pos + i) % w];
-                self.frame[i] = x;
-                sum += x * x;
-                self.cum_energy[i] = sum;
+            var len = w;
+            if (comb_hz) |f| {
+                const period = self.analysis_rate / f;
+                const skip: usize = @intFromFloat(@ceil(period) + 1);
+                len = w - skip;
+                for (0..len) |i| {
+                    const back = @as(f64, @floatFromInt(i + skip)) - period;
+                    const j: usize = @intFromFloat(@floor(back));
+                    const frac = back - @as(f64, @floatFromInt(j));
+                    const x0 = self.history[(self.write_pos + j) % w];
+                    const x1 = self.history[(self.write_pos + j + 1) % w];
+                    const x = self.history[(self.write_pos + i + skip) % w] - (x0 + frac * (x1 - x0));
+                    self.frame[i] = x;
+                    sum += x * x;
+                    self.cum_energy[i] = sum;
+                }
+            } else {
+                for (0..w) |i| {
+                    const x = self.history[(self.write_pos + i) % w];
+                    self.frame[i] = x;
+                    sum += x * x;
+                    self.cum_energy[i] = sum;
+                }
             }
-            self.fft.autocorrelate(self.frame[0..w], self.fft_size, &self.fft_work, self.autocorr[0 .. w / 2]);
+            self.fft.autocorrelate(self.frame[0..len], self.fft_size, &self.fft_work, self.autocorr[0 .. len / 2]);
+            for (len / 2..w / 2) |tau| {
+                self.diff[tau] = std.math.inf(f64);
+                self.cmnd[tau] = 1;
+            }
 
             self.diff[0] = 0;
             self.cmnd[0] = 1;
             var running: f64 = 0;
-            for (1..w / 2) |tau| {
-                const head = self.cum_energy[w - tau - 1];
-                const tail = self.cum_energy[w - 1] - self.cum_energy[tau - 1];
+            for (1..len / 2) |tau| {
+                const head = self.cum_energy[len - tau - 1];
+                const tail = self.cum_energy[len - 1] - self.cum_energy[tau - 1];
                 const d = @max(0, head + tail - 2 * self.autocorr[tau]);
                 self.diff[tau] = d;
                 running += d;
@@ -2156,6 +2295,42 @@ test "a string swelling in over hum shows within 0.2 s of standing 12 dB over th
     }
     errdefer std.debug.print("crossed {d:.3} s, shown {any}\n", .{ @as(f64, @floatFromInt(crossed)) / 48000, first });
     try testing.expect(first.? <= crossed + 9600);
+}
+
+test "a string plucked over another still ringing as loud reads the new string within 0.3 s" {
+    for ([_][2]f64{ .{ 82.4069, 110 }, .{ 41.2034, 55 } }) |pair| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(48000 * 3);
+        defer testing.allocator.destroy(buf);
+        const other = try generate(48000 * 3);
+        defer testing.allocator.destroy(other);
+        @memset(buf[0..12000], 0);
+        signals.pluckedString(buf[12000..], 48000, .{ .f0 = pair[0], .inharmonicity = 1.1e-4, .t60_s = 6 });
+        // From 1 s on, the first string at half its level and the second
+        // as loud as that.
+        const at = 12000 + 48000;
+        const level = 0.5 * signals.rms(buf[at - 4800 .. at]);
+        for (buf[at..]) |*v| v.* *= 0.5;
+        signals.pluckedString(other[0 .. buf.len - at], 48000, .{ .f0 = pair[1], .inharmonicity = 1.1e-4, .t60_s = 6, .seed = 2 });
+        signals.scale(other[0 .. buf.len - at], level / signals.rms(other[0..4800]));
+        signals.mix(buf[at..], other[0 .. buf.len - at]);
+        signals.addNoise(buf, 3e-5, 9);
+        const new_note: i32 = @intFromFloat(@round(69 + 12 * @log2(pair[1] / 440)));
+        const tick: usize = 1600;
+        var pos: usize = 0;
+        var first: ?usize = null;
+        while (pos + tick <= buf.len) : (pos += tick) {
+            a.push(buf[pos .. pos + tick]);
+            const r = a.analyse(.{});
+            if (pos + tick <= at or r.freq_hz == 0) continue;
+            if (first == null and r.note == new_note) first = pos + tick;
+            errdefer std.debug.print("{d} Hz then {d} Hz: {d:.3} s, {d:.2} Hz\n", .{ pair[0], pair[1], @as(f64, @floatFromInt(pos + tick - at)) / 48000, r.freq_hz });
+            if (first != null) try testing.expectEqual(new_note, r.note);
+        }
+        errdefer std.debug.print("{d} Hz then {d} Hz: first {any}\n", .{ pair[0], pair[1], first });
+        try testing.expect(first.? <= at + 14400);
+    }
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
