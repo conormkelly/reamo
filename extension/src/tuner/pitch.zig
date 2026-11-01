@@ -116,8 +116,29 @@
 //!   wanders up to 2 cents with another note a quarter of its frequency
 //!   away, and the sympathetic string outlasts the note in those cases.
 //!
+//! Known limits, from the owner's acceptance test (open strings tuned up
+//! to 3 tones off, an independent string model, the composite truth):
+//! - with heavy hum on single coils, or another string ringing, the
+//!   reading can wander about 1 cent after it has settled: notes never
+//!   settling to within 0.5 cent are 18.9% with hum and 21.5% on single
+//!   coils, against 4-5% for clean, humbucker and piezo signals;
+//! - on piezo, strings tuned 2.5-3 tones down flicker briefly an octave
+//!   off (1-4 readings) on 12% of notes;
+//! - rarely on bass, a twelfth or another non-octave wrong note: 0.15% of
+//!   settled readings on the held-out MDB-bass-synth stems;
+//! - under about 23 Hz (a 5-string's low B tuned more than about 2.5
+//!   tones down) it reads 10-17 cents sharp, outside the design range.
+//!
 //! Every tuned threshold and constant, with its unit and how the bench
 //! answers when it moves, is in thresholds.zig.
+//!
+//! Maintenance risk: this file is one generic struct of about 100 fields,
+//! and `gate` weighs about ten interacting flags (onsets, comb onsets and
+//! their takeback, the slow onset, mains hold, name hold, jump rule,
+//! legato restart). A change to any of them should be run against the
+//! unit tests, `zig build tuner-targets` and the MDB dev stems together;
+//! the gate's saved state for re-deciding with new settings is listed
+//! field by field in GateState and must grow with it.
 //!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
