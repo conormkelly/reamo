@@ -173,11 +173,6 @@ pub fn validateBackend(comptime T: type) void {
         "getMediaSourceChannels",
         "getMediaItemTakePeaks",
 
-        // AudioAccessor (for fallback peak generation)
-        "makeTakeAccessor",
-        "destroyTakeAccessor",
-        "readAccessorSamples",
-
         // Markers
         "markerCount",
         "enumMarker",
