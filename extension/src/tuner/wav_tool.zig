@@ -94,8 +94,8 @@ pub fn main() !void {
     std.debug.print("{s:>8} {s:>5} {s:>12} {s:>7} {s:>8} {s:>7} {s:>8} {s:>8} {s:>9} {s:>8} {s:>6}\n", .{ "onset s", "note", "truth Hz", "cents", "drift", "p95 c", "jitter c", "to 1c ms", "stable ms", "lock ms", "octave" });
     for (notes) |nt| {
         std.debug.print("{d:>8.2} {s:>5} {d:>12.4} {d:>7.2} {s:>8} {d:>7.3} {d:>8.3} {d:>8.0} {d:>9.0} {d:>8.0} {d:>6}\n", .{
-            nt.onset_s,                      noteName(nt.truth_note), nt.truth.hz,           nt.truth_cents, if (nt.truth.drifting) "drifting" else "", nt.p95_err_cents,
-            nt.jitter_cents,                 ms(nt.to_within_1c_s),   ms(nt.first_stable_s), ms(nt.lock_s),  nt.octave_reads,
+            nt.onset_s,      noteName(nt.truth_note), nt.truth.hz,           nt.truth_cents, if (nt.truth.drifting) "drifting" else "", nt.p95_err_cents,
+            nt.jitter_cents, ms(nt.to_within_1c_s),   ms(nt.first_stable_s), ms(nt.lock_s),  nt.octave_reads,
         });
     }
     std.debug.print("{d} notes of {d} s or more -> {s}\n", .{ notes.len, take.min_note_s, notes_csv });

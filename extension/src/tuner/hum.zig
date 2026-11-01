@@ -286,7 +286,6 @@ const Learner = struct {
 
 const test_rate: f64 = 11025;
 
-
 var hum_seed: u64 = 1;
 
 fn hum(out: []f64, base: f64, kind: sig.Mains, db: f64) void {
@@ -392,4 +391,3 @@ test "a learn from 0.5 s of buzz takes under half a millisecond" {
     errdefer std.debug.print("{d} us\n", .{best / 1000});
     try testing.expect(best < 500_000);
 }
-

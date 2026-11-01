@@ -287,7 +287,6 @@ const history_len = 32;
 /// deviations from the median, and at least this many cents.
 const hampel_floor_cents = 1.0;
 
-
 /// The refinement's input is the analysed signal low-passed again and
 /// decimated to a rate from this up to twice it (the first partial is
 /// under 2 kHz); rates under it are kept as they are.
