@@ -374,6 +374,14 @@ with Feeder() as f:                         # HARNESS_JACK_INPUTS channels
 
 - Channels count from 0, as `I_RECINPUT` does. Amplitudes are 0 to 1 (full
   scale). Changes start at the next JACK block (256 samples, 5.3 ms).
+- `tone` carries on at the phase of whatever the channel is sounding (a
+  tone, a pluck's tail, a swell still rising); from silence, and for a
+  pluck or swell, a voice starts at phase 0.
+- A pluck's `decay` and a swell's `seconds` are above 0 and at most 30 s.
+  A bad value, an unknown channel or op raises `FeederError` with the
+  child's reason; so does a request to a child that has died, with its
+  stderr. `close()` (or leaving the `with`) raises if the child exited
+  non-zero or had to be killed.
 - `tone`, `pluck` and `swell` return the frequency played: a tone loops a
   whole number of cycles in about a second, within 0.02 cents of the one
   asked for.
@@ -382,7 +390,9 @@ with Feeder() as f:                         # HARNESS_JACK_INPUTS channels
   the audio callback.
 - The JACK client runs in a child process, so the test's own work never
   holds the GIL its audio callback needs. The child takes JSON lines on
-  stdin and exits when stdin closes, so it can't outlive the test.
+  stdin and exits when stdin closes, so it can't outlive the test. Its
+  stdout carries only replies; libjack's messages (all of them under
+  `jackd -v`) go to its stderr, which is passed through.
 - Voices are rendered to tables when asked for; the callback only copies
   slices (`ctypes.memmove`). Measured on aarch64 Docker: 4 channels use
   1.7 to 2.7 % of one core while plucks and swells are rendered, about
@@ -403,6 +413,12 @@ read the take with an audio accessor (the example does both).
 - **xruns.** jackd runs without realtime scheduling, so a block can be late
   under load and REAPER gets a gap. Assert on medians or most readings,
   not on every block.
+- **Rendering holds the GIL.** A voice is rendered whole in the feeder's
+  child when asked for, and the audio callback waits for the GIL
+  meanwhile; the callback isn't realtime-safe under `--no-realtime`. A
+  long pluck or swell started during a measurement can cause xruns
+  (measured: a 30 s pluck and a 30 s swell took 0.12 and 0.07 s to render,
+  with 4 xruns between them): start long voices before the measured span.
 - **Close audio device when stopped** (`audioclosestop=1`; the harness
   leaves it at its default, off). REAPER closes JACK when stopped and
   re-registers its ports on play, which drops their connections: nothing
