@@ -109,6 +109,13 @@ const targets = struct {
     /// at least the analyser's at registration (`drift_coverage_pct`).
     const drift_p95_cents = 0.5;
     const drift_coverage_pct = baseline.drift_coverage_pct;
+    /// Never green while wrong: no reading in hum_drift flagged stable
+    /// more than 0.5 cent off f1(t).
+    const drift_stable_wrong = 0;
+    /// And no false alarms where the hum holds still: readings flagged
+    /// stable in hum_target and hum_note together at least as many as at
+    /// registration.
+    const steady_hum_stable = baseline.steady_hum_stable;
     /// Readings flagged `multiple` on a single string (with or without hum
     /// under it): a flagged reading that shows nothing must not be a free
     /// way round the subharmonic target.
@@ -129,6 +136,8 @@ const targets = struct {
 const baseline = struct {
     /// hum_drift's share shown from 1 s to 3 s at registration.
     const drift_coverage_pct = 95.5;
+    /// Readings flagged stable in hum_target and hum_note at registration.
+    const steady_hum_stable: usize = 17772;
     const lock_avg_ms = 42.7;
     const lock_worst_ms = 83.4;
 };
@@ -650,6 +659,10 @@ const GroupStats = struct {
     flag_sum_ms: f64 = 0,
     flag_n: usize = 0,
     flag_never: usize = 0,
+    /// Readings flagged stable, and of them those more than 0.5 cent off
+    /// f1(t), from t = 0.1 s.
+    stable_reads: usize = 0,
+    stable_wrong: usize = 0,
     /// Ramp: reads over the allowance.
     ramp_over: usize = 0,
     ramp_reads: usize = 0,
@@ -708,6 +721,10 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
         if (t < 0.1) continue;
         const truth = s.firstPartialHz(t);
         if (r.multiple) st.multiple += 1;
+        if (r.stable) {
+            st.stable_reads += 1;
+            if (r.hz == null or @abs(sig.cents(r.hz.?, truth)) > 0.5) st.stable_wrong += 1;
+        }
         if (r.note) |n| {
             const d = @abs(n - noteOf(truth));
             if ((d >= 11 and d <= 13) or (d >= 23 and d <= 25) or (d >= 35 and d <= 37)) st.octave += 1 else if (d != 0) st.wrong_note += 1;
@@ -1091,6 +1108,7 @@ pub fn main() !void {
     try printTargets(w, cands[0..nc], results);
     try printPooledApart(w, cands[0..nc], results);
     try printTicks(w, cands[0..nc], results);
+    try printHumFit(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -1346,6 +1364,23 @@ fn quantiles(alloc: std.mem.Allocator, values: []const f64) !Quantiles {
         .never = never,
         .worst = if (finite > 0) copy[finite - 1] else std.math.inf(f64),
     };
+}
+
+fn printHumFit(w: anytype, cands: []const Candidate, results: []Results) !void {
+    try w.print(
+        \\
+        \\## Hum that changes in a note (targets: no stable reading over 0.5 c off in hum_drift; stable readings where the hum holds still >= {d})
+        \\
+        \\| candidate | hum_drift stable readings, over 0.5 c off | hum_target + hum_note stable readings | verdict |
+        \\|---|---|---|---|
+        \\
+    , .{targets.steady_hum_stable});
+    for (cands, results) |c, *r| {
+        const d = r.group[@intFromEnum(Group.hum_drift)];
+        const steady = r.group[@intFromEnum(Group.hum_target)].stable_reads + r.group[@intFromEnum(Group.hum_note)].stable_reads;
+        const ok = d.stable_wrong <= targets.drift_stable_wrong and steady >= targets.steady_hum_stable;
+        try w.print("| {s} | {d}, {d} | {d} | {s} |\n", .{ c.name, d.stable_reads, d.stable_wrong, steady, verdict(ok) });
+    }
 }
 
 fn printTicks(w: anytype, cands: []const Candidate, results: []Results) !void {
