@@ -427,11 +427,15 @@ class Client:
             remaining = deadline - time.time()
             if remaining <= 0:
                 raise TimeoutError("no message before deadline")
+            # The deadline is this read's alone: a send after it gets the
+            # client's own timeout, not whatever was left of the deadline.
             self.sock.settimeout(remaining)
             try:
                 opcode, payload = self._recv_frame()
             except socket.timeout:
                 raise TimeoutError("no message before deadline") from None
+            finally:
+                self.sock.settimeout(self.timeout)
             if opcode == 2:
                 self.binary.append(payload)
                 continue
