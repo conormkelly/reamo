@@ -82,9 +82,24 @@ pub const Model = struct {
     }
 };
 
-/// The hum in `x` (input samples `start` on, at `rate`), or null if no
-/// harmonic of 50 or 60 Hz stands 12 dB over the noise.
-pub fn learn(comptime max_period: usize, work: *first_partial.Work(max_period), x: []const f64, start: u64, rate: f64) ?Model {
+/// The Hann-windowed power spectrum of the input a model is learned from,
+/// which the caller computes (it has an FFT): bin 0 at 0 Hz.
+pub const Spectrum = struct {
+    power: []const f64,
+    bin_hz: f64,
+};
+
+/// The input's amplitude and phase are measured over its last this-much
+/// (enough to part harmonics 50 Hz apart), the frequency over all of it.
+const tail_s = 0.15;
+/// Harmonics used to measure the mains frequency, strongest first.
+const slope_harmonics = 3;
+const advance_harmonics = 4;
+
+/// The hum in `x` (input samples `start` on, at `rate`), whose Hann power
+/// spectrum is `sp`, or null if no harmonic of 50 or 60 Hz stands 12 dB
+/// over the noise. `window` is scratch for x.len values.
+pub fn learn(comptime max_period: usize, work: *first_partial.Work(max_period), x: []const f64, start: u64, rate: f64, sp: Spectrum, window: []f64) ?Model {
     if (x.len < 64) return null;
     const top = @min(top_hz, 0.45 * rate);
     // Which base, by the power at its nominal harmonics.
@@ -93,57 +108,73 @@ pub fn learn(comptime max_period: usize, work: *first_partial.Work(max_period), 
     for ([_]f64{ 50, 60 }) |base| {
         var power: f64 = 0;
         var k: f64 = 1;
-        while (k * base <= top) : (k += 1) power += amplitude(x, rate, k * base).amp;
+        while (k * base <= top) : (k += 1) power += peakPower(sp, k * base);
         if (power > best_power) {
             best_power = power;
             best_base = base;
         }
     }
     if (best_base == 0) return null;
-    // The noise: the median amplitude half-way between harmonics.
+    // The noise: the median power half-way between harmonics.
     var gaps: [max_components]f64 = undefined;
     var ng: usize = 0;
     var k: f64 = 1;
     while ((k + 0.5) * best_base <= top and ng < gaps.len) : (k += 1) {
-        gaps[ng] = amplitude(x, rate, (k + 0.5) * best_base).amp;
+        gaps[ng] = sp.power[binAt(sp, (k + 0.5) * best_base)];
         ng += 1;
     }
     if (ng < 3) return null;
     std.mem.sort(f64, gaps[0..ng], {}, std.sort.asc(f64));
     const noise = gaps[ng / 2];
 
-    // The harmonics standing over the noise, each measured by its phase
-    // slope; the mains frequency is their inverse-variance mean of f_k / k
-    // (precision grows with k, and phase is extrapolated by k f t).
-    var model: Model = .{ .base_hz = best_base, .ref = start };
-    var sum_w: f64 = 0;
-    var sum_wf: f64 = 0;
+    // The harmonics standing 12 dB over the noise.
+    var model: Model = .{ .base_hz = best_base };
+    var power: [max_components]f64 = undefined;
     k = 1;
     while (k * best_base <= top and model.count < max_components) : (k += 1) {
-        const c = amplitude(x, rate, k * best_base);
-        if (!(c.amp > over_noise * noise)) continue;
+        const p = peakPower(sp, k * best_base);
+        if (!(p > over_noise * over_noise * noise)) continue;
         model.harmonic[model.count] = @intFromFloat(k);
+        power[model.count] = p;
         model.count += 1;
-        const e = first_partial.estimate(max_period, work, x, rate, k * best_base, .phase_slope) orelse continue;
-        if (!std.math.isFinite(e.std_error_hz) or !(@abs(e.hz / k - best_base) < 1)) continue;
-        const se = @max(e.std_error_hz / k, 1e-9);
-        sum_w += 1 / (se * se);
-        sum_wf += (e.hz / k) / (se * se);
     }
-    if (model.count == 0 or !(sum_w > 0)) return null;
+    if (model.count == 0) return null;
+    var order: [max_components]usize = undefined;
+    for (order[0..model.count], 0..) |*o, i| o.* = i;
+    std.mem.sort(usize, order[0..model.count], power[0..model.count], struct {
+        fn louder(pw: []const f64, a: usize, b: usize) bool {
+            return pw[a] > pw[b];
+        }
+    }.louder);
+
+    // The mains frequency: the strongest harmonics' phase slopes, pooled by
+    // inverse variance over f_k / k (precision grows with k, and phase is
+    // carried through a note by k f t) ...
+    var sum_w: f64 = 0;
+    var sum_wf: f64 = 0;
+    for (order[0..@min(model.count, slope_harmonics)]) |c| {
+        const kf: f64 = @floatFromInt(model.harmonic[c]);
+        const e = first_partial.estimate(max_period, work, x, rate, kf * best_base, .phase_slope) orelse continue;
+        if (!std.math.isFinite(e.std_error_hz) or !(@abs(e.hz / kf - best_base) < 1)) continue;
+        const se = @max(e.std_error_hz / kf, 1e-9);
+        sum_w += 1 / (se * se);
+        sum_wf += (e.hz / kf) / (se * se);
+    }
+    if (!(sum_w > 0)) return null;
     model.base_hz = sum_wf / sum_w;
-    // Refined by each harmonic's phase advance from the first half of the
-    // input to the second (Hann-weighted halves leak far less from their
+    // ... refined by their phase advance from the first half of the input
+    // to the second (Hann-weighted halves leak far less from their
     // neighbours than the phase slope's moving averages do).
     const half = x.len / 2;
+    hann(window[0..half]);
     for (0..2) |_| {
         var sw: f64 = 0;
         var swd: f64 = 0;
-        for (model.harmonic[0..model.count]) |h| {
-            const kf: f64 = @floatFromInt(h);
+        for (order[0..@min(model.count, advance_harmonics)]) |c| {
+            const kf: f64 = @floatFromInt(model.harmonic[c]);
             const hz = model.base_hz * kf;
-            const a = project(x[0..half], rate, hz, 0);
-            const b = project(x[half .. 2 * half], rate, hz, half);
+            const a = project(x[0..half], window[0..half], rate, hz, 0);
+            const b = project(x[half .. 2 * half], window[0..half], rate, hz, half);
             // b conj(a): the phase gained over `half` samples beyond hz's.
             const re = b.re * a.re + b.im * a.im;
             const im = b.im * a.re - b.re * a.im;
@@ -155,21 +186,46 @@ pub fn learn(comptime max_period: usize, work: *first_partial.Work(max_period), 
         if (!(sw > 0)) break;
         model.base_hz += swd / sw * rate / (2 * std.math.pi);
     }
-    // Amplitude and phase at the exact frequencies.
+    // Amplitude and phase at the exact frequencies, over the input's end,
+    // the phase at the end's first sample.
+    const tail_len = @min(x.len, @as(usize, @intFromFloat(tail_s * rate)));
+    const tail = x[x.len - tail_len ..];
+    hann(window[0..tail_len]);
+    model.ref = start + (x.len - tail_len);
     for (0..model.count) |c| {
-        const comp = amplitude(x, rate, model.base_hz * @as(f64, @floatFromInt(model.harmonic[c])));
-        model.amp[c] = comp.amp;
-        model.phase[c] = comp.phase;
+        const z = project(tail, window[0..tail_len], rate, model.base_hz * @as(f64, @floatFromInt(model.harmonic[c])), 0);
+        model.amp[c] = 2 * @sqrt(z.re * z.re + z.im * z.im);
+        model.phase[c] = std.math.atan2(z.im, z.re);
     }
-    return if (model.count > 0) model else null;
+    return model;
+}
+
+fn binAt(sp: Spectrum, hz: f64) usize {
+    const b: usize = @intFromFloat(@max(0, @round(hz / sp.bin_hz)));
+    return @min(b, sp.power.len - 1);
+}
+
+/// The most power within a bin and a half of `hz`.
+fn peakPower(sp: Spectrum, hz: f64) f64 {
+    const lo = binAt(sp, hz - 1.5 * sp.bin_hz);
+    const hi = binAt(sp, hz + 1.5 * sp.bin_hz);
+    var p: f64 = 0;
+    for (sp.power[lo .. hi + 1]) |v| p = @max(p, v);
+    return p;
+}
+
+/// A Hann window over `out`.
+fn hann(out: []f64) void {
+    const denom: f64 = @floatFromInt(@max(out.len, 2) - 1);
+    for (out, 0..) |*w, i| w.* = 0.5 - 0.5 * @cos(2 * std.math.pi * @as(f64, @floatFromInt(i)) / denom);
 }
 
 const Complex = struct { re: f64, im: f64 };
 
-/// sum h[n] x[n] e^(-i w (n + offset)) / sum h, h a Hann window over x:
+/// sum h[n] x[n] e^(-i w (n + offset)) / sum h, h the `window` over x:
 /// the component at `hz` with its phase referred to `offset` samples
-/// before x[0].
-fn project(x: []const f64, rate: f64, hz: f64, offset: usize) Complex {
+/// before x[0] (half its amplitude, for a real cosine).
+fn project(x: []const f64, window: []const f64, rate: f64, hz: f64, offset: usize) Complex {
     const w = 2 * std.math.pi * hz / rate;
     const p0 = -w * @as(f64, @floatFromInt(offset));
     var cr = @cos(p0);
@@ -179,9 +235,7 @@ fn project(x: []const f64, rate: f64, hz: f64, offset: usize) Complex {
     var re: f64 = 0;
     var im: f64 = 0;
     var wsum: f64 = 0;
-    const denom: f64 = @floatFromInt(x.len - 1);
-    for (x, 0..) |v, i| {
-        const h = 0.5 - 0.5 * @cos(2 * std.math.pi * @as(f64, @floatFromInt(i)) / denom);
+    for (x, window, 0..) |v, h, i| {
         // x e^(-i (w n + w offset)), the rotation being e^(i (p0 - w n)).
         re += h * v * cr;
         im += h * v * ci;
@@ -189,36 +243,13 @@ fn project(x: []const f64, rate: f64, hz: f64, offset: usize) Complex {
         const ncr = cr * sr + ci * si;
         ci = ci * sr - cr * si;
         cr = ncr;
+        if (i % 1024 == 1023) {
+            const r = @sqrt(cr * cr + ci * ci);
+            cr /= r;
+            ci /= r;
+        }
     }
     return .{ .re = re / wsum, .im = im / wsum };
-}
-
-const Component = struct { amp: f64, phase: f64 };
-
-/// The amplitude and phase (at x[0]) of the cosine at `hz` in `x`, by a
-/// Hann-weighted projection.
-fn amplitude(x: []const f64, rate: f64, hz: f64) Component {
-    const n = x.len;
-    const w = 2 * std.math.pi * hz / rate;
-    var re: f64 = 0;
-    var im: f64 = 0;
-    var wsum: f64 = 0;
-    var cr: f64 = 1;
-    var ci: f64 = 0;
-    const sr = @cos(w);
-    const si = @sin(w);
-    const denom: f64 = @floatFromInt(n - 1);
-    for (x, 0..) |v, i| {
-        const h = 0.5 - 0.5 * @cos(2 * std.math.pi * @as(f64, @floatFromInt(i)) / denom);
-        // x e^(-i w n)
-        re += h * v * cr;
-        im -= h * v * ci;
-        wsum += h;
-        const ncr = cr * sr - ci * si;
-        ci = cr * si + ci * sr;
-        cr = ncr;
-    }
-    return .{ .amp = 2 * @sqrt(re * re + im * im) / wsum, .phase = std.math.atan2(im, re) };
 }
 
 // =============================================================================
@@ -226,9 +257,35 @@ fn amplitude(x: []const f64, rate: f64, hz: f64) Component {
 
 const testing = std.testing;
 const sig = @import("signals.zig");
+const fft_mod = @import("fft.zig");
+
+const Learner = struct {
+    work: first_partial.Work(1024),
+    fft: fft_mod.Fft(8192),
+    fft_work: [4096]fft_mod.Complex,
+    windowed: [8192]f64,
+    power: [4097]f64,
+    window: [8192]f64,
+
+    fn create() !*Learner {
+        const l = try testing.allocator.create(Learner);
+        l.fft.init();
+        return l;
+    }
+
+    /// learn, the spectrum computed as the analyser computes it.
+    fn learnFrom(self: *Learner, x: []const f64, start: u64) ?Model {
+        const n = std.math.ceilPowerOfTwo(usize, x.len) catch unreachable;
+        hann(self.window[0..x.len]);
+        @memset(self.windowed[0..n], 0);
+        for (self.windowed[0..x.len], x, self.window[0..x.len]) |*d, v, w| d.* = v * w;
+        self.fft.powerSpectrum(self.windowed[0..n], n, &self.fft_work, self.power[0 .. n / 2 + 1]);
+        return learn(1024, &self.work, x, start, test_rate, .{ .power = self.power[0 .. n / 2 + 1], .bin_hz = test_rate / @as(f64, @floatFromInt(n)) }, &self.window);
+    }
+};
 
 const test_rate: f64 = 11025;
-const TestWork = first_partial.Work(1024);
+
 
 fn hum(out: []f64, base: f64, kind: sig.Mains, db: f64) void {
     const tmp = testing.allocator.alloc(f32, out.len) catch unreachable;
@@ -241,12 +298,14 @@ fn hum(out: []f64, base: f64, kind: sig.Mains, db: f64) void {
 /// How much of the power at the mains harmonics up to 2 kHz is left,
 /// dB: the band the model covers.
 fn residualDb(after: []const f64, before: []const f64, base: f64) f64 {
+    var win: [3307]f64 = undefined;
+    hann(win[0..after.len]);
     var a: f64 = 0;
     var b: f64 = 0;
     var k: f64 = 1;
     while (k * base <= top_hz) : (k += 1) {
-        a += sq(project(after, test_rate, k * base, 0));
-        b += sq(project(before, test_rate, k * base, 0));
+        a += sq(project(after, win[0..after.len], test_rate, k * base, 0));
+        b += sq(project(before, win[0..after.len], test_rate, k * base, 0));
     }
     return 10 * std.math.log10(a / b);
 }
@@ -256,8 +315,8 @@ fn sq(c: Complex) f64 {
 }
 
 test "learns hum and buzz on 50 and 60 Hz mains, off nominal, and takes them out of their harmonics up to 2 kHz 3 s later" {
-    const work = try testing.allocator.create(TestWork);
-    defer testing.allocator.destroy(work);
+    const l = try Learner.create();
+    defer testing.allocator.destroy(l);
     const n: usize = @intFromFloat(3.5 * test_rate);
     const x = try testing.allocator.alloc(f64, n);
     defer testing.allocator.free(x);
@@ -268,7 +327,7 @@ test "learns hum and buzz on 50 and 60 Hz mains, off nominal, and takes them out
             for ([_]sig.Mains{ .hum, .buzz }) |kind| {
                 hum(x, base, kind, -50);
                 const learnt: usize = @intFromFloat(c[0] * test_rate);
-                const m = learn(1024, work, x[0..learnt], 0, test_rate).?;
+                const m = l.learnFrom(x[0..learnt], 0).?;
                 // 3 s on, 0.3 s of it.
                 const at: usize = @intFromFloat(3 * test_rate);
                 var seg: [3307]f64 = undefined;
@@ -283,21 +342,21 @@ test "learns hum and buzz on 50 and 60 Hz mains, off nominal, and takes them out
 }
 
 test "learns nothing from noise or silence" {
-    const work = try testing.allocator.create(TestWork);
-    defer testing.allocator.destroy(work);
+    const l = try Learner.create();
+    defer testing.allocator.destroy(l);
     var x: [2756]f64 = undefined;
     @memset(&x, 0);
-    try testing.expect(learn(1024, work, &x, 0, test_rate) == null);
+    try testing.expect(l.learnFrom(&x, 0) == null);
     var s32: [2756]f32 = undefined;
     @memset(&s32, 0);
     sig.addNoise(&s32, 1e-3, 5);
     for (&x, s32) |*d, v| d.* = v;
-    try testing.expect(learn(1024, work, &x, 0, test_rate) == null);
+    try testing.expect(l.learnFrom(&x, 0) == null);
 }
 
 test "a decaying note's tail does not agree with itself a moment later" {
-    const work = try testing.allocator.create(TestWork);
-    defer testing.allocator.destroy(work);
+    const l = try Learner.create();
+    defer testing.allocator.destroy(l);
     // E5 (659.3 Hz) sits 2 cents under 11 x 60 Hz; dying at 20 dB a second.
     const n: usize = @intFromFloat(0.6 * test_rate);
     var s32: [6615]f32 = undefined;
@@ -306,7 +365,23 @@ test "a decaying note's tail does not agree with itself a moment later" {
     var x: [6615]f64 = undefined;
     for (x[0..n], s32[0..n]) |*d, v| d.* = v;
     const half: usize = @intFromFloat(0.25 * test_rate);
-    const first = learn(1024, work, x[0..half], 0, test_rate);
-    const second = learn(1024, work, x[n - half .. n], n - half, test_rate);
+    const first = l.learnFrom(x[0..half], 0);
+    const second = l.learnFrom(x[n - half .. n], n - half);
     if (first) |f| if (second) |s| try testing.expect(!f.agrees(s));
+}
+
+test "a learn from 0.5 s of buzz takes under half a millisecond" {
+    if (@import("builtin").mode == .Debug) return error.SkipZigTest;
+    const l = try Learner.create();
+    defer testing.allocator.destroy(l);
+    var x: [5512]f64 = undefined;
+    hum(&x, 60, .buzz, -50);
+    var best: u64 = std.math.maxInt(u64);
+    for (0..5) |_| {
+        var timer = try std.time.Timer.start();
+        std.mem.doNotOptimizeAway(l.learnFrom(&x, 0));
+        best = @min(best, timer.read());
+    }
+    errdefer std.debug.print("{d} us\n", .{best / 1000});
+    try testing.expect(best < 500_000);
 }

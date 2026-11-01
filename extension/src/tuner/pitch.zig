@@ -233,6 +233,8 @@ pub const Options = struct {
 const hum_learn_min_s = 0.15;
 const hum_learn_max_s = 0.5;
 const hum_hop_s = 0.05;
+/// Once two learns agree, the hum is learned again only this often.
+const hum_relearn_s = 0.25;
 
 const floor_rise_db_per_s = 20.0;
 const resume_s = 0.25;
@@ -340,8 +342,9 @@ pub fn AnalyserWith(comptime options: Options) type {
         onset_count: u64,
         segment: [max_fine]f64,
         segment_len: usize,
-        windowed: [if (options.several_guard) max_fft else 1]f64,
-        spectrum: [if (options.several_guard) max_fft / 2 + 1 else 1]f64,
+        windowed: [if (options.several_guard or options.hum_model) max_fft else 1]f64,
+        spectrum: [if (options.several_guard or options.hum_model) max_fft / 2 + 1 else 1]f64,
+        hum_window: [if (options.hum_model) max_fft else 1]f64,
         several_scratch: several.Scratch,
         /// Whether the last analysis heard several notes.
         heard_several: bool,
@@ -783,21 +786,29 @@ pub fn AnalyserWith(comptime options: Options) type {
             return if (self.note_active) m else null;
         }
 
-        /// Every `hum_hop_s` of idle input, learns the hum from the input
-        /// since the last onset (between `hum_learn_min_s` and
-        /// `hum_learn_max_s` of it); two learns in a row that agree make the
-        /// model used.
+        /// Every `hum_hop_s` of idle input (`hum_relearn_s` once two have
+        /// agreed), learns the hum from the input since the last onset
+        /// (between `hum_learn_min_s` and `hum_learn_max_s` of it); two
+        /// learns in a row that agree make the model used.
         fn learnHum(self: *Self) void {
             if (!options.hum_model or !fine_needed) return;
-            if (@as(f64, @floatFromInt(self.fine_count - self.hum_learned_at)) < hum_hop_s * self.fine_rate) return;
+            const hop: f64 = if (self.hum_valid) hum_relearn_s else hum_hop_s;
+            if (@as(f64, @floatFromInt(self.fine_count - self.hum_learned_at)) < hop * self.fine_rate) return;
             const idle: u64 = if (self.onset_count > 0) self.fine_count - self.onset_at else self.fine_count;
-            const most: u64 = @min(@as(u64, @intFromFloat(hum_learn_max_s * self.fine_rate)), max_fine);
+            const most: u64 = @min(@as(u64, @intFromFloat(hum_learn_max_s * self.fine_rate)), @min(max_fine, max_fft));
             const n: usize = @intCast(@min(idle, most));
             if (@as(f64, @floatFromInt(n)) < hum_learn_min_s * self.fine_rate) return;
             self.hum_learned_at = self.fine_count;
             const start = self.fine_count - n;
             for (self.segment[0..n], 0..) |*d, i| d.* = self.fine[@intCast((start + i) % max_fine)];
-            const learned = hum.learn(max_fine_period, &self.refine_work, self.segment[0..n], start, self.fine_rate);
+            // Its Hann power spectrum, for the learner to choose by.
+            const n_fft = std.math.ceilPowerOfTwo(usize, n) catch unreachable;
+            const denom: f64 = @floatFromInt(n - 1);
+            @memset(self.windowed[0..n_fft], 0);
+            for (self.windowed[0..n], self.segment[0..n], 0..) |*d, v, i| d.* = v * (0.5 - 0.5 * @cos(2 * std.math.pi * @as(f64, @floatFromInt(i)) / denom));
+            self.fft.powerSpectrum(self.windowed[0..n_fft], n_fft, &self.fft_work, self.spectrum[0 .. n_fft / 2 + 1]);
+            const sp: hum.Spectrum = .{ .power = self.spectrum[0 .. n_fft / 2 + 1], .bin_hz = self.fine_rate / @as(f64, @floatFromInt(n_fft)) };
+            const learned = hum.learn(max_fine_period, &self.refine_work, self.segment[0..n], start, self.fine_rate, sp, self.hum_window[0..n]);
             if (learned) |m| {
                 self.hum_valid = if (self.hum_last) |last| last.agrees(m) else false;
                 if (self.hum_valid) self.hum_now = m;

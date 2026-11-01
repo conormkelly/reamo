@@ -87,6 +87,7 @@ pub const Work = struct {
     fft_work: [max_fft / 2]fft_mod.Complex,
     windowed: [max_fft]f64,
     power: [max_fft / 2 + 1]f64,
+    hum_window: [max_fft]f64,
     several: several.Scratch,
     points: [8192]truth.Point,
     errors: [8192]f64,
@@ -139,10 +140,10 @@ fn judge(alloc: std.mem.Allocator, work: *Work, reads: []const Read, mono: []con
     if (@as(f64, @floatFromInt(pre_len)) >= 0.3 * rate) {
         const pre = mono[start - pre_len .. start];
         const half = pre_len / 2;
-        const a = hum.learn(max_period, &work.first_partial, pre[0..half], start - pre_len, rate);
-        const b = hum.learn(max_period, &work.first_partial, pre[half..], start - pre_len + half, rate);
+        const a = learnHum(work, pre[0..half], start - pre_len, rate);
+        const b = learnHum(work, pre[half..], start - pre_len + half, rate);
         if (a != null and b != null and a.?.agrees(b.?)) {
-            if (hum.learn(max_period, &work.first_partial, pre, start - pre_len, rate)) |m| {
+            if (learnHum(work, pre, start - pre_len, rate)) |m| {
                 m.subtract(x, start, rate, 0, 2000);
                 hum_removed = true;
             }
@@ -220,6 +221,20 @@ fn judge(alloc: std.mem.Allocator, work: *Work, reads: []const Read, mono: []con
         .octave_reads = octave,
         .reads_after_1s = m,
     };
+}
+
+/// hum.learn on `x` (input samples `start` on), its Hann power spectrum
+/// computed here.
+fn learnHum(work: *Work, x: []const f64, start: u64, rate: f64) ?hum.Model {
+    const n = @min(x.len, max_fft);
+    const seg = x[x.len - n ..];
+    const n_fft = std.math.ceilPowerOfTwo(usize, n) catch unreachable;
+    const denom: f64 = @floatFromInt(@max(n, 2) - 1);
+    @memset(work.windowed[0..n_fft], 0);
+    for (work.windowed[0..n], seg, 0..) |*d, v, i| d.* = v * (0.5 - 0.5 * @cos(2 * std.math.pi * @as(f64, @floatFromInt(i)) / denom));
+    work.fft.powerSpectrum(work.windowed[0..n_fft], n_fft, &work.fft_work, work.power[0 .. n_fft / 2 + 1]);
+    const sp: hum.Spectrum = .{ .power = work.power[0 .. n_fft / 2 + 1], .bin_hz = rate / @as(f64, @floatFromInt(n_fft)) };
+    return hum.learn(max_period, &work.first_partial, seg, start + (x.len - n), rate, sp, work.hum_window[0..n]);
 }
 
 /// The tracked first partial at `t` seconds after the onset, interpolated
