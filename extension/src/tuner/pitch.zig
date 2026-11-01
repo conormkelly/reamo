@@ -792,7 +792,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.floor_countdown -= 1;
                 return;
             }
-            const step_s = 0.005;
+            const step_s = th.gate.floor_step_s;
             self.floor_countdown = @intFromFloat(@round(step_s * self.analysis_rate));
             if (self.note_active or self.floor_paused) return;
             // While a note that dropped out may still resume, the input is
@@ -1392,10 +1392,6 @@ pub fn AnalyserWith(comptime options: Options) type {
             return recent_mean >= window_mean * std.math.pow(f64, 10, -drop / 10);
         }
 
-        /// Whether `hz` is within `mains_cents` of a harmonic of 50 or 60
-        /// Hz and the level has fallen less than `mains_decay_db` over the
-        /// last `mains_hold_s`, measured from a window wholly inside the
-        /// note.
         /// Whether the input, reading `hz`, may be mains hum or buzz: see
         /// `Options.mains_start_hold`. The level history must hold the
         /// current input's level; `since_onset` is how many of the
@@ -1553,6 +1549,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.level_max[i] = @max(self.level_max[i], level);
         }
 
+        /// The mains rule (`Options.mains_rule`): whether `hz` is within
+        /// `mains_cents` of a harmonic of 50 or 60 Hz and the level has
+        /// fallen less than `mains_decay_db` over the last `mains_hold_s`,
+        /// measured from a window wholly inside the note.
         fn mainsHeld(self: *const Self, hz: f64, now: f64) bool {
             if (!options.mains_rule or now - self.note_start < mains_hold_s) return false;
             var near = false;
@@ -1696,13 +1696,12 @@ pub fn AnalyserWith(comptime options: Options) type {
             return @sqrt(ss / n) <= spread_max;
         }
 
-        /// YIN's difference function d(tau) over the window, through the FFT
+        /// YIN's difference function d(tau) of the frame, through the FFT
         /// autocorrelation r(tau): d(tau) = E(0, W-tau) + E(tau, W) - 2 r(tau),
-        /// and its cumulative mean normalised form.
-        /// YIN's difference function of the window, or with `comb_hz` of
-        /// the window less itself a period of `comb_hz` earlier (a note
-        /// taken out; the frame is a period and a sample shorter, and lags
-        /// past half of it never dip).
+        /// and its cumulative mean normalised form. The frame is the window,
+        /// or with `comb_hz` the window less itself a period of `comb_hz`
+        /// earlier (a note taken out: a period and a sample shorter, and
+        /// lags past half of it never dip).
         fn difference(self: *Self, comb_hz: ?f64) void {
             const w = self.window;
             var sum: f64 = 0;

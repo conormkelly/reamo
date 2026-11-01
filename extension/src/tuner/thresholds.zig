@@ -8,14 +8,17 @@
 //! measurements can name the thresholds it was made with.
 //!
 //! "Sweep" notes come from `zig build tuner-targets -- sweep`, one value
-//! moved at a time with the rest at their defaults. They were measured
-//! with names shown from the first reading; showing no name until the
-//! window is past the onset moves lock-on alone. "Plateau" means every
+//! moved at a time with the rest at their defaults. They were all
+//! measured at version 1 (commit 3f326f6), with names shown from the
+//! first reading and before the jump rule, legato restart, subharmonic
+//! confirmation, comb takeback and stricter mains test of versions 2-8;
+//! read them as where the plateaus were then, and re-run the sweep before
+//! relying on one. "Plateau" means every
 //! target that held at the default still held; "breaks" names the first
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 8;
+pub const version = 9;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -110,6 +113,8 @@ pub const gate = struct {
     /// The floor follows the level down at once and up at this, dB/s.
     /// Not swept.
     pub const floor_rise_db_per_s = 20.0;
+    /// The floor is updated every this much kept input, seconds.
+    pub const floor_step_s = 0.005;
     /// An onset holds the floor this long if no note shows, seconds.
     pub const onset_floor_hold_s = 0.25;
     /// A note that drops out with the level still up may resume within
