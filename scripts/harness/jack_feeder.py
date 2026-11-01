@@ -19,6 +19,8 @@ The JACK client runs in a child process (this file run as a script), so the
 test's own Python work never holds the GIL its audio callback needs. The
 test talks to it over the child's stdin and stdout, one JSON object per
 line; the child exits when its stdin closes, so it can't outlive the test.
+The child's stderr (libjack's messages among it) is passed through to the
+test's, and quoted when the child dies.
 
 Each channel plays a voice: an optional segment played once (a pluck, a
 swell), then a loop (a steady tone) or silence. Voices are rendered into
@@ -36,16 +38,24 @@ callback, and polls every 0.25 s as well.
 Stdlib only: the harness image has no pip and no network.
 """
 import array
+import collections
 import ctypes as C
+import itertools
 import json
 import math
 import os
+import queue
 import resource
 import signal
 import subprocess
 import sys
 import threading
 import time
+
+# The longest pluck decay or swell, in seconds: a voice is rendered whole
+# before it plays, so this bounds the render time and memory.
+MAX_SECONDS = 30.0
+OPS = ("tone", "pluck", "swell", "silence", "stats")
 
 
 class FeederError(Exception):
@@ -54,7 +64,8 @@ class FeederError(Exception):
 
 class Feeder:
     """A JACK client feeding `channels` outputs into REAPER's inputs, run in
-    a child process. Use it as a context manager, or call close()."""
+    a child process. Use it as a context manager, or call close(), which
+    raises FeederError if the child didn't exit cleanly."""
 
     def __init__(self, channels=None, connect="REAPER:in", timeout=10.0):
         if channels is None:
@@ -63,16 +74,32 @@ class Feeder:
             raise FeederError("no JACK inputs: the scenario needs a `jack-inputs` file "
                               "(README, \"Audio inputs through JACK\")")
         self.channels = channels
+        self._closed = False
+        self._ids = itertools.count(1)
+        self._replies = queue.Queue()
+        self._stderr_tail = collections.deque(maxlen=40)
         self._proc = subprocess.Popen(
             [sys.executable, "-I", os.path.abspath(__file__), "--channels", str(channels),
              "--connect", connect],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
-        ready = self._read(timeout)
-        if ready.get("event") != "ready":
-            self.close()
-            raise FeederError(f"feeder did not start: {ready}")
-        self.sample_rate = ready["sampleRate"]
-        self.buffer_size = ready["bufferSize"]
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1)
+        # One reader per pipe for the child's whole life: a reply that comes
+        # after its request timed out lands in the queue, where the next read
+        # recognises it by id and drops it.
+        self._pumps = [threading.Thread(target=self._pump_stdout, daemon=True),
+                       threading.Thread(target=self._pump_stderr, daemon=True)]
+        for t in self._pumps:
+            t.start()
+        try:
+            ready = self._read(timeout, None)
+            if ready.get("event") != "ready":
+                raise FeederError(f"feeder did not start: {ready}")
+            self.sample_rate = ready["sampleRate"]
+            self.buffer_size = ready["bufferSize"]
+        except BaseException:
+            self._closed = True
+            self._stop_child()
+            raise
 
     def __enter__(self):
         return self
@@ -80,25 +107,58 @@ class Feeder:
     def __exit__(self, *exc):
         self.close()
 
-    def _read(self, timeout):
-        # The child answers each request at once; a reply that never comes
-        # means it died, and readline returns "" when its stdout closes.
-        box = {}
-        t = threading.Thread(target=lambda: box.update(line=self._proc.stdout.readline()), daemon=True)
-        t.start()
-        t.join(timeout)
-        line = box.get("line")
-        if not line:
-            raise FeederError(f"feeder child gave no answer within {timeout} s "
-                              f"(exit status {self._proc.poll()})")
-        return json.loads(line)
+    def _pump_stdout(self):
+        try:
+            for line in self._proc.stdout:
+                self._replies.put(line)
+        finally:
+            self._replies.put(None)
+
+    def _pump_stderr(self):
+        for line in self._proc.stderr:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+            self._stderr_tail.append(line.rstrip("\n"))
+
+    def _exited(self, rc=None):
+        if rc is None:
+            try:
+                rc = self._proc.wait(5)
+            except subprocess.TimeoutExpired:
+                rc = "still running"
+        self._pumps[1].join(2)
+        tail = "\n".join(self._stderr_tail) or "(nothing)"
+        return FeederError(f"feeder child exited with status {rc}; its stderr:\n{tail}")
+
+    def _read(self, timeout, want_id):
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                line = self._replies.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                raise FeederError(f"feeder child, still running, gave no answer within {timeout} s") from None
+            if line is None:
+                self._replies.put(None)  # every later read sees the end too
+                raise self._exited()
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                raise FeederError(f"feeder child wrote a line that isn't JSON: {line!r}") from None
+            if want_id is None or msg.get("id") == want_id:
+                return msg
 
     def _call(self, timeout=10.0, **request):
+        if self._closed:
+            raise FeederError("feeder is closed")
         if self._proc.poll() is not None:
-            raise FeederError(f"feeder child has exited (status {self._proc.returncode})")
-        self._proc.stdin.write(json.dumps(request) + "\n")
-        self._proc.stdin.flush()
-        reply = self._read(timeout)
+            raise self._exited(self._proc.returncode)
+        request["id"] = next(self._ids)
+        try:
+            self._proc.stdin.write(json.dumps(request) + "\n")
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            raise self._exited() from None
+        reply = self._read(timeout, request["id"])
         if not reply.get("ok"):
             raise FeederError(reply.get("error", reply))
         return reply
@@ -110,13 +170,15 @@ class Feeder:
         return self._call(op="tone", ch=ch, freq=freq, amp=amp)["freq"]
 
     def pluck(self, ch, freq, amp, decay=1.0):
-        """A sine starting at `amp` that decays exponentially, 60 dB in
-        `decay` seconds, then silence. Returns the exact frequency."""
+        """A sine starting at `amp` (phase 0) that decays exponentially,
+        60 dB in `decay` seconds (at most MAX_SECONDS), then silence.
+        Returns the exact frequency."""
         return self._call(op="pluck", ch=ch, freq=freq, amp=amp, decay=decay)["freq"]
 
     def swell(self, ch, freq, amp, seconds=2.0):
-        """A sine rising linearly from silence to `amp` over `seconds`, then
-        held there as a tone. Returns the exact frequency."""
+        """A sine rising linearly from silence to `amp` over `seconds` (at
+        most MAX_SECONDS), then held there as a tone. Returns the exact
+        frequency."""
         return self._call(op="swell", ch=ch, freq=freq, amp=amp, seconds=seconds)["freq"]
 
     def silence(self, ch):
@@ -146,29 +208,39 @@ class Feeder:
                 raise FeederError(f"not connected to REAPER's inputs within {timeout} s: {s}")
             time.sleep(0.05)
 
-    def close(self):
-        """Stop the child: it closes its JACK client when its stdin closes.
-        A child that doesn't exit within 5 s is killed. Raises FeederError
-        if the child exited non-zero (a crash in libjack, say) or had to be
-        killed: a feeder that died may have fed nothing, whatever the test
-        saw."""
+    def _stop_child(self):
+        """Close the child's stdin (it then closes its JACK client and
+        exits), kill it if it hasn't exited within 5 s, and return its exit
+        status and whether it had to be killed."""
         killed = False
-        if self._proc.poll() is None:
-            try:
-                self._proc.stdin.close()
-            except OSError:
-                pass
-            try:
-                self._proc.wait(5)
-            except subprocess.TimeoutExpired:
-                killed = True
-                self._proc.kill()
-                self._proc.wait()
+        try:
+            self._proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            self._proc.wait(5)
+        except subprocess.TimeoutExpired:
+            killed = True
+            self._proc.kill()
+            self._proc.wait()
+        for t in self._pumps:
+            t.join(2)
         self._proc.stdout.close()
+        self._proc.stderr.close()
+        return self._proc.returncode, killed
+
+    def close(self):
+        """Stop the child. Raises FeederError if it exited with a non-zero
+        status (a crash in libjack, say) or had to be killed: a feeder that
+        died may have fed nothing, whatever the test saw."""
+        if self._closed:
+            return
+        self._closed = True
+        rc, killed = self._stop_child()
         if killed:
-            raise FeederError("feeder child didn't exit within 5 s of its stdin closing, and was killed")
-        if self._proc.returncode != 0:
-            raise FeederError(f"feeder child exited with status {self._proc.returncode}")
+            raise self._exited(f"{rc}, killed after not exiting within 5 s of its stdin closing")
+        if rc != 0:
+            raise self._exited(rc)
 
 
 # ---------------------------------------------------------------------------
@@ -211,13 +283,18 @@ def _jack():
     jack.jack_on_shutdown.argtypes = [C.c_void_p, jack._shutdown_t, C.c_void_p]
     message_t = C.CFUNCTYPE(None, C.c_char_p)
     jack.jack_set_error_function.argtypes = [message_t]
-    # libjack's messages, marked as the feeder's in a scenario's output.
-    # "Unknown destination port" can show while REAPER re-registers its
-    # ports: one went away between the lookup and the connect, and the next
-    # pass connects its successor. Kept on `jack` so it outlives every call.
-    jack._say = message_t(lambda msg: sys.stderr.write(
+    jack.jack_set_info_function.argtypes = [message_t]
+    # libjack's error and info messages, to stderr (stdout carries the
+    # replies), marked as the feeder's in a scenario's output. "Unknown
+    # destination port" can show while REAPER re-registers its ports: one
+    # went away between the lookup and the connect, and the next pass
+    # connects its successor. Kept on `jack` so they outlive every call.
+    jack._say_error = message_t(lambda msg: sys.stderr.write(
         f"feeder: libjack: {msg.decode(errors='replace')}\n"))
-    jack.jack_set_error_function(jack._say)
+    jack._say_info = message_t(lambda msg: sys.stderr.write(
+        f"feeder: libjack info: {msg.decode(errors='replace')}\n"))
+    jack.jack_set_error_function(jack._say_error)
+    jack.jack_set_info_function(jack._say_info)
     return jack
 
 
@@ -292,7 +369,15 @@ class _Child:
         status = C.c_int(0)
         self.client = jack.jack_client_open(b"feeder", JackNoStartServer, C.byref(status))
         if not self.client:
-            raise SystemExit(f"jack_client_open failed, status {status.value:#x} (is jackd running?)")
+            raise SystemExit(f"feeder: jack_client_open failed, status {status.value:#x} (is jackd running?)")
+        try:
+            self._setup(channels, connect)
+        except BaseException:
+            jack.jack_client_close(self.client)
+            raise
+
+    def _setup(self, channels, connect):
+        jack = self.jack
         self.sr = jack.jack_get_sample_rate(self.client)
         self.bs = jack.jack_get_buffer_size(self.client)
         self.ports = []
@@ -300,7 +385,7 @@ class _Child:
             p = jack.jack_port_register(self.client, f"out_{i + 1}".encode(),
                                         b"32 bit float mono audio", JackPortIsOutput, 0)
             if not p:
-                raise SystemExit(f"jack_port_register out_{i + 1} failed (port-max reached?)")
+                raise SystemExit(f"feeder: jack_port_register out_{i + 1} failed (port-max reached?)")
             self.ports.append(p)
         self.names = [jack.jack_port_name(p) for p in self.ports]
         self.targets = [f"{connect}{i + 1}".encode() for i in range(channels)]
@@ -329,7 +414,7 @@ class _Child:
         jack.jack_set_port_registration_callback(self.client, self._cbs[2], None)
         jack.jack_on_shutdown(self.client, self._cbs[3], None)
         if jack.jack_activate(self.client):
-            raise SystemExit("jack_activate failed")
+            raise SystemExit("feeder: jack_activate failed")
         self.reconnector = threading.Thread(target=self._reconnect_loop, daemon=True)
         self.reconnector.start()
 
@@ -394,20 +479,32 @@ class _Child:
 
     def _channel(self, req):
         ch = req.get("ch")
-        if not isinstance(ch, int) or not 0 <= ch < len(self.ports):
+        if not isinstance(ch, int) or isinstance(ch, bool) or not 0 <= ch < len(self.ports):
             raise ValueError(f"ch must be 0 to {len(self.ports) - 1}, not {ch!r}")
         return ch
 
     def _tone_args(self, req):
         freq, amp = float(req["freq"]), float(req["amp"])
+        # Written so that NaN fails too.
         if not 0 < freq < self.sr / 2:
             raise ValueError(f"freq must be above 0 and below {self.sr / 2} Hz, not {freq}")
         if not 0 <= amp <= 1:
             raise ValueError(f"amp must be 0 to 1 (full scale), not {amp}")
         return freq, amp
 
+    @staticmethod
+    def _seconds(req, key, default):
+        v = float(req.get(key, default))
+        if not 0 < v <= MAX_SECONDS:  # NaN and infinity fail too
+            raise ValueError(f"{key} must be above 0 and at most {MAX_SECONDS} s, not {v}")
+        return v
+
     def handle(self, req):
+        if not isinstance(req, dict):
+            raise ValueError(f"a request is a JSON object, not {req!r}")
         op = req.get("op")
+        if op not in OPS:
+            raise ValueError(f"unknown op {op!r}; the ops are {', '.join(OPS)}")
         if op == "stats":
             ru = resource.getrusage(resource.RUSAGE_SELF)
             wall = time.monotonic() - self.started
@@ -422,29 +519,25 @@ class _Child:
             self.wanted[ch] = _Voice()
             return {}
         freq, amp = self._tone_args(req)
+        if op == "pluck":
+            decay = self._seconds(req, "decay", 1.0)
+        elif op == "swell":
+            seconds = self._seconds(req, "seconds", 2.0)
         loop = _Loop(freq, amp, self.sr)
+        t, n = loop.table, loop.n
         if op == "tone":
             self.wanted[ch] = _Voice(loop=loop, follow=True)
         elif op == "pluck":
-            decay = float(req.get("decay", 1.0))
-            if decay <= 0:
-                raise ValueError(f"decay must be above 0 s, not {decay}")
             tau = decay / math.log(1000)  # 60 dB = a factor of 1000
             length = int(self.sr * tau * math.log(amp / _FLOOR)) if amp > _FLOOR else 0
             k = -1 / (tau * self.sr)
-            exp, t, n = math.exp, loop.table, loop.n
+            exp = math.exp
             head = array.array("f", [t[i % n] * exp(k * i) for i in range(length)])
             self.wanted[ch] = _Voice(head=head)
-        elif op == "swell":
-            seconds = float(req.get("seconds", 2.0))
-            if seconds <= 0:
-                raise ValueError(f"seconds must be above 0, not {seconds}")
+        else:  # swell
             length = int(self.sr * seconds)
-            t, n = loop.table, loop.n
             head = array.array("f", [t[i % n] * (i / length) for i in range(length)])
             self.wanted[ch] = _Voice(head=head, loop=loop, loop_pos=length % n)
-        else:
-            raise ValueError(f"unknown op {op!r}")
         return {"freq": loop.freq}
 
     def close(self):
@@ -465,6 +558,11 @@ def _child_main():
     ap.add_argument("--channels", type=int, required=True)
     ap.add_argument("--connect", default="REAPER:in")
     args = ap.parse_args()
+    # Replies go out on a private copy of stdout; file descriptor 1 then
+    # points at stderr, so nothing a library prints can corrupt them.
+    replies = os.fdopen(os.dup(1), "w", encoding="utf-8")
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
     # The audio callback needs the GIL; the main thread renders voices with
     # it. A short switch interval keeps the callback's wait well inside a block.
     sys.setswitchinterval(0.001)
@@ -472,21 +570,23 @@ def _child_main():
     child = _Child(args.channels, args.connect)
 
     def say(obj):
-        sys.stdout.write(json.dumps(obj) + "\n")
-        sys.stdout.flush()
+        replies.write(json.dumps(obj) + "\n")
+        replies.flush()
 
     try:
         say({"event": "ready", "sampleRate": child.sr, "bufferSize": child.bs})
         for line in sys.stdin:
             if not line.strip():
                 continue
+            rid = None
             try:
                 req = json.loads(line)
+                rid = req.get("id") if isinstance(req, dict) else None
                 if child.gone:
                     raise RuntimeError("the JACK server shut down")
-                say({"ok": True, **child.handle(req)})
-            except (ValueError, KeyError, TypeError, AttributeError, RuntimeError) as e:
-                say({"ok": False, "error": f"{type(e).__name__}: {e}"})
+                say({"id": rid, "ok": True, **child.handle(req)})
+            except Exception as e:  # noqa: BLE001  any refusal is reported, not fatal
+                say({"id": rid, "ok": False, "error": f"{type(e).__name__}: {e}"})
     finally:
         child.close()
 
