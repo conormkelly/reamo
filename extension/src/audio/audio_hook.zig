@@ -17,6 +17,7 @@ const raw = @import("../reaper/raw.zig");
 const ring_buffer = @import("ring_buffer.zig");
 const mono_ring = @import("mono_ring.zig");
 const logging = @import("../core/logging.zig");
+const no_alloc = @import("../core/no_alloc.zig");
 
 pub const User = enum(u8) {
     stream = 1,
@@ -420,4 +421,31 @@ test "acquire with a REAPER that has no audio hook API fails cleanly" {
     defer testing.allocator.destroy(hook);
     try std.testing.expect(!hook.acquire(&api, .stream));
     try std.testing.expect(!hook.registered);
+}
+
+test "the audio thread's path has no allocator and calls none" {
+    // REAPER's audio thread must never allocate. Checked statically, which
+    // catches a global allocator too (core/no_alloc.zig): the callback, the
+    // hook's work and the two rings' producer sides, and the tuner ring's
+    // consumer side for good measure.
+    if (comptime no_alloc.reachesAllocator(Hook)) @compileError("an allocator is reachable from Hook");
+    if (comptime no_alloc.paramsReachAllocator(@TypeOf(onAudioBuffer))) @compileError("an allocator is reachable from @TypeOf(onAudioBuffer)");
+    if (comptime no_alloc.paramsReachAllocator(@TypeOf(Hook.process))) @compileError("an allocator is reachable from @TypeOf(Hook.process)");
+    const Fn = struct { file: []const u8, name: []const u8, found: ?[]const u8 };
+    const hook_src = @embedFile("audio_hook.zig");
+    const ring_src = @embedFile("ring_buffer.zig");
+    const mono_src = @embedFile("mono_ring.zig");
+    const fns = [_]Fn{
+        .{ .file = "audio_hook.zig", .name = "onAudioBuffer", .found = try no_alloc.allocationIn(hook_src, "onAudioBuffer") },
+        .{ .file = "audio_hook.zig", .name = "process", .found = try no_alloc.allocationIn(hook_src, "process") },
+        .{ .file = "ring_buffer.zig", .name = "writeFromF64", .found = try no_alloc.allocationIn(ring_src, "writeFromF64") },
+        .{ .file = "ring_buffer.zig", .name = "f64ToI16", .found = try no_alloc.allocationIn(ring_src, "f64ToI16") },
+        .{ .file = "mono_ring.zig", .name = "write", .found = try no_alloc.allocationIn(mono_src, "write") },
+        .{ .file = "mono_ring.zig", .name = "read", .found = try no_alloc.allocationIn(mono_src, "read") },
+        .{ .file = "mono_ring.zig", .name = "discard", .found = try no_alloc.allocationIn(mono_src, "discard") },
+    };
+    for (fns) |f| if (f.found) |word| {
+        std.debug.print("{s} in fn {s} ({s})\n", .{ word, f.name, f.file });
+        return error.AllocatesOnTheAudioThread;
+    };
 }

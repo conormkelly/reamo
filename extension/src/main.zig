@@ -1220,6 +1220,7 @@ export fn ReaperPluginEntry(hInstance: ?*anyopaque, rec: ?*reaper.PluginInfo) ca
 // Re-export tests from modules
 test {
     _ = @import("core/errors.zig");
+    _ = @import("core/no_alloc.zig");
     _ = @import("platform/install_leftovers.zig");
     _ = @import("core/ffi.zig");
     _ = @import("core/logging.zig");

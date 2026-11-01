@@ -28,6 +28,7 @@ const logging = @import("../core/logging.zig");
 const pitch = @import("../tuner/pitch.zig");
 const audio_hook = @import("../audio/audio_hook.zig");
 const mono_ring = @import("../audio/mono_ring.zig");
+const no_alloc = @import("../core/no_alloc.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -382,29 +383,21 @@ test "when the audio stops, the reading clears instead of holding the last note"
     try testing.expectEqual(@as(f64, 0), t.analysis.reading.freq_hz);
 }
 
-test "the audio-thread path and the analysis tick allocate nothing" {
-    // The only allocation allowed is the analysis, at open. Any other, on
-    // either side of the ring, through a sample-rate change, a stall that
-    // overflows the ring and the device stopping, fails the test.
-    var failing = std.testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 1 });
-    const allocator = failing.allocator();
-    var t = try analysisRig(allocator);
-    defer t.rig.deinit();
-    try testing.expectEqual(@as(usize, 1), failing.allocations);
-
-    t.rig.play(t.analysis, .{}, 220, 0, 48000, 0.3);
-    t.rig.play(t.analysis, .{}, 220, 0.5, 48000, 0.6);
-    t.rig.play(t.analysis, .{}, 330, 0.5, 96000, 0.6);
-    // A stall: the hook writes more than the ring holds between two ticks.
-    for (0..mono_ring.capacity / 256 + 4) |_| t.rig.block(220, 0.25, 96000);
-    try testing.expect(t.rig.hook.tuner_ring.dropped.load(.acquire) > 0);
-    _ = t.analysis.tick(&t.rig.hook.tuner_ring, .{});
-    t.rig.play(t.analysis, .{ .reference_hz = 442, .silence_db = -50 }, 220, 0.5, 96000, 0.3);
-    for (0..quiet_ticks_limit + 2) |_| _ = t.analysis.tick(&t.rig.hook.tuner_ring, .{});
-
-    try testing.expectEqual(@as(usize, 1), failing.allocations);
-    try testing.expect(!failing.has_induced_failure);
-    allocator.destroy(t.analysis);
+test "the analysis tick and its thread have no allocator and call none" {
+    // The analysis is allocated once, at open; every tick after that, on
+    // the worker at 30 Hz, must not allocate. Checked statically, which
+    // catches a global allocator too (core/no_alloc.zig). The analyser's
+    // own push and analyse are tuner/pitch.zig's to keep allocation-free.
+    if (comptime no_alloc.reachesAllocator(Analysis)) @compileError("an allocator is reachable from Analysis");
+    if (comptime no_alloc.paramsReachAllocator(@TypeOf(Analysis.tick))) @compileError("an allocator is reachable from @TypeOf(Analysis.tick)");
+    if (comptime no_alloc.paramsReachAllocator(@TypeOf(MasterTuner.run))) @compileError("an allocator is reachable from @TypeOf(MasterTuner.run)");
+    const source = @embedFile("master_tuner.zig");
+    for ([_][]const u8{ "tick", "run" }, [_]?[]const u8{ try no_alloc.allocationIn(source, "tick"), try no_alloc.allocationIn(source, "run") }) |name, found| {
+        if (found) |word| {
+            std.debug.print("{s} in fn {s}\n", .{ word, name });
+            return error.AllocatesOnTheAnalysisPath;
+        }
+    }
 }
 
 test "settings are held to the tuner's ranges" {
