@@ -5,11 +5,12 @@
 /// since the extension runs in-process. A phone that drops off Wi-Fi mid-broadcast
 /// is enough. No crash report is written for this kind of death.
 ///
-/// The httpz and websocket.zig forks never raise SIGPIPE themselves: every
-/// send passes MSG_NOSIGNAL, and Darwin sockets get SO_NOSIGPIPE when
-/// accepted. This handler is the second layer, for any write those don't
-/// cover. It can't be the only one: whatever else runs in REAPER can replace
-/// it (Tracy's crash handler turns SIGPIPE into an abort).
+/// The server paths REAmo uses never raise SIGPIPE: httpz and websocket.zig's
+/// server send with MSG_NOSIGNAL, and set SO_NOSIGPIPE on the sockets they
+/// accept on Darwin. (websocket.zig's client still uses plain write(); REAmo
+/// doesn't use it.) This handler is the second layer, for any write those
+/// don't cover. It can't be the only one: whatever else runs in REAPER can
+/// replace it (Tracy's crash handler turns SIGPIPE into an abort).
 ///
 /// macOS REAPER leaves SIGPIPE at its default action: its only handler is
 /// installed lazily by WDL_SHM_Connection (bridged plugins). Linux REAPER
