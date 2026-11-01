@@ -83,7 +83,7 @@ A failed run is also copied to `out/failures/<when>-<os>-reaper<version>-<scenar
 which later runs leave alone, so a failure that doesn't come back can still
 be read. Its `replay.txt` has the command that runs it again and the code it
 ran: the commit, any uncommitted changes (in `worktree.diff`) and untracked
-files. The command sets the `TOUR_ONLY` and `SOAK_*` settings the run had,
+files. The command sets the `TOUR_ONLY`, `HARNESS_AUDIO` and `SOAK_*` settings the run had,
 and any a scenario chose itself and wrote to `$HARNESS_OUT/replay.env` as
 `NAME=value` lines (a soak's random seed). The run ends by listing where
 each failure was kept. Delete `out/failures/` when you're done with them.
