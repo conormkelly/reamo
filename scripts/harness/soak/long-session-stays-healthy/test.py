@@ -739,6 +739,11 @@ def thread_cpu(pid, before, after, dt):
 
 
 THREAD_COLUMNS = ["t_s", "tid", "name", "group", "cpu_pct"]
+# CPU that the process used in a sample but no thread alive at its end
+# did: threads that exited during the sample (the process keeps their
+# time). Its row has no tid. The two reads are moments apart, so it can be
+# a tick off either way, even slightly negative.
+EXITED = "exited during sample"
 
 
 def group_threads(pid, threads):
@@ -778,7 +783,7 @@ def analyse_threads(run):
 
     groups = sorted({k[2] for _, cpu in post for k, _ in cpu})
     by_group = {g: summary(series(lambda k, g=g: k[2] == g)) for g in groups}
-    threads = {k for _, cpu in post for k, _ in cpu}
+    threads = {k for _, cpu in post for k, _ in cpu if k[2] != EXITED}
     busiest = sorted(((k, summary(series(lambda x, k=k: x == k))) for k in threads),
                      key=lambda kv: -kv[1]["mean"])[:6]
     return {"cpu_pct_by_thread_group": by_group,
@@ -983,6 +988,9 @@ def soak(run):
             run.rows.append(row)
             writer.writerow(row)
             csv_file.flush()
+            rest = round(row["cpu_pct"] - sum(t[3] for t in per_thread), 2)
+            if rest:
+                per_thread.append(("", EXITED, EXITED, rest))
             run.thread_rows.append((row["t_s"], [((tid, name, group), pct) for tid, name, group, pct in per_thread]))
             thread_writer.writerows([row["t_s"], *t] for t in per_thread)
             threads_file.flush()

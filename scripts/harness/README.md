@@ -464,7 +464,11 @@ backtraces in `reaper.out`.
   group, CPU %. REAPER names its threads (`reaper/audio_dm`,
   `reaper/mediaafx`, ...); the main thread is `main`; REAmo's threads
   (HTTP/WebSocket server, audio stream) have no name and show as
-  `unnamed`. The control runs none.
+  `unnamed`. The control runs none. A row with no tid,
+  `exited during sample`, is the process's CPU that no thread alive at
+  the sample's end accounts for (threads that exited in it, such as an
+  audio stream's), so the groups add up to the process's CPU, give or
+  take a tick.
 - `soak-summary.json`: settings, seed, metrics, limits, refusals,
   problems, RSS growth by mapping (`[heap]`, anonymous, libraries), CPU by
   thread group and the busiest threads, and `baseline`: the control's
