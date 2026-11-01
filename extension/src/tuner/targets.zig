@@ -241,6 +241,21 @@ const Group = enum {
     /// open (rising as 1 / length^2), every partial gliding down from
     /// the pluck's tension.
     bass_fret,
+    /// From the second held-out run: clean bass notes at 98-117 Hz with
+    /// partial 2 10 dB under the fundamental and nothing at half the
+    /// pitch (read an octave down there).
+    clean_bass,
+    /// Synth-bass notes that hold their level near mains frequencies:
+    /// 49.2, 49.5, 49.6 and 50.7 Hz with harmonics, and a nearly pure
+    /// 120 Hz tone (never shown there).
+    synth_mains,
+    /// A neck-pickup G4 at fret 12, -45 dBFS, decaying over faint 60 Hz
+    /// hum at -73 dBFS (dropped while sounding, then shown a twelfth and
+    /// three octaves down).
+    ghost,
+    /// Bass with a weak fundamental and a strong 3rd partial (shown a
+    /// twelfth up).
+    bass_h3,
     /// Hum or buzz alone.
     hum,
     /// A noise floor alone.
@@ -260,7 +275,7 @@ const Group = enum {
     /// table so those stay comparable.
     fn finding(g: Group) bool {
         return switch (g) {
-            .body, .sympathetic, .polar, .bass_fret => true,
+            .body, .sympathetic, .polar, .bass_fret, .clean_bass, .synth_mains, .ghost, .bass_h3 => true,
             else => false,
         };
     }
@@ -643,6 +658,27 @@ fn buildCases() []const Case {
             o.pitch = .{ .glide = .{ .start_cents = 5, .tau_s = 0.6 } };
             add(.bass_fret, "B0 fret {d} B{e}", .{ fret, b }, .{ .name = "", .group = .bass_fret, .strings = .{ o, null } });
         }
+    }
+    // From the second held-out run's findings.
+    for ([_]f64{ 97.9989, 103.826, 110, 116.541 }) |f0| {
+        for ([_]u64{ 1, 2 }) |seed| {
+            var o: sig.StringOptions = .{ .f0 = f0, .inharmonicity = 0, .rolloff = 2, .t60_s = 8, .seed = seed };
+            o.partial_gain = .{ 1, 4 * std.math.pow(f64, 10, -10.0 / 20.0), 1, 1 };
+            add(.clean_bass, "{d:.1} Hz H2 -10 dB s{d}", .{ f0, seed }, .{ .name = "", .group = .clean_bass, .strings = .{ o, null } });
+        }
+    }
+    for ([_]f64{ 49.2, 49.5, 49.6, 50.7 }) |f0| {
+        add(.synth_mains, "synth {d} Hz", .{f0}, .{ .name = "", .group = .synth_mains, .strings = .{ .{ .f0 = f0, .inharmonicity = 0, .rolloff = 1.5, .t60_s = 1000, .t60_slope = 0 }, null } });
+    }
+    add(.synth_mains, "synth 120 Hz pure", .{}, .{ .name = "", .group = .synth_mains, .strings = .{ .{ .f0 = 120, .inharmonicity = 0, .rolloff = 4, .t60_s = 1000, .t60_slope = 0 }, null } });
+    for ([_]u64{ 1, 2, 3 }) |seed| {
+        const g4: sig.StringOptions = .{ .f0 = 391.995, .inharmonicity = 3e-5, .rolloff = 2, .t60_s = 3, .peak = 0.012, .seed = seed };
+        add(.ghost, "G4 fret 12 + hum s{d}", .{seed}, .{ .name = "", .group = .ghost, .strings = .{ g4, null }, .hum = .{ .hz = 60, .kind = .hum, .db = -73 } });
+    }
+    for ([_]f64{ 41.2034, 55, 73.4162 }) |f0| {
+        var o: sig.StringOptions = .{ .f0 = f0, .inharmonicity = 2e-4, .t60_s = 8 };
+        o.partial_gain = .{ 0.1, 1, 3, 1 };
+        add(.bass_h3, "{d:.1} Hz weak f1 strong H3", .{f0}, .{ .name = "", .group = .bass_h3, .strings = .{ o, null } });
     }
     // Steady sounds that start abruptly, to keep out.
     for ([_]f64{ 50, 60 }) |hz| add(.hum_drift_idle, "{d} Hz hum switching on", .{hz}, .{ .name = "", .group = .hum_drift_idle, .hum = .{ .hz = hz, .kind = .hum, .db = -40, .change = .{ .on_s = 1.0 } } });
@@ -1352,7 +1388,7 @@ fn measurePlayer(alloc: std.mem.Allocator, pl: *Player, c: Case, sr: f64, rs: []
             pl.idle_s += @as(f64, @floatFromInt(rs.len)) / 30;
             return;
         },
-        .two_notes, .ramp, .starts, .swells, .body, .sympathetic, .polar, .bass_fret => return,
+        .two_notes, .ramp, .starts, .swells, .body, .sympathetic, .polar, .bass_fret, .clean_bass, .synth_mains, .ghost, .bass_h3 => return,
         else => {},
     }
     const s = c.strings[0].?;
@@ -1542,6 +1578,7 @@ pub fn main() !void {
     try printStarts(w, cands[0..nc], results);
     try printFindings(w, cands[0..nc], results);
     try printNames(w, cands[0..nc], results);
+    try printRegressions(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -1843,6 +1880,27 @@ fn quantiles(alloc: std.mem.Allocator, values: []const f64) !Quantiles {
         .never = never,
         .worst = if (finite > 0) copy[finite - 1] else std.math.inf(f64),
     };
+}
+
+fn printRegressions(w: anytype, cands: []const Candidate, results: []Results) !void {
+    try w.print(
+        \\
+        \\## Second held-out run's regressions, on dev cases (targets: no wrong-name reading in any of the four groups; synth notes near mains shown >= 95% of 1-3 s)
+        \\
+        \\| candidate | clean bass: wrong-name reads (octave) | synth near mains: shown 1-3 s, wrong-name | ghost: wrong-name reads, shown 1-3 s | weak f1, strong H3: wrong-name reads (octave) | verdict |
+        \\|---|---|---|---|---|---|
+        \\
+    , .{});
+    for (cands, results) |c, *r| {
+        const cb = r.group[@intFromEnum(Group.clean_bass)];
+        const sm = r.group[@intFromEnum(Group.synth_mains)];
+        const gh = r.group[@intFromEnum(Group.ghost)];
+        const h3 = r.group[@intFromEnum(Group.bass_h3)];
+        const sm_cover = 100 * @as(f64, @floatFromInt(sm.span_shown)) / @as(f64, @floatFromInt(@max(sm.span_reads, 1)));
+        const gh_cover = 100 * @as(f64, @floatFromInt(gh.span_shown)) / @as(f64, @floatFromInt(@max(gh.span_reads, 1)));
+        const ok = cb.wrong_name == 0 and sm.wrong_name == 0 and sm_cover >= 95 and gh.wrong_name == 0 and h3.wrong_name == 0;
+        try w.print("| {s} | {d} ({d}) | {d:.1}%, {d} | {d}, {d:.1}% | {d} ({d}) | {s} |\n", .{ c.name, cb.wrong_name, cb.octave, sm_cover, sm.wrong_name, gh.wrong_name, gh_cover, h3.wrong_name, h3.octave, verdict(ok) });
+    }
 }
 
 fn printNames(w: anytype, cands: []const Candidate, results: []Results) !void {
