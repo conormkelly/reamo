@@ -8,6 +8,11 @@
 #                              leave alone, with replay.txt (how to run it
 #                              again, and the code it ran) and, if the
 #                              working tree had changes, worktree.diff
+#
+# A scenario that needs another one beside it (the soak and its control)
+# lists it in its out dir's replay-with, one "<scenario> [<out dir>]" per
+# line: the replay line runs it too, first, and each out dir named is kept
+# in the failure's copy under its own name.
 
 kept_failures=()
 
@@ -47,7 +52,33 @@ keep_failure() {
         fi
         echo
         echo "run it again:"
-        echo "  ${TOUR_ONLY:+TOUR_ONLY='$TOUR_ONLY' }scripts/harness/run.sh --os $os --reaper $reaper $scenario"
+        # HARNESS_AUDIO is the audio device the run had (JACK for every
+        # scenario, if set); a soak's length and load are in its SOAK_*
+        # settings; and a scenario can record settings it chose itself (a
+        # random seed) as NAME=value lines in replay.env. %q quotes each
+        # value so the line pastes back into a shell as it ran.
+        local env_prefix="" v line
+        for v in TOUR_ONLY HARNESS_AUDIO $(compgen -e | grep '^SOAK_' || true); do
+            [ -n "${!v:-}" ] && env_prefix+="$(printf '%s=%q ' "$v" "${!v}")"
+        done
+        if [ -f "$src/replay.env" ]; then
+            while IFS= read -r line; do
+                v="${line%%=*}"
+                [[ "$v" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+                [ -n "${!v:-}" ] || env_prefix+="$(printf '%s=%q ' "$v" "${line#*=}")"
+            done <"$src/replay.env"
+        fi
+        local with=() name dir
+        if [ -f "$src/replay-with" ]; then
+            while read -r name dir; do
+                [ -n "$name" ] || continue
+                printf '%s\n' "${with[@]+"${with[@]}"}" | grep -qxF "$name" || with+=("$name")
+                if [ -n "$dir" ] && [ -d "$ARTIFACTS/$dir" ]; then
+                    cp -R "$ARTIFACTS/$dir" "$dest/$dir"
+                fi
+            done <"$src/replay-with"
+        fi
+        echo "  ${env_prefix}scripts/harness/run.sh --os $os --reaper $reaper ${with[*]:+${with[*]} }$scenario"
     } >"$dest/replay.txt"
     [ ! -s "$OUT/tree.diff" ] || cp "$OUT/tree.diff" "$dest/worktree.diff"
     kept_failures+=("$dest")

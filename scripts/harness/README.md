@@ -26,8 +26,14 @@ afterwards**: a segfault is a failure even if the client saw no error.
 - A REAPER licence file, see below
 
 The first run builds the `reamo-v1-harness:reaper-7.83` image (~30 s:
-Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb). The Debian base is pinned
+Debian, REAPER 7.83, xvfb/GTK/ALSA, JACK, python3, gdb). The Debian base is pinned
 by digest in the `Dockerfile`.
+
+`make docker-clean` removes what runs leave behind: stopped harness
+containers, and harness images for REAPER releases other than the pinned
+and oldest ones. It refuses to run while any `run.sh` or `ws-integration.sh`
+is running, and never touches volumes, the shared build cache or images
+without the harness label.
 
 ## The WebSocket integration suite
 
@@ -77,8 +83,13 @@ A failed run is also copied to `out/failures/<when>-<os>-reaper<version>-<scenar
 which later runs leave alone, so a failure that doesn't come back can still
 be read. Its `replay.txt` has the command that runs it again and the code it
 ran: the commit, any uncommitted changes (in `worktree.diff`) and untracked
-files. The run ends by listing where each failure was kept. Delete
-`out/failures/` when you're done with them.
+files. The command sets the `TOUR_ONLY`, `HARNESS_AUDIO` and `SOAK_*` settings the run had,
+and any a scenario chose itself and wrote to `$HARNESS_OUT/replay.env` as
+`NAME=value` lines (a soak's random seed). The run ends by listing where
+each failure was kept. Delete `out/failures/` when you're done with them.
+
+Ctrl-C (or a TERM to `run.sh`) removes the run's containers, and leaves
+another run's alone.
 
 ## Running on Windows
 
@@ -192,7 +203,8 @@ container. `boot.sh` (inside the container):
 1. copies REAPER into a writable dir and writes a `reaper.ini` beside the
    binary, making it **portable**: that dir is REAPER's resource folder.
    - `linux_audio_mode=2`: REAPER's Linux dummy audio device, so the audio
-     path (meters, audio hook) still runs with no sound hardware
+     path (meters, audio hook) still runs with no sound hardware; or JACK,
+     for a scenario that opts in (see "Audio inputs through JACK")
    - `verchk=0` and `--network none`: no update check, whose dialog would
      also block the main thread
    - blank VST paths: no plugin scan
@@ -214,7 +226,12 @@ scenarios/<name>/
   startup.lua   optional fixture, built through the ReaScript API
   test.py       drives the extension and asserts; non-zero exit = fail
   capabilities  optional Linux capabilities for the container, one per line
-                (NET_ADMIN lets test.py add network adapters with `ip`)
+                (NET_ADMIN lets test.py add network adapters with `ip`;
+                SYS_PTRACE lets it attach gdb to REAPER, as
+                clients-dropping-mid-write-survive-default-sigpipe does)
+  no-extension  optional: REAPER starts without REAmo
+  jack-inputs   optional: REAPER runs on JACK with this many audio inputs,
+                which test.py feeds (see "Audio inputs through JACK")
 ```
 
 ```lua
@@ -312,6 +329,111 @@ invisible error dialog.
 Name scenarios after the behaviour they pin (`item-notes-poll`), and keep
 each to one concern so a failure points somewhere.
 
+## Audio inputs through JACK
+
+REAPER's dummy device has no inputs. A scenario that needs audio arriving
+at REAPER's inputs (the track tuner, input meters, recording) runs REAPER on
+JACK instead, with inputs the test feeds. Linux container only.
+
+**Opting in.** A `jack-inputs` file in the scenario's folder, holding the
+input count (1 to 16). `boot.sh` then:
+
+- starts `jackd --no-realtime --port-max 64 -d dummy -C <n> -P 2 -r 48000 -p 256`
+  and waits up to 10 s for its `<n>` capture ports (`jack_lsp`), or fails
+  the scenario with jackd's output;
+- writes `linux_audio_mode=0` (JACK), `linux_audio_nch_in=<n>` and
+  `linux_audio_nch_out=2` to `reaper.ini`. REAPER connects `REAPER:in<i>`
+  to `system:capture_<i>` itself, which the dummy backend keeps silent;
+- exports `HARNESS_JACK_INPUTS=<n>` to the test (0 without JACK), and
+  `JACK_NO_START_SERVER=1`;
+- keeps `jackd.out` with the scenario's output, and fails the scenario if
+  jackd has exited by the end.
+
+Every other scenario runs on the dummy device as before.
+`audio-inputs-through-jack-reach-armed-tracks` is the example.
+
+`HARNESS_AUDIO=jack scripts/harness/run.sh` runs every scenario on JACK (2
+inputs unless `jack-inputs` says otherwise). It is for exploring what
+changes under JACK, not a release check: scenarios are written against the
+dummy device, and some fail on JACK.
+
+**Feeding the inputs** (`jack_feeder.py`, stdlib only):
+
+```python
+from jack_feeder import Feeder
+
+with Feeder() as f:                         # HARNESS_JACK_INPUTS channels
+    f.wait_connected()                      # every out_<i+1> -> REAPER:in<i+1>
+    f.tone(0, 440.0, 0.5)                   # input 1: 440 Hz at half scale
+    f.tone(0, 466.16, 0.5)                  # note change, same phase, no click
+    f.pluck(1, 82.41, 0.8, decay=1.5)       # 60 dB down in 1.5 s, then silence
+    f.swell(2, 220.0, 0.5, seconds=3.0)     # silence to 0.5 over 3 s, then held
+    f.silence(0)
+    print(f.stats())
+```
+
+- Channels count from 0, as `I_RECINPUT` does. Amplitudes are 0 to 1 (full
+  scale). Changes start at the next JACK block (256 samples, 5.3 ms).
+- `tone` carries on at the phase of whatever the channel is sounding (a
+  tone, a pluck's tail, a swell still rising); from silence, and for a
+  pluck or swell, a voice starts at phase 0.
+- A pluck's `decay` and a swell's `seconds` are above 0 and at most 30 s.
+  A bad value, an unknown channel or op raises `FeederError` with the
+  child's reason; so does a request to a child that has died, with its
+  stderr. `close()` (or leaving the `with`) raises if the child exited
+  non-zero or had to be killed.
+- `tone`, `pluck` and `swell` return the frequency played: a tone loops a
+  whole number of cycles in about a second, within 0.02 cents of the one
+  asked for.
+- `stats()`: callbacks, xruns, connections made, connected per channel,
+  CPU seconds and age (difference two calls for CPU over a span), time in
+  the audio callback.
+- The JACK client runs in a child process, so the test's own work never
+  holds the GIL its audio callback needs. The child takes JSON lines on
+  stdin and exits when stdin closes, so it can't outlive the test. Its
+  stdout carries only replies; libjack's messages (all of them under
+  `jackd -v`) go to its stderr, which is passed through.
+- Voices are rendered to tables when asked for; the callback only copies
+  slices (`ctypes.memmove`). Measured on aarch64 Docker: 4 channels use
+  1.7 to 2.7 % of one core while plucks and swells are rendered, about
+  20 µs per callback.
+
+**Reading what arrived.** Use REAPER's own view, not a debug command:
+`Track_GetPeakInfo` on a track armed and monitoring the input (unity
+volume and centre pan meter a mono input at the level fed), or record and
+read the take with an audio accessor (the example does both).
+
+**Gotchas**
+
+- **`/dev/shm` and `--port-max`.** jackd's default 2048 ports need about
+  107 MB of shared memory; Docker's `/dev/shm` is 64 MB, and jackd dies of
+  SIGBUS. `--port-max 64` needs about 40 MB. The input count is capped at
+  16 so that 3 ports per input (capture, REAPER's, the feeder's) plus 4
+  outputs fit.
+- **xruns.** jackd runs without realtime scheduling, so a block can be late
+  under load and REAPER gets a gap. Assert on medians or most readings,
+  not on every block.
+- **Rendering holds the GIL.** A voice is rendered whole in the feeder's
+  child when asked for, and the audio callback waits for the GIL
+  meanwhile; the callback isn't realtime-safe under `--no-realtime`. A
+  long pluck or swell started during a measurement can cause xruns
+  (measured: a 30 s pluck and a 30 s swell took 0.12 and 0.07 s to render,
+  with 4 xruns between them): start long voices before the measured span.
+- **Close audio device when stopped** (`audioclosestop=1`; the harness
+  leaves it at its default, off). REAPER closes JACK when stopped and
+  re-registers its ports on play, which drops their connections: nothing
+  arrives while stopped, and the first blocks after play can be silent
+  until the feeder reconnects (on JACK's port-registration callback, and
+  polling every 0.25 s). `Audio_Quit()` then `Audio_Init()` does the same
+  on demand.
+- **Under JACK the audio hook's `input_nch` is 0.** Ask
+  `GetNumAudioInputs()` for the input count.
+
+**Limits.** Linux and JACK only: this says nothing about CoreAudio, ASIO or
+WASAPI behaviour (device names, channel counts, buffer sizes, closing when
+stopped), nor ReaRoute or loopback devices. jackd's dummy backend runs at
+48 kHz with 256-sample blocks; other rates and sizes are untested.
+
 ## The operation tour
 
 The `tour-*` scenarios run every protocol command against a realistic
@@ -346,3 +468,188 @@ untidy idea), `tempo-map` (ramps and meter changes, time-locked),
 `legacy-v6` (a hand-written REAPER 6 project with a missing plugin and
 missing media, so REAPER's load dialogs come up) and `empty-unsaved`
 (REAPER's startup project).
+
+## Soak tests
+
+`soak/` holds scenarios that run for minutes to hours. A full run takes only
+`scenarios/`, so they run only when named. Linux only for now.
+
+```sh
+make soak                          # 3 minutes: crashes, hangs, refusals, undo points, gross growth
+SOAK_MINUTES=60 make soak          # an hour: also the RSS slope and CPU drift
+SOAK_MINUTES=480 make soak         # a working day
+SOAK_MINUTES=60 SOAK_SEED=7 scripts/harness/run.sh long-session-stays-healthy   # without the control
+```
+
+`make soak` runs the soak and its control at the same time, each in its
+own container (with at least two jobs, whatever `HARNESS_JOBS` says).
+
+`long-session-stays-healthy` opens the band session (`corpus/band-session.lua`)
+and plays it on repeat:
+
+- one phone stays connected throughout: mixer, peaks, notes and toggle
+  states subscribed, and a main-thread command every 2 s;
+- `SOAK_PHONES` (5) more connect, churn subscriptions (tracks, peaks
+  viewports, FX chains and params, routing, audio stream, notes, toggle
+  states), send read-only commands, pings and clock syncs, then drop the
+  socket, close it, or go quiet first, and connect again;
+- page loads (`GET /` and an asset) come in alongside.
+
+**The control**, `long-session-baseline`: the same session on repeat for
+the same time, sampled the same way, on a REAPER without REAmo (its
+`no-extension` file) and with no phones.
+
+- Report-only: it fails only if its setup is wrong (REAmo loaded,
+  REAPER's mappings unreadable, a bad setting, `SOAK_MINUTES` under 2,
+  the script stopping on an error) or REAPER exits. A stalled
+  ReaScript call, a stopped transport, a moved undo history or a broken
+  limit go in its summary, not its result.
+- No WebSocket probe, REAmo memory stats or refusals: those need REAmo.
+- It doesn't read or record the phones' settings (`SOAK_PHONES`,
+  `SOAK_SEED`, `SOAK_OPS`, `SOAK_REFUSAL_PCT`).
+- They pair up by run id. When the soak's script ends, passed or failed
+  (REAPER crashing included), it writes `soak-done.json`; the control
+  stops at its next sample and writes its summary. If the soak never gets
+  there (REAPER not ready at boot, its script killed), the control stops
+  on the soak's heartbeat, `soak-alive.json`, written at every sample:
+  none within 180 s of the control's start, or none for 30 s (six
+  samples, if longer). The soak waits up to 120 s for the control's
+  summary, then reports
+  both runs and the difference, against the first control if named
+  twice. A failed soak isn't compared.
+- "Beside" means the two runs overlapped at all. No comparison, and the
+  summary says why, if the soak runs alone, the control hadn't started by
+  the soak's end, or the control ended before the soak started
+  (`HARNESS_JOBS=1` does either; a control whose boot failed, the first).
+- With the soak named twice, the control stops when the first soak ends,
+  so a later soak compares with a shortened control.
+- A failed soak's replay line runs both, and its kept copy holds the
+  control's out dir too.
+- The difference is REAmo plus what REAmo has REAPER do (API calls, peak
+  reads, the audio hook), not REAmo's code alone.
+- The limits judge the soak's own numbers, not the difference.
+
+**The tuner is left out by default.** Opening and closing it leaves undo
+points in REAPER (RV1-165), so a run with it fails. `SOAK_OPS=+tuner` puts
+it in, to check a fix for RV1-165; until then that run fails on the undo
+check, naming RV1-165.
+
+It fails if:
+
+- REAPER exits;
+- a command goes unanswered for 10 s: the steady phone's probe runs every
+  2 s, so a stall shows within about 12 s;
+- a ReaScript call goes unanswered for 10 s: one runs at the first sample
+  10 s after the last, so a stall seen only there shows within 25 s
+  (10 + `SOAK_SAMPLE_SECS` + 10);
+- the transport stops;
+- the server closes or refuses a phone's connection, or a phone can't send
+  its close frame;
+- a command is refused, except `audio/startStream` with `STREAM_FAILED`
+  while the listener slots are full by the phones' own count (four on the
+  server; the phones keep to three, and count a slot given back in the last
+  5 s as still held);
+- REAPER's undo history or its project state change count moved: the
+  phones make no edits;
+- a phone's thread is still running 15 s after the run ends;
+- after warm-up (`SOAK_WARMUP_MINUTES`: a third of the run, 1 to 20
+  minutes), a limit below is broken.
+
+A setting that doesn't parse, and a run under 2 minutes, fail with a
+message. Every run writes its summary, failed or not.
+
+| Limit (`SOAK_<NAME>` overrides) | Default | Checked |
+|---|---|---|
+| `RSS_GROWTH_MB`: RSS at the end of the post-warm-up span minus at its start (medians of a tenth of the samples) | 24 | always |
+| `THREAD_GROWTH`, `FD_GROWTH`: threads, open files, the same way | 3, 4 | always |
+| `REFUSAL_PCT`: allowed refusals, percent of commands | 0.5 | always |
+| `RSS_SLOPE_MB_PER_HOUR`: least-squares slope of RSS | 6 | when warm-up is at least `SLOPE_MIN_WARMUP_MINUTES` (20) and at least `SLOPE_MIN_MINUTES` (30) follow it: runs of 60 minutes or more by default |
+| `CPU_DRIFT_POINTS`: mean CPU of the last third of that span minus the first, in points of one core | 3 | likewise |
+
+`SOAK_OPS` picks the phones' ops, in space-separated words matched against
+op names:
+
+- none: every op but the opt-in ones (the tuner);
+- `+word`: the opt-in ops matching it as well (`+tuner`: every op and the tuner);
+- `word`: only the ops matching a plain word, plus any `+word` ones
+  (`peaks +tuner`: the peaks ops and the tuner);
+- `-word`: never the ops matching it, whatever else matched (`-audio`).
+
+`SOAK_SEED` seeds the phones' choices; timing still makes two runs differ.
+An unset seed is random, and a failure's replay line carries the one used
+(the scenario writes it to `replay.env`). For a crash, `HARNESS_GDB=1` puts
+backtraces in `reaper.out`.
+
+`out/long-session-stays-healthy/` keeps:
+
+- `soak-series.csv`: one row per `SOAK_SAMPLE_SECS` (5): RSS, CPU of the
+  process and its main thread, threads, open files, the probe's and the
+  ReaScript call's latency, the slowest command, what the phones did.
+  Written as it goes, so a crash leaves it.
+- `soak-threads.csv`: per sample, each thread that used CPU: tid, name,
+  group, CPU %. REAPER names its threads (`reaper/audio_dm`,
+  `reaper/mediaafx`, ...); the main thread is `main`. A thread nobody
+  names keeps the name of the thread that created it: other threads
+  named `reaper` show as `unnamed`. In these runs those were REAmo's
+  (HTTP/WebSocket server, audio stream) and the control ran none, but
+  that is an observation, not a guarantee. A row with no tid,
+  `exited during sample`, is the process's CPU that no thread alive at
+  the sample's end accounts for (threads that exited in it, such as an
+  audio stream's), so the groups add up to the process's CPU, give or
+  take a tick.
+- `soak-summary.json`: settings, seed, metrics, limits, refusals,
+  problems, RSS growth by mapping (`[heap]`, anonymous, libraries), CPU by
+  thread group and the busiest threads, threads per group when sampling
+  began (`threads_by_group_at_start`), and `baseline`: the control's
+  numbers beside the soak's.
+
+`out/long-session-baseline/` keeps the control's, without `baseline`.
+
+### When a number is high
+
+Narrow it in this order:
+
+1. **The baseline** (`baseline` in the summary). What the control shows
+   too is REAPER's own; only the difference points at REAmo.
+2. **Where it is.** `rss_growth_mb_by_mapping` says which memory grew: a
+   library's mapping, `[heap]` (the main malloc arena) or anonymous
+   (other malloc arenas, mmaps, thread stacks). `extension_memory`
+   (`debug/memoryStats`) covers only REAmo's polling-state arenas (the
+   30, 5 and 1 Hz tiers); growth outside them shows in the mappings
+   only. `cpu_pct_by_thread_group` and `soak-threads.csv` say which
+   thread, and `threads_by_group_at_start` how many each group had:
+   `unnamed` has been REAmo's server and audio stream threads (the
+   control had none); `main` runs REAmo's timer and command handlers as
+   well as REAPER's UI; `reaper/audio_dm` runs REAmo's audio hook as well
+   as REAPER's audio; other `reaper/*` threads are REAPER's.
+3. **Which ops.** Rerun with `SOAK_OPS` cut down (`peaks`, `-audio`,
+   `trackFx`, ...): the op family the growth follows points at its
+   command handlers.
+
+### Where the limits come from
+
+Measured on REAPER 7.83, aarch64 Docker, up to seven runs at once:
+
+- No churn (the steady phone only): RSS flat at 200 MB, CPU 11.9 % (main
+  thread 2.6 %).
+- Full load without the tuner, 60 minutes: RSS climbs from 204 to 237 MB
+  over about 20 minutes, flattening, then holds: 0.04 MB growth and a
+  0.06 MB/h slope over the 40 minutes after a 20-minute warm-up. CPU
+  17.5 % mean (sd 1.2), main thread 5.4 %, drift -0.8 points. Threads (40 to
+  41) and open files (26 to 30): median growth 1 at most. Allowed refusals: 1 in 31,787 commands.
+- 30 minutes is still inside that climb (14 MB/h after a 10-minute
+  warm-up), hence slope and drift only from 60.
+- 15-minute runs of one op family each: growth up to 12 MB, in steps, then
+  flat; CPU drift within 1.1 points.
+- Soak beside the control, 60 minutes, 20-minute warm-up: the control
+  (REAPER alone) held at 180 MB with no growth (slope 0.00 MB/h), CPU
+  15.4 % (main thread 3.2 %), 30 threads, none of them unnamed, 18 open
+  files. The soak held at 237 MB, 1.2 MB growth, 1.3 MB/h, CPU 18.3 %
+  (main 5.6 %, unnamed threads 0.3 %), drift -0.5 points in both. The
+  difference is REAmo under the phones' load: 57 MB, 2.9 points of CPU
+  (2.4 on the main thread), 10 to 11 threads.
+
+The growth limit sits at twice the largest warm-up step, the slope limit
+far above the measured noise and well below a leak that matters over a
+working day (RV1-165 grows about 40 MB/h in the full mix), the drift limit
+at about three times the largest measured.
