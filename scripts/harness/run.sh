@@ -29,8 +29,8 @@
 #                   "Soak tests")
 #
 # Each container also gets HARNESS_RUN_ID, the same for every scenario of a
-# run, and HARNESS_RUN_SCENARIOS, the run's scenario names: the soak finds
-# its control's summary from the same run by them.
+# run, HARNESS_RUN_SCENARIOS, the run's scenario names, and HARNESS_RUN_JOBS,
+# HARNESS_JOBS as the run took it: the soak and its control pair up by them.
 #
 # Each scenario gets a fresh REAPER in its own --rm container with no network
 # and no published ports, so it can run beside a desktop REAPER (or another
@@ -193,7 +193,7 @@ run_one() {
         -v "$ARTIFACTS:/out" \
         ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
         -e HARNESS_SCENARIO_DIR="/harness/$dir" ${soak_env[@]+"${soak_env[@]}"} \
-        -e HARNESS_RUN_ID="$RUN_ID" -e HARNESS_RUN_SCENARIOS="${scenarios[*]}" \
+        -e HARNESS_RUN_ID="$RUN_ID" -e HARNESS_RUN_SCENARIOS="${scenarios[*]}" -e HARNESS_RUN_JOBS="$JOBS" \
         "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/run-$i.log" 2>&1 && rc=0 || rc=$?
     echo "$rc" >"$OUT/run-$i.status"
 }

@@ -163,6 +163,7 @@ SOAK = "long-session-stays-healthy"
 OUT_ROOT = os.path.dirname(OUT)
 RUN_ID = os.environ.get("HARNESS_RUN_ID", "")
 RUN_SCENARIOS = os.environ.get("HARNESS_RUN_SCENARIOS", "").split()
+RUN_JOBS = os.environ.get("HARNESS_RUN_JOBS", "")
 WITH_BASELINE = not CONTROL and BASELINE in RUN_SCENARIOS
 WITH_SOAK = CONTROL and SOAK in RUN_SCENARIOS
 CONTROL_STARTED = "control-started.json"  # the control writes it as it starts
@@ -1124,9 +1125,11 @@ def read_baseline(run):
         return None, f"not in this run (make soak runs {BASELINE} beside it)"
     started = [d for d, _ in this_run(BASELINE, CONTROL_STARTED)]
     if not started:
-        return None, (f"{BASELINE} hadn't started by the end of this soak: run.sh runs HARNESS_JOBS "
-                      f"scenarios at a time, so the two run alongside only with HARNESS_JOBS of 2 or more "
-                      f"(make soak sees to it)")
+        if RUN_JOBS.isdigit() and int(RUN_JOBS) < 2:
+            return None, (f"{BASELINE} hadn't started by the end of this soak: this run had HARNESS_JOBS="
+                          f"{RUN_JOBS}, and the two run alongside only with 2 or more (make soak sees to it)")
+        return None, (f"{BASELINE} hadn't started by the end of this soak, though the run had room for both: "
+                      f"its boot may have failed (see its output)")
     deadline = time.monotonic() + BASELINE_WAIT_SECS
     while True:
         done = this_run(BASELINE, "soak-summary.json")
