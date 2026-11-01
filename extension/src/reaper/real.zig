@@ -1007,26 +1007,6 @@ pub const RealBackend = struct {
         return self.inner.getMediaItemTakePeaks(take, peakrate, starttime, numchannels, numsamplesperchannel, buf);
     }
 
-    pub fn makeTakeAccessor(self: *const RealBackend, take: *anyopaque) ?*anyopaque {
-        return self.inner.makeTakeAccessor(take);
-    }
-
-    pub fn destroyTakeAccessor(self: *const RealBackend, accessor: *anyopaque) void {
-        self.inner.destroyTakeAccessor(accessor);
-    }
-
-    pub fn accessorValidate(self: *const RealBackend, accessor: *anyopaque) bool {
-        return self.inner.accessorValidate(accessor);
-    }
-
-    pub fn accessorGetPeaks(self: *const RealBackend, accessor: *anyopaque, channel: c_int, start_time: f64, end_time: f64, samples: c_int, buf: []f64) ?[]const f64 {
-        return self.inner.accessorGetPeaks(accessor, channel, start_time, end_time, samples, buf);
-    }
-
-    pub fn readAccessorSamples(self: *const RealBackend, accessor: *anyopaque, samplerate: c_int, numchannels: c_int, starttime_sec: f64, numsamplesperchannel: c_int, buf: []f64) c_int {
-        return self.inner.readAccessorSamples(accessor, samplerate, numchannels, starttime_sec, numsamplesperchannel, buf);
-    }
-
     // =========================================================================
     // Markers
     // =========================================================================

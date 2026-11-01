@@ -83,7 +83,7 @@ pub const TimePreciseFn = *const fn () callconv(.c) f64;
 
 // Shared state between WebSocket thread and main thread
 //
-// Fine-grained locking strategy (Phase 9 BACKEND_IMPROVEMENTS_PLAN.md):
+// Fine-grained locking strategy:
 // - command_mutex: Dedicated lock for command queue (SPSC pattern)
 // - client_rwlock: RwLock for client map (read-heavy during broadcasts)
 // - Atomics for simple values (token_set, html_mtime, time_precise_fn)

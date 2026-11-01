@@ -1,7 +1,7 @@
 /**
  * WaveformCanvas - Per-track canvas with tile-based ImageBitmap blitting
  *
- * Architecture per TIMELINE_CANVAS_ARCHITECTURE.md (Google Maps tile approach):
+ * Architecture (map-tile approach):
  * 1. Tiles are pre-rendered to ImageBitmap (via TileBitmapCache)
  * 2. Canvas blits cached bitmaps using ctx.drawImage() - GPU accelerated
  * 3. Position calculation maps tile time range to screen pixels

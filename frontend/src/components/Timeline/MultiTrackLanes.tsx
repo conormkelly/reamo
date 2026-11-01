@@ -4,7 +4,7 @@
  * Renders multiple track lanes showing items across several tracks simultaneously.
  * Uses per-track canvas architecture for 60fps performance on iPad Safari.
  *
- * Architecture (per TIMELINE_CANVAS_ARCHITECTURE.md):
+ * Architecture:
  * - ONE canvas per track lane (not per-item)
  * - Items rendered as rectangles with waveform overlays via tile blitting
  * - ImageBitmap caching for GPU-accelerated rendering

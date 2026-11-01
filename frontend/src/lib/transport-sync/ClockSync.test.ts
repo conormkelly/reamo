@@ -126,6 +126,37 @@ describe('ClockSync', () => {
       // Now synced
       expect(clockSync.isSynced()).toBe(true);
     });
+
+    it('tracks a server clock whose origin is not the Unix epoch', () => {
+      // The client clock is Date.now() (Unix epoch, ms); the server stamps
+      // REAPER's time_precise() * 1000, whose origin is unspecified (here, one
+      // hour of uptime). Synced time must follow the server's clock anyway.
+      const clientEpochMs = 1_793_000_000_000;
+      const serverClockMs = 3_600_000;
+      const timeProvider = createMockTimeProvider(clientEpochMs);
+      const networkDelay = 10;
+      const serverNow = () => timeProvider.get() - clientEpochMs + serverClockMs;
+
+      let capturedT0 = 0;
+      const clockSync = new ClockSync((t0) => {
+        capturedT0 = t0;
+      }, timeProvider);
+      clockSync.startSync();
+
+      timeProvider.advance(networkDelay);
+      const t1 = serverNow();
+      const t2 = t1;
+      timeProvider.advance(networkDelay);
+
+      clockSync.onSyncResponse(capturedT0, t1, t2);
+
+      expect(clockSync.getOffset()).toBeCloseTo(serverClockMs - clientEpochMs, 1);
+      expect(clockSync.getSyncedTime()).toBeCloseTo(serverNow(), 1);
+
+      timeProvider.advance(5000);
+      clockSync.tick();
+      expect(clockSync.getSyncedTime()).toBeCloseTo(serverNow(), 1);
+    });
   });
 
   describe('getSyncedTime', () => {

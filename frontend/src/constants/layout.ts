@@ -1,8 +1,5 @@
 /**
- * Layout constants for responsive height calculations
- *
- * These constants centralize magic numbers that were previously scattered
- * across view files. See RESPONSIVE_TIMELINE_AND_MIXER.md for rationale.
+ * Layout constants for responsive height calculations, shared across views
  */
 
 // =============================================================================

@@ -1,9 +1,6 @@
 /**
  * Chord Voicings
  * Inversion generation and voice leading utilities
- *
- * MVP: Basic inversion generation
- * Phase 2: Adaptive voicing, voice leading
  */
 
 /**

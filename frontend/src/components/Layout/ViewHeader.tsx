@@ -2,18 +2,12 @@
  * ViewHeader Component
  * Unified header for all views: Burger menu (left) | View-specific controls (center) | Connection status (right)
  * Scrolls with content, no wasted vertical space.
- *
- * Supports progressive disclosure via overflowItems prop - when provided,
- * an overflow menu (kebab icon) appears that opens a BottomSheet with these items.
- *
- * @see docs/architecture/frontend/UX_GUIDELINES.md §8 (Header Overflow Pattern)
  */
 
 import type { ReactElement, ReactNode } from 'react';
 import { SettingsMenu } from './SettingsMenu';
 import { ConnectionStatus } from '../ConnectionStatus';
 import { TransportTimeDisplay } from './TransportTimeDisplay';
-import { OverflowMenu, type OverflowMenuItem } from './OverflowMenu';
 import { useUIPreferences, useAudioMonitor, useLayoutContext } from '../../hooks';
 import { useReaperStore } from '../../store';
 import type { ViewId } from '../../viewRegistry';
@@ -23,14 +17,9 @@ export interface ViewHeaderProps {
   currentView: ViewId;
   /** View-specific controls to render in the center/right area */
   children?: ReactNode;
-  /**
-   * Items to display in overflow menu (bottom sheet).
-   * Used for progressive disclosure - views can move controls here on narrow viewports.
-   */
-  overflowItems?: OverflowMenuItem[];
 }
 
-export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderProps): ReactElement {
+export function ViewHeader({ currentView, children }: ViewHeaderProps): ReactElement {
   const { navPosition } = useLayoutContext();
   const isLandscape = navPosition === 'side';
 
@@ -89,11 +78,6 @@ export function ViewHeader({ currentView, children, overflowItems }: ViewHeaderP
       <div className="flex-1 flex items-center">
         {children}
       </div>
-
-      {/* Overflow menu for progressive disclosure */}
-      {overflowItems && overflowItems.length > 0 && (
-        <OverflowMenu items={overflowItems} />
-      )}
 
       {/* Transport time display - landscape only, before connection dot */}
       {isLandscape && <TransportTimeDisplay />}

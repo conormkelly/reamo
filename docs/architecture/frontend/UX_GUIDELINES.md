@@ -49,7 +49,7 @@ Viewport meta (`frontend/index.html`):
 - `viewport-fit=cover` is required, or browsers letterbox notched displays instead of exposing the insets.
 - No `interactive-widget`: the on-screen keyboard overlays the page (the browser default, `resizes-visual`) instead of shrinking it. With `resizes-content`, current iOS WebKit shrinks the layout viewport for the keyboard as Android does, and WebKit hosts such as Brave can leave it shrunk after the keyboard closes, drawing the app in the top half of the screen.
 
-Custom properties in `:root` (`index.css`): `--safe-top`, `--safe-right`, `--safe-bottom`, `--safe-left` (each `env(safe-area-inset-*, 0px)`) and `--safe-max-bottom: env(safe-area-max-inset-bottom, 34px)`.
+Custom properties in `:root` (`index.css`): `--safe-top`, `--safe-right`, `--safe-bottom`, `--safe-left` (each `env(safe-area-inset-*, 0px)`).
 
 Insets by platform:
 
@@ -65,8 +65,8 @@ Insets by platform:
 
   ```css
   .bottom-nav {
-    padding-bottom: var(--safe-max-bottom);
-    bottom: calc(var(--safe-bottom) - var(--safe-max-bottom));
+    padding-bottom: env(safe-area-max-inset-bottom, 34px);
+    bottom: calc(var(--safe-bottom) - env(safe-area-max-inset-bottom, 34px));
   }
   ```
 
@@ -156,14 +156,13 @@ The scale is in the `@theme` block of `frontend/src/index.css` as `--z-index-*`,
 - Footer chrome is the tab bar plus the persistent transport. Each is a user toggle (`showTabBar`, `showPersistentTransport`); Clock fullscreen hides both.
 - Landscape phones (height < 480px) move navigation and transport into the side rail instead of auto-hiding them.
 - Transport stays visible in every view: recording is the primary workflow.
-- Not built: per-view footer defaults (Clock hides the tab bar; Instruments shows a compact transport; Actions hides the transport; in landscape, Instruments and Clock hide both), merged with the user toggles; hiding the footer on scroll down (`hooks/useScrollDirection.ts` exists with no caller).
+- Not built: per-view footer defaults (Clock hides the tab bar; Instruments shows a compact transport; Actions hides the transport; in landscape, Instruments and Clock hide both), merged with the user toggles; hiding the footer on scroll down.
 
 ---
 
 ## 8. Header controls overflow pattern
 
-- `components/Layout/OverflowMenu.tsx` exists and `ViewHeader` accepts `overflowItems`, but no view passes any, and `hooks/useContainerQuery.ts` has no caller.
-- Not built: collapsing header controls into the overflow menu on narrow headers via a container query. Priority for the chord-pad header: gear always visible; Octave collapses first, then Scale, then Key. Alternative: one bottom sheet for Key + Scale + Octave, which are related.
+- Not built: collapsing header controls into an overflow menu (a kebab button opening a bottom sheet) on narrow headers via a container query. Priority for the chord-pad header: gear always visible; Octave collapses first, then Scale, then Key. Alternative: one bottom sheet for Key + Scale + Octave, which are related.
 
 ---
 

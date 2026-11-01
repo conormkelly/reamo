@@ -747,7 +747,7 @@ When zoomed to 30s of a 120s project, touching the right edge must give `viewpor
 }
 
 /* Dynamic viewport height (Safari URL bar): */
-.h-screen-safe {
+.h-dvh {
   height: 100vh;   /* Fallback */
   height: 100dvh;  /* Dynamic */
 }
@@ -975,7 +975,7 @@ Bugs that produced the §18 rules:
 | Hardcoded colors `#374151` | Design tokens `bg-bg-elevated` |
 | Tailwind colors `bg-amber-500` | Semantic tokens `bg-sends-primary` |
 | `text-white` on colored bg | `text-on-primary`, `text-on-success` |
-| `100vh` for height | `100dvh` or `.h-screen-safe` |
+| `100vh` for height | `100dvh` or `.h-dvh` |
 | Unguarded `localStorage` | try-catch wrapper |
 | Timer without cleanup effect | Add `useEffect` return |
 | `useState` for timer IDs | `useRef` for timer IDs |

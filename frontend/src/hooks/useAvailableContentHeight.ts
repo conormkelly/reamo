@@ -6,8 +6,6 @@
  *
  * Also provides layout context (navPosition, isLandscapeConstrained) for views
  * to adjust their behavior when side rail is active.
- *
- * @see RESPONSIVE_TIMELINE_AND_MIXER.md for architecture decisions
  */
 
 import { useState, useEffect, useRef, type RefObject } from 'react';

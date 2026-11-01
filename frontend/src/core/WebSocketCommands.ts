@@ -1017,7 +1017,7 @@ export interface PeaksSubscribeParams {
   guids?: string[];
   /** Number of peak samples per item (default 30, used as fallback) */
   sampleCount?: number;
-  /** Viewport for adaptive resolution (Phase 2) */
+  /** Viewport for adaptive resolution */
   viewport?: PeaksViewport;
 }
 

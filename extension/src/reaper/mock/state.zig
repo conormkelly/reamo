@@ -200,10 +200,6 @@ pub const Method = enum {
     getMediaSourceChannels,
     getRootSource,
     getMediaItemTakePeaks,
-    // AudioAccessor
-    makeTakeAccessor,
-    destroyTakeAccessor,
-    readAccessorSamples,
     // Markers
     markerCount,
     enumMarker,

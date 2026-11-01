@@ -162,9 +162,9 @@ export default defineConfig(
         // Note: This is a heuristic - we can't perfectly detect all vh usage
         {
           selector:
-            "JSXAttribute[name.name='className'] Literal[value=/\\bh-screen\\b(?!-safe)/]",
+            "JSXAttribute[name.name='className'] Literal[value=/\\bh-screen\\b/]",
           message:
-            'Use h-screen-safe or 100dvh instead of h-screen for iOS Safari URL bar. See FRONTEND_DEVELOPMENT.md §11.',
+            'Use h-dvh or 100dvh instead of h-screen for iOS Safari URL bar. See FRONTEND_DEVELOPMENT.md §11.',
         },
         // vh anywhere in a string: className values ("max-h-[90vh]"),
         // style objects, cn()/clsx() arguments. iOS Safari sizes vh to the

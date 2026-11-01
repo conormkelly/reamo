@@ -718,36 +718,6 @@ pub const TracksMethods = struct {
         return @as(c_int, numsamplesperchannel) | (1 << 20);
     }
 
-    // AudioAccessor (mock for fallback peak generation)
-    pub fn makeTakeAccessor(self: anytype, take: *anyopaque) ?*anyopaque {
-        self.recordCall(.makeTakeAccessor);
-        // Return the take pointer as the accessor (simplifies mock)
-        return take;
-    }
-
-    pub fn destroyTakeAccessor(self: anytype, accessor: *anyopaque) void {
-        self.recordCall(.destroyTakeAccessor);
-        _ = accessor;
-    }
-
-    pub fn readAccessorSamples(self: anytype, accessor: *anyopaque, samplerate: c_int, numchannels: c_int, starttime_sec: f64, numsamplesperchannel: c_int, buf: []f64) c_int {
-        self.recordCall(.readAccessorSamples);
-        _ = accessor;
-        _ = samplerate;
-        _ = starttime_sec;
-        // Fill buffer with mock audio samples: sine wave pattern
-        const num_samples: usize = @intCast(numsamplesperchannel);
-        const num_chans: usize = @intCast(numchannels);
-        for (0..num_samples) |i| {
-            const phase = @as(f64, @floatFromInt(i)) / 100.0;
-            const sample = @sin(phase * 6.28318);
-            for (0..num_chans) |ch| {
-                buf[i * num_chans + ch] = sample * 0.5; // Interleaved
-            }
-        }
-        return 1; // Success
-    }
-
     // Metering
     pub fn getTrackPeakInfo(self: anytype, track: *anyopaque, channel: c_int) f64 {
         self.recordCall(.getTrackPeakInfo);
