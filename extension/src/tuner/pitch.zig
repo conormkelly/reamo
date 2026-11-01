@@ -322,6 +322,11 @@ pub const Options = struct {
     /// quarter of it: the comb takes out every partial the two share, so
     /// what is left of harmonically related notes reads as either.
     comb_unrelated: bool = true,
+    /// Whether such an onset is taken back when what is left has no pitch
+    /// or reads as the ringing note: the ringing note's own pitch moving
+    /// under the comb is not a new note, and the onset would reset the
+    /// octave hold and allow a jump.
+    comb_confirm: bool = true,
     /// Whether the spectrum of the input since the onset is checked for
     /// several notes (see several.zig).
     several_guard: bool = true,
@@ -507,6 +512,8 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// started is measured with that one taken out.
         comb_onset: u64,
         comb_old_hz: f64,
+        /// `onset_at` before the last such onset.
+        comb_prev_onset_at: u64,
         /// Full blocks since the reset (onsets are looked for only once the
         /// blocks before one are input, not the reset's silence), and onsets
         /// in all.
@@ -718,6 +725,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.comb_seen = 0;
             self.comb_onset = 0;
             self.comb_old_hz = 0;
+            self.comb_prev_onset_at = 0;
         }
 
         /// Adds mono input. Non-finite samples, and any beyond
@@ -799,6 +807,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 for (2..onset_history) |k| comb_before += self.comb_blocks[(self.blocks_pos + onset_history - k) % onset_history];
                 comb_before /= onset_history - 2;
                 if (self.comb_seen >= onset_history and free and self.comb_energy > onset_ratio * comb_before and onset_ratio * self.comb_energy > self.block_energy) {
+                    self.comb_prev_onset_at = self.onset_at;
                     self.onset_at = self.fine_count - self.block_len;
                     self.onset_count += 1;
                     self.floor_paused = true;
@@ -1007,14 +1016,33 @@ pub fn AnalyserWith(comptime options: Options) type {
             var best: usize = 0;
             if (options.comb_onset and self.comb_onset != 0 and self.comb_onset == self.onset_count) {
                 self.difference(self.comb_old_hz);
+                var related = false;
                 if (self.pickPeriod(settings.range)) |b| {
                     const hz = self.analysis_rate / self.interpolate(b);
-                    if (!(options.comb_unrelated and combRelated(hz, self.comb_old_hz)) and @abs(1200 * @log2(hz / self.comb_old_hz)) >= 50) {
+                    related = combRelated(hz, self.comb_old_hz);
+                    // What is left of a note re-plucked a few cents off is
+                    // their beat, which dips nowhere clearly.
+                    const clear = !options.comb_confirm or self.cmnd[b] < options.dip_threshold;
+                    if (clear and !(options.comb_unrelated and related) and @abs(1200 * @log2(hz / self.comb_old_hz)) >= 50) {
                         best = b;
                         combed = true;
                     }
                 }
-                if (!combed) self.moved_from = null;
+                if (!combed) {
+                    self.moved_from = null;
+                    // Once the window lies past the onset, what isn't the
+                    // ringing note having no pitch, or reading as that note,
+                    // means no new note after all: the onset is taken back
+                    // and the note carries on. One harmonically related (a
+                    // bass line's octave) stays a new note.
+                    if (options.comb_confirm and !related and (self.fine_count - self.onset_at) * self.fine_decimation >= self.window) {
+                        // The count stays (it orders onsets); a showing note
+                        // takes it as its own.
+                        self.onset_at = self.comb_prev_onset_at;
+                        if (self.note_active) self.note_onset_count = self.onset_count;
+                        self.comb_onset = 0;
+                    }
+                }
             }
             if (!combed) {
                 self.difference(null);
@@ -1164,9 +1192,11 @@ pub fn AnalyserWith(comptime options: Options) type {
                     self.note_onset_count = self.onset_count;
                 }
             }
-            // While the window still holds input from before the onset, the
-            // note shows no name.
-            const held = options.names_after_window and self.note_active and self.sinceOnset() < self.window;
+            // While the window still holds input from before the onset that
+            // started it, the note shows no name.
+            // A note already showing when a later onset comes keeps its
+            // name until that onset proves a new note.
+            const held = options.names_after_window and self.note_active and self.onset_count == self.note_onset_count and self.sinceOnset() < self.window;
             self.gate_open = self.note_active and !held;
             if (!self.note_active) self.learnHum();
             // An onset holds the floor until a note it started has ended, or
@@ -2693,6 +2723,39 @@ test "a note whose reading jumps more than 2 semitones without an onset stops sh
     errdefer std.debug.print("{any}\n", .{r});
     try testing.expect(r.shown > 10);
     try testing.expectEqual(@as(usize, 0), r.other);
+}
+
+test "a showing note keeps its name with no gap through a soft re-pluck of the same string" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 2);
+    defer testing.allocator.destroy(other);
+    @memset(buf[0..2400], 0);
+    const opts: signals.StringOptions = .{ .f0 = 55, .inharmonicity = 2e-4, .t60_s = 8 };
+    signals.pluckedString(buf[2400..], 48000, opts);
+    // At 1 s the string is damped to half and plucked again 10 dB under
+    // its level then, 8 cents sharp.
+    const at = 2400 + 48000;
+    const level = signals.rms(buf[at - 4800 .. at]);
+    for (buf[at..]) |*v| v.* *= 0.5;
+    var again = opts;
+    again.f0 *= std.math.pow(f64, 2, 8.0 / 1200.0);
+    again.seed = 3;
+    signals.pluckedString(other[0 .. buf.len - at], 48000, again);
+    signals.scale(other[0 .. buf.len - at], level * std.math.pow(f64, 10, -10.0 / 20.0) / signals.rms(other[0..4800]));
+    signals.mix(buf[at..], other[0 .. buf.len - at]);
+    signals.addNoise(buf, 3e-5, 15);
+    var pos: usize = 0;
+    var gaps: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        const t = (@as(f64, @floatFromInt(pos + 1600)) - 2400) / 48000;
+        if (t >= 0.9 and t <= 1.4 and (r.freq_hz == 0 or r.note != 33)) gaps += 1;
+    }
+    try testing.expectEqual(@as(usize, 0), gaps);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
