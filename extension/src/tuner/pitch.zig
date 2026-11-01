@@ -164,12 +164,20 @@ pub const Reading = struct {
     /// YIN's normalised difference there (1 for a pure tone; noise and a
     /// second note lower it).
     clarity: f64,
-    /// Set for `Options.settle_s` after an onset or a jump of the pitch:
-    /// the note is known, but the string is still in its attack and the
-    /// cents mean little yet.
+    /// Set for `Options.settle_s` (120 ms) after an onset or a jump of the
+    /// pitch: the string is still in its attack and the cents mean little
+    /// yet. The time runs from the onset itself, and a new note's name
+    /// shows only once the window is past the onset (about 93 ms), so on a
+    /// fresh pluck it is set on at most the first reading or two (at 30
+    /// Hz, usually one): by the time the name shows, most of the attack
+    /// has passed. It shows for its full time after a jump of the pitch
+    /// within a note, or a later onset on a note already showing.
     settling: bool = false,
     /// Set once the shown pitch has moved under `Options.stable_cents_per_s`
-    /// over the last `Options.stable_s`: the reading to tune by.
+    /// over the last `Options.stable_s`: the reading to tune by. It needs
+    /// at least 3 analyses within `stable_s`, the oldest at least 50 ms
+    /// short of it back, so `analyse` must be called about 7 times a
+    /// second or more; polled more slowly, a reading is never stable.
     stable: bool = false,
     /// Several notes are sounding: the reading, if there is one, is one
     /// of them, never a subharmonic common to them (which shows none).
