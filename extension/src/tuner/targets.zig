@@ -1440,6 +1440,34 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .subharmonic_check = false }), "no-subharmonic-check", "the analyser without the subharmonic check", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .stable_spread_cents = null }), "no-stable-spread", "stable on the slope alone", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .slow_onset_db = null }), "no-slow-onset", "notes start only at an energy jump", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .lowpass_hz = null, .refinement = null, .octave_hold = 0, .floor_margin_db = null, .onset_gate = false, .release_drop_db = null, .slow_onset_db = null, .mains_start_hold = false, .comb_onset = false, .several_guard = false, .hum_model = false, .subharmonic_check = false, .stable_spread_cents = null, .yin_consistency = null, .hold_after_window = false }), "plain-yin", "YIN alone: no low-pass, refinement, hold, gates or guards", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 6 }), "sweep-floor-6", "learned-floor margin 6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .onset_db = 3.03 }), "sweep-onset-6", "onset jump 3.03 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .slow_onset_db = 6 }), "sweep-rise-6", "slow-onset rise 6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = 14 }), "sweep-release-6", "release check 14 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 9 }), "sweep-floor-3", "learned-floor margin 9 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .onset_db = 6.03 }), "sweep-onset-3", "onset jump 6.03 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .slow_onset_db = 9 }), "sweep-rise-3", "slow-onset rise 9 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = 17 }), "sweep-release-3", "release check 17 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 15 }), "sweep-floor+3", "learned-floor margin 15 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .onset_db = 12.03 }), "sweep-onset+3", "onset jump 12.03 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .slow_onset_db = 15 }), "sweep-rise+3", "slow-onset rise 15 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = 23 }), "sweep-release+3", "release check 23 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18 }), "sweep-floor+6", "learned-floor margin 18 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .onset_db = 15.03 }), "sweep-onset+6", "onset jump 15.03 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .slow_onset_db = 18 }), "sweep-rise+6", "slow-onset rise 18 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = 26 }), "sweep-release+6", "release check 26 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .voicing_threshold = 0.1 }), "sweep-voicing-0.2", "voicing threshold 0.1", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .voicing_threshold = 0.2 }), "sweep-voicing-0.1", "voicing threshold 0.2", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .voicing_threshold = 0.4 }), "sweep-voicing+0.1", "voicing threshold 0.4", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .voicing_threshold = 0.5 }), "sweep-voicing+0.2", "voicing threshold 0.5", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .dip_threshold = 0.05 }), "sweep-dip-0.1", "YIN dip threshold 0.05", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .dip_threshold = 0.25 }), "sweep-dip+0.1", "YIN dip threshold 0.25", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .dip_threshold = 0.35 }), "sweep-dip+0.2", "YIN dip threshold 0.35", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 6, .onset_db = 3.03 }), "sweep-floor-onset-6", "floor margin and onset jump both -6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 6, .slow_onset_db = 6 }), "sweep-floor-rise-6", "floor margin and slow-onset rise both -6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18, .onset_db = 15.03 }), "sweep-floor-onset+6", "floor margin and onset jump both +6 dB", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = 18, .slow_onset_db = 18 }), "sweep-floor-rise+6", "floor margin and slow-onset rise both +6 dB", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .hold_after_window = false }), "hold-from-first", "the octave hold anchored on the first two readings after an onset", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .yin_consistency = null }), "no-yin-consistency", "YIN and the first partial always combined", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .comb_onset = false }), "no-comb-onset", "no onsets from what isn't the ringing note", allocator),
@@ -1719,6 +1747,17 @@ fn printPlayer(w: anytype, cands: []const Candidate, results: []Results) !void {
             100 * @as(f64, @floatFromInt(pl.notes_with_octave)) / notes, 100 * @as(f64, @floatFromInt(shown)) / @as(f64, @floatFromInt(@max(reads, 1))), worst_bias,   worst_key,
         });
     }
+    try w.print("\n95% bootstrap intervals over notes ({d} resamples of the notes, with replacement):\n\n", .{bootstrap_resamples});
+    for (cands, results) |c, *r| {
+        const pl = &r.player;
+        const m1 = try bootstrap(pl.settle_1c.items, .median);
+        const p1 = try bootstrap(pl.settle_1c.items, .p90);
+        const n1 = try bootstrap(pl.settle_1c.items, .never);
+        const n05 = try bootstrap(pl.settle_half_c.items, .never);
+        const fm = try bootstrap(pl.flicker.items, .median);
+        const nc = try bootstrap(pl.name_changes.items, .mean);
+        try w.print("- {s}: to within 1 c median [{d:.2}, {d:.2}] s, P90 [{d:.2}, {d:.2}] s, never [{d:.1}, {d:.1}]%; within 0.5 c never [{d:.1}, {d:.1}]%; flicker median [{d:.3}, {d:.3}] c; name changes per note [{d:.3}, {d:.3}]\n", .{ c.name, m1[0], m1[1], p1[0], p1[1], n1[0], n1[1], n05[0], n05[1], fm[0], fm[1], nc[0], nc[1] });
+    }
     try w.print("\nSigned bias per string from 1 s (cents; one-string signals, every rate and spectrum):\n\n", .{});
     for (cands, results) |c, *r| {
         const pl = &r.player;
@@ -1732,6 +1771,44 @@ fn printPlayer(w: anytype, cands: []const Candidate, results: []Results) !void {
 }
 
 const Quantiles = struct { median: f64, p90: f64, never: f64, worst: f64 };
+
+const bootstrap_resamples = 1000;
+const Statistic = enum { median, p90, never, mean };
+
+/// The 2.5th and 97.5th percentiles of `stat` over resamples of `values`
+/// (the same resamples every run).
+fn bootstrap(values: []const f64, stat: Statistic) ![2]f64 {
+    const alloc = std.heap.page_allocator;
+    if (values.len == 0) return .{ std.math.nan(f64), std.math.nan(f64) };
+    const sample = try alloc.alloc(f64, values.len);
+    defer alloc.free(sample);
+    var stats: [bootstrap_resamples]f64 = undefined;
+    var rng = sig.MinStd.init(20261101);
+    for (&stats) |*out| {
+        for (sample) |*v| {
+            const u = (rng.next() + 1) / 2;
+            v.* = values[@min(values.len - 1, @as(usize, @intFromFloat(u * @as(f64, @floatFromInt(values.len)))))];
+        }
+        out.* = switch (stat) {
+            .mean => blk: {
+                var sum: f64 = 0;
+                for (sample) |v| sum += v;
+                break :blk sum / @as(f64, @floatFromInt(sample.len));
+            },
+            else => blk: {
+                const q = try quantiles(alloc, sample);
+                break :blk switch (stat) {
+                    .median => q.median,
+                    .p90 => q.p90,
+                    .never => q.never,
+                    .mean => unreachable,
+                };
+            },
+        };
+    }
+    std.mem.sort(f64, &stats, {}, std.sort.asc(f64));
+    return .{ stats[bootstrap_resamples * 25 / 1000], stats[bootstrap_resamples * 975 / 1000] };
+}
 
 /// Median, 90th percentile and worst of the finite values, and the share
 /// that are infinite (never), percent.

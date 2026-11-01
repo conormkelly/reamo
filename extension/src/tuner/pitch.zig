@@ -98,13 +98,21 @@
 //! - jitter 0.18 cent (target 0.1), from those strings' slow drift;
 //! - 72 confident subharmonics of two notes, all within 8 / f of the
 //!   onset, before the spectrum can resolve the subharmonic f;
-//! - hum that changes during a note: P95 1.83 cent (target 0.5) when its
+//! - hum that changes during a note: P95 1.43 cent (target 0.5) when its
 //!   level steps, its phase jumps, a pickup is switched or the mains
 //!   drifts 20 mHz a second (the learned hum is carried through the note
 //!   unchanged; drift of 2-5 mHz a second is mostly within 0.5 cent),
 //!   with 16 octave readings and 492 readings flagged several;
 //! - 6 single-string readings flagged several, weak-fundamental strings
-//!   early on.
+//!   early on;
+//! - through a piezo, 16 of 48 notes show another name (D3 as D2, A2 as
+//!   A1) in their first 100 ms, while the body modes ring louder than
+//!   at any later time (target none);
+//! - under a string ringing in sympathy 15-30 dB down, 12% of readings
+//!   from 1 s are not shown and one signal averages -4.9 cent (targets:
+//!   P95 0.5 counting unshown readings, bias 0.2): the first partial
+//!   wanders up to 2 cents with another note a quarter of its frequency
+//!   away, and the sympathetic string outlasts the note in those cases.
 //!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
@@ -170,8 +178,6 @@ pub const max_sample_rate = 384000;
 const window_seconds = 4096.0 / 44100.0;
 /// The shortest period searched, as a frequency (as in the JSFX).
 const max_pitch_hz = 2000.0;
-/// YIN's absolute threshold: the first dip under it is the period.
-const dip_threshold = 0.15;
 
 /// How the analyser is built. The defaults are the tuner's; the other
 /// values exist so the bench can measure what each choice buys.
@@ -185,6 +191,11 @@ pub const Options = struct {
     /// this for a pitch; null reports the deepest dip whatever its depth,
     /// as the JSFX does.
     voicing_threshold: ?f64 = 0.3,
+    /// YIN's absolute threshold: the first dip under it is the period.
+    dip_threshold: f64 = 0.15,
+    /// An onset is a 5 ms block with this many dB more energy than the
+    /// mean of the blocks 10 to 40 ms before it (8 times).
+    onset_db: f64 = 9.030899869919435,
     /// How YIN's period is refined to the first partial's frequency (see
     /// first_partial.zig); null reports YIN's interpolated period.
     refinement: ?first_partial.Method = .phase_slope,
@@ -371,18 +382,21 @@ const fine_rate_floor = 11025.0;
 /// (half the window) at the fastest fine rate.
 const max_fine_period: usize = @as(usize, @intFromFloat(@ceil(2 * fine_rate_floor * window_seconds / 2))) + 1;
 
-/// An onset is a 5 ms block of fine-rate input with `onset_ratio` times
-/// the mean energy of the blocks 10 to 40 ms before it, at least 50 ms
-/// after the last one.
+/// An onset is a 5 ms block of fine-rate input with `Options.onset_db`
+/// more energy than the mean of the blocks 10 to 40 ms before it, at
+/// least 50 ms after the last one.
 const onset_block_s = 0.005;
 const onset_history = 8;
-const onset_ratio = 8.0;
 const onset_refractory_s = 0.05;
 
 /// The tuner's analyser.
 pub const Analyser = AnalyserWith(.{});
 
 pub fn AnalyserWith(comptime options: Options) type {
+    const onset_ratio = comptime blk: {
+        @setEvalBranchQuota(100_000);
+        break :blk std.math.pow(f64, 10, options.onset_db / 10);
+    };
     const max_window: usize = @intFromFloat(@ceil(window_seconds * options.max_analysis_rate));
     const max_fft = std.math.ceilPowerOfTwo(usize, max_window + max_window / 2) catch unreachable;
     const fine_needed = options.refinement != null or options.onset_gate or options.several_guard;
@@ -1463,7 +1477,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         }
 
         /// The period in analysed samples: the first local minimum of the
-        /// normalised difference under `dip_threshold`, or else the deepest
+        /// normalised difference under `Options.dip_threshold`, or else the deepest
         /// one if it is under `options.voicing_threshold`; only periods
         /// within `range` if there is one.
         fn pickPeriod(self: *Self, range: ?Range) ?usize {
@@ -1486,7 +1500,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             const c = self.cmnd[0..half];
             var tau = min_tau;
             while (tau < end - 1) : (tau += 1) {
-                if (c[tau] < dip_threshold and c[tau] < c[tau - 1] and c[tau] <= c[tau + 1]) return self.subharmonic(tau, end);
+                if (c[tau] < options.dip_threshold and c[tau] < c[tau - 1] and c[tau] <= c[tau + 1]) return self.subharmonic(tau, end);
             }
             var best = min_tau;
             for (min_tau + 1..end) |t| {
