@@ -141,6 +141,8 @@ pub fn build(b: *std.Build) void {
         "src/audio/ring_buffer.zig",
         "src/tuner/jsfx_port.zig", // with fft.zig's and signals.zig's tests, which it imports
         "src/tuner/pitch.zig", // with first_partial.zig's and several.zig's tests, which it imports
+        "src/tuner/wav.zig",
+        "src/tuner/truth.zig",
         // protocol.zig, state/, subscription/ modules have ../ imports — tested via main.zig test block
     };
 
@@ -190,6 +192,22 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_tuner_targets.addArgs(args);
     b.step("tuner-targets", "Run the tuner pitch-analyser targets (-- <name> runs only matching candidates)").dependOn(&run_tuner_targets.step);
     test_step.dependOn(&tuner_targets.step);
+
+    // Runs the tuner's analyser over a WAV recording and scores each note
+    // against its offline ground truth (src/tuner/wav_tool.zig). Built by
+    // `zig build test` too.
+    const tuner_wav = b.addExecutable(.{
+        .name = "tuner-wav",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tuner/wav_tool.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_tuner_wav = b.addRunArtifact(tuner_wav);
+    if (b.args) |args| run_tuner_wav.addArgs(args);
+    b.step("tuner-wav", "Run the tuner analyser over a WAV file: -- take.wav [--out frames.csv] [--notes notes.csv] [--channel N]").dependOn(&run_tuner_wav.step);
+    test_step.dependOn(&tuner_wav.step);
 
     // Main module tests - pulls in tests from all submodules via test block
     // Requires httpz, ztracy, qrcodegen, CSurf C++, and SWELL bridge
