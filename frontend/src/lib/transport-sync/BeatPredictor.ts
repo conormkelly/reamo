@@ -2,8 +2,7 @@
  * BeatPredictor - Position Prediction with Discontinuity Handling
  *
  * Extrapolates beat position from tempo and handles transport state changes.
- * Phase 1: Basic prediction without adaptive jitter buffer.
- * Phase 2: Tempo-map-aware prediction for variable-tempo projects.
+ * Uses the tempo map, when set, for variable-tempo projects.
  */
 
 import type { TimeProvider, TimeSignature } from './types';
@@ -86,7 +85,6 @@ export class BeatPredictor {
 
     if (wasStateChange) {
       // Disable prediction briefly after state change
-      // Duration = 100ms base (Phase 2 adds jitter-based duration)
       const disableDuration = this.baseDisableDuration;
       this.predictionDisabledUntil = now + disableDuration;
 

@@ -57,7 +57,7 @@ pub const ClientSubscription = struct {
     /// Number of peaks per item (fallback when viewport not provided)
     sample_count: u32 = 30,
 
-    /// Viewport-aware peak generation (Phase 2)
+    /// Viewport-aware peak generation
     /// When set, peakrate is calculated from viewport instead of fixed sample_count
     viewport_start: f64 = 0, // Project time in seconds
     viewport_end: f64 = 0, // Project time in seconds

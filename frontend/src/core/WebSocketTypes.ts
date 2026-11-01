@@ -127,10 +127,10 @@ export interface TransportEventPayload {
     start: number;
     end: number;
   };
-  // Transport sync fields (Phase 1)
+  // Transport sync fields
   t?: number; // Server timestamp in ms (high-precision)
   b?: number; // Raw beat position (total beats from project start)
-  // Note: repeat, metronome, projectLength, barOffset moved to ProjectEventPayload
+  // repeat, metronome, projectLength and barOffset are on ProjectEventPayload
 }
 
 // =============================================================================
