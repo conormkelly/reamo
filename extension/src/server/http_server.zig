@@ -373,7 +373,7 @@ const WsHandler = struct {
         const sndbuf: c_int = 4 * 1024 * 1024;
         socket_options.setConnectionOption(conn.stream.handle, SOL_SOCKET, SO_SNDBUF, std.mem.asBytes(&sndbuf)) catch |err| switch (err) {
             // The phone has already gone; its next read ends the connection.
-            error.ConnectionResetByPeer => {},
+            error.ConnectionShutDown => {},
             else => {
                 // Same cause for every connection: say it once.
                 if (!sndbuf_warned.swap(true, .monotonic)) {
