@@ -84,7 +84,7 @@
 //!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
-//! (about 490 KB, so not on the stack) and calls `push` and `analyse` from
+//! (about 670 KB, so not on the stack) and calls `push` and `analyse` from
 //! one thread, not the audio thread.
 const std = @import("std");
 const fft_mod = @import("fft.zig");
@@ -287,7 +287,6 @@ pub fn AnalyserWith(comptime options: Options) type {
     const max_fft = std.math.ceilPowerOfTwo(usize, max_window + max_window / 2) catch unreachable;
     const fine_needed = options.refinement != null or options.onset_gate or options.several_guard;
     const max_fine: usize = if (!fine_needed) 1 else @intFromFloat(@ceil(options.refine_window_s * 2 * fine_rate_floor));
-    const max_block: usize = @intFromFloat(@ceil(onset_block_s * 2 * fine_rate_floor));
     return struct {
         const Self = @This();
 
@@ -338,13 +337,13 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `blocks_pos - 1`.
         blocks: [onset_history]f64,
         blocks_pos: usize,
-        /// The fine input since the last onset (at most refine_window_s),
-        /// oldest first, loaded by each analysis.
         /// Full blocks since the reset (onsets are looked for only once the
         /// blocks before one are input, not the reset's silence), and onsets
         /// in all.
         blocks_seen: usize,
         onset_count: u64,
+        /// The fine input since the last onset (at most refine_window_s),
+        /// oldest first, loaded by each analysis.
         segment: [max_fine]f64,
         segment_len: usize,
         windowed: [if (options.several_guard or options.hum_model) max_fft else 1]f64,
@@ -442,7 +441,6 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.fine_rate = analysis_rate / @as(f64, @floatFromInt(self.fine_decimation));
             self.fine_lowpass = if (self.fine_decimation > 1) Biquad.lowpass(analysis_rate, 2000) else Biquad.passthrough;
             self.block_len = @intFromFloat(@round(onset_block_s * self.fine_rate));
-            std.debug.assert(self.block_len <= max_block);
             self.fft.init();
             self.reset();
         }
@@ -608,9 +606,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             return .{ .hz = e.hz, .sigma_cents = 1.15 * 1731.234 * e.std_error_hz / e.hz };
         }
 
-        /// The several-notes verdict on the loaded segment's spectrum
-        /// (Blackman-Harris, its latest power of two at most) for partials
-        /// `spacing_hz` apart, or null with the guard off.
+        /// The several-notes verdict on the loaded segment's spectrum (its
+        /// latest `max_fft` samples at most, Blackman-Harris windowed and
+        /// zero-padded to a power of two) for partials `spacing_hz` apart,
+        /// or null with the guard off.
         fn judgeSeveral(self: *Self, spacing_hz: f64) ?several.Judgement {
             if (!options.several_guard or self.segment_len < 16) return null;
             var n_fft = std.math.ceilPowerOfTwo(usize, self.segment_len) catch unreachable;
@@ -1454,7 +1453,7 @@ fn countNotes(a: anytype, signal: []const f32, sample_rate: f64, from_s: f64, no
     return .{ .shown = shown, .other = other };
 }
 
-test "a note keeps reading while it is 12 dB over the noise floor, under the old -60 dBFS gate" {
+test "a note keeps reading at -64 dBFS while it stands 12 dB over the noise floor" {
     const a = try newAnalyser(48000);
     defer testing.allocator.destroy(a);
     const buf = try generate(48000 * 3);

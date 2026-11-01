@@ -73,9 +73,6 @@ pub const Estimate = struct {
     /// than `max_residual_rad`, where the partial is too weak to measure.
     /// On a sine in white noise it is within 15% of the observed scatter.
     std_error_hz: f64,
-    /// The partial's peak amplitude in the input's units, averaged over
-    /// the segment.
-    amplitude: f64,
 };
 
 /// Samples a segment must have beyond the moving averages' settling for
@@ -117,7 +114,6 @@ pub fn estimate(comptime max_period: usize, work: *Work(max_period), x: []const 
     const delay = 1.5 * @as(f64, @floatFromInt(period - 1));
     const gain = 1 / std.math.pow(f64, @floatFromInt(period), 3);
     var n: usize = 0;
-    var amp_sum: f64 = 0;
     for (x, 0..) |v, i| {
         const z: Complex = .{ .re = v * phasor.re, .im = v * phasor.im };
         phasor = phasor.mul(rot);
@@ -137,7 +133,6 @@ pub fn estimate(comptime max_period: usize, work: *Work(max_period), x: []const 
         if (i >= settle and (i - settle) % step == 0 and n < max_points) {
             work.points[n] = .{ .re = s3.re * gain, .im = s3.im * gain };
             work.times[n] = @as(f64, @floatFromInt(i)) - delay;
-            amp_sum += 2 * @sqrt(work.points[n].norm2());
             n += 1;
         }
     }
@@ -163,7 +158,6 @@ pub fn estimate(comptime max_period: usize, work: *Work(max_period), x: []const 
     return .{
         .hz = (w0 + dw) * rate / two_pi,
         .std_error_hz = se * rate / two_pi,
-        .amplitude = amp_sum / @as(f64, @floatFromInt(n)),
     };
 }
 
@@ -283,7 +277,6 @@ test "measures a sine to a ten-thousandth of a cent from a guess 30 cents off (t
                 const e = estimate(1024, work, &x, rate, guess, m).?;
                 errdefer std.debug.print("{d} Hz, guess {d} c, {s}: {d}\n", .{ f, off, @tagName(m), e.hz });
                 try testing.expectApproxEqAbs(@as(f64, 0), sig.cents(e.hz, f), @as(f64, if (m == .pll) 1e-3 else 1e-4));
-                try testing.expectApproxEqAbs(@as(f64, 0.3), e.amplitude, 0.003);
             }
         }
     }

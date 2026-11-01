@@ -86,7 +86,7 @@ const targets = struct {
     const ramp_cents = 0.5;
     const ramp_lag_s = 0.15;
     /// Lock-on (note name) average and worst, ms: no slower than the
-    /// analyser before this work (`baseline` below, measured by this bench).
+    /// analyser at d759e43 (`baseline` below, measured by this bench).
     const lock_avg_ms = baseline.lock_avg_ms;
     const lock_worst_ms = baseline.lock_worst_ms;
     /// 95th percentile |error| on strings with mains hum or buzz under them
@@ -114,9 +114,9 @@ const targets = struct {
     const cpu_percent = 1.0;
 };
 
-/// The analyser as it was before these targets (YIN with the 2 kHz
-/// low-pass, the fixed 92.9 ms window and the 0.3 voicing gate), on this
-/// bench in ReleaseFast, rounded up to 0.1 ms.
+/// The analyser at d759e43 (YIN with the 2 kHz low-pass, the fixed 92.9
+/// ms window and the 0.3 voicing gate), on this bench in ReleaseFast,
+/// rounded up to 0.1 ms.
 const baseline = struct {
     const lock_avg_ms = 42.7;
     const lock_worst_ms = 83.4;
