@@ -4,11 +4,14 @@ folder's `no-extension` file) and with no phones. What REAPER does alone,
 for the soak to compare with: make soak runs both side by side, and the
 soak's summary reports both and the difference.
 
-It fails as the soak does on a crash, a ReaScript call unanswered for
-HANG_SECS, a stopped transport, a moved undo history, or a broken limit.
-It has no WebSocket probe, so a stall shows only through the ReaScript
-call (within RPC_SECS + SOAK_SAMPLE_SECS + HANG_SECS), and no REAmo
-memory stats.
+It is there for its numbers, so it fails only when its setup is wrong
+(REAmo loaded, REAPER's mappings unreadable, a bad setting, the script
+stopping) or REAPER exits, which boot.sh fails any scenario on. What the
+soak's checks would fail on (a ReaScript call unanswered for HANG_SECS, a
+stopped transport, a moved undo history, a broken limit) it reports in
+its summary. It has no WebSocket probe, so a stall shows only through the
+ReaScript call (within RPC_SECS + SOAK_SAMPLE_SECS + HANG_SECS), and no
+REAmo memory stats.
 """
 import os
 import runpy

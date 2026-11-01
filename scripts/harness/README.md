@@ -382,9 +382,13 @@ and plays it on repeat:
 the same time, sampled the same way, on a REAPER without REAmo (its
 `no-extension` file) and with no phones.
 
-- Checks: crashes, the ReaScript call (a main-thread stall within 25 s),
-  the transport, undo history, and the same limits on its own numbers.
-- Can't check: the WebSocket probe, REAmo's memory stats, refusals.
+- Report-only: it fails only if its setup is wrong (REAmo loaded,
+  REAPER's mappings unreadable, a bad setting) or REAPER exits. A stalled
+  ReaScript call, a stopped transport, a moved undo history or a broken
+  limit go in its summary, not its result.
+- No WebSocket probe, REAmo memory stats or refusals: those need REAmo.
+- It doesn't read or record the phones' settings (`SOAK_PHONES`,
+  `SOAK_SEED`, `SOAK_OPS`, `SOAK_REFUSAL_PCT`).
 - The soak waits up to 120 s after its end for the control's summary, and
   reports both runs and the difference. Run alone, it reports no baseline.
 - The difference is REAmo plus what REAmo has REAPER do (API calls, peak

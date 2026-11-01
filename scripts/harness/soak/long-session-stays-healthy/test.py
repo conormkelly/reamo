@@ -35,7 +35,8 @@ is taken (so a crash leaves it), and the verdict with its numbers to
 soak-summary.json, which every run writes, failed or not.
 
 long-session-baseline runs this script as the control: REAPER without
-REAmo, the same session, no phones; only the ReaScript probe. When run.sh
+REAmo, the same session, no phones; only the ReaScript probe. It reports
+what the checks find and fails only on a broken setup. When run.sh
 runs both (make soak), the soak waits up to BASELINE_WAIT_SECS after its
 end for the control's summary and reports both runs' numbers and the
 difference. The limits judge the soak's own numbers, not the difference.
@@ -67,6 +68,13 @@ from reamo_client import (HOST, PORT, Client, Closed, InvalidFrame, ReaperError,
 skip_unless_linux("samples REAPER's memory and CPU from Linux's /proc")
 
 
+# The control (soak/long-session-baseline, whose `no-extension` file has
+# boot.sh start REAPER without REAmo) runs this script too: the same
+# session on repeat, no phones. It reports its numbers and fails only when
+# its setup is wrong (see main).
+BASELINE = "long-session-baseline"
+CONTROL = os.environ.get("HARNESS_SCENARIO") == BASELINE
+
 # Settings that don't parse, reported as the run's failure (with its summary).
 SETTING_ERRORS = []
 
@@ -92,9 +100,11 @@ MINUTES = setting("SOAK_MINUTES", 3.0)
 # Under this load REAPER's heap climbs for about 20 minutes, flattening as it
 # goes, then holds: a third of the run, at most 20 minutes, is warm-up.
 WARMUP_MINUTES = setting("SOAK_WARMUP_MINUTES", min(20.0, max(1.0, MINUTES / 3)))
-PHONES = setting("SOAK_PHONES", 5, int)
 SAMPLE_SECS = setting("SOAK_SAMPLE_SECS", 5.0, minimum=1)
-SEED = setting("SOAK_SEED", random.randrange(1 << 31), int)
+# The phones' settings: the control has no phones, so it neither reads
+# nor records them.
+PHONES = 0 if CONTROL else setting("SOAK_PHONES", 5, int)
+SEED = None if CONTROL else setting("SOAK_SEED", random.randrange(1 << 31), int)
 HANG_SECS = 10.0
 RPC_SECS = 10.0
 # The shortest run that leaves samples after a minute of warm-up to judge.
@@ -127,7 +137,7 @@ LIMITS = {
     "FD_GROWTH": setting("SOAK_FD_GROWTH", 4),
     # Allowed refusals (ALLOWED_REFUSALS) as a share of commands, in percent
     # (measured: 0.003).
-    "REFUSAL_PCT": setting("SOAK_REFUSAL_PCT", 0.5),
+    **({} if CONTROL else {"REFUSAL_PCT": setting("SOAK_REFUSAL_PCT", 0.5)}),
 }
 
 # Refusals a healthy run can get. Any other refusal fails the run.
@@ -145,11 +155,6 @@ SLOT_RELEASE_SECS = 5.0
 OUT = os.environ.get("HARNESS_OUT", "/tmp")
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 
-# The control (soak/long-session-baseline, whose `no-extension` file has
-# boot.sh start REAPER without REAmo) runs this script too: the same
-# session on repeat, no phones.
-BASELINE = "long-session-baseline"
-CONTROL = os.environ.get("HARNESS_SCENARIO") == BASELINE
 # The control's out dir, and how long after this run ends to wait for its
 # summary when run.sh started it in the same run.
 BASELINE_SUMMARY = os.path.join(os.path.dirname(OUT), BASELINE, "soak-summary.json")
@@ -176,6 +181,7 @@ class Stats:
         self.window = {}
         self.refusals = {}
         self.problems = []
+        self.setup_problems = []
         self.hung = False
         self.memory = {}
         self.streaming = 0
@@ -233,10 +239,13 @@ class Stats:
             self.released = [t for t in self.released if now - t < SLOT_RELEASE_SECS]
             return (self.streaming - 1) + len(self.released) >= SERVER_LISTENERS
 
-    def problem(self, text, hang=False):
+    def problem(self, text, hang=False, setup=False):
+        """`setup`: the run itself is set up wrong, which fails the control too."""
         print(f"PROBLEM: {text}", flush=True)
         with self.lock:
             self.problems.append(text)
+            if setup:
+                self.setup_problems.append(text)
             self.hung = self.hung or hang
         self.stop.set()
 
@@ -838,12 +847,12 @@ def soak(run):
         raise RuntimeError("no REAPER process")
     maps = try_mapping_rss(pid)
     if maps is None:
-        stats.problem("couldn't read REAPER's mappings (/proc/<pid>/smaps)")
+        stats.problem("couldn't read REAPER's mappings (/proc/<pid>/smaps)", setup=True)
         return
     loaded = "reaper_reamo.so" in maps
     if loaded == CONTROL:
         stats.problem(f"REAmo is {'loaded' if loaded else 'not loaded'} in REAPER, "
-                      f"and this is {'the control' if CONTROL else 'the soak'}")
+                      f"and this is {'the control' if CONTROL else 'the soak'}", setup=True)
         return
     print("dialogs:", open_project("/tmp/corpus/band-session/band-session.RPP"), flush=True)
     time.sleep(1.5)  # the extension's GUID cache settles after a project load
@@ -982,9 +991,10 @@ def finish(run):
     metrics["threads_by_group_at_start"] = run.thread_groups
     summary = {"role": "control" if CONTROL else "soak", "run_id": RUN_ID,
                "config": {"minutes": MINUTES, "warmup_minutes": WARMUP_MINUTES,
-                          "phones": 0 if CONTROL else PHONES, "sample_secs": SAMPLE_SECS, "seed": SEED,
-                          "cpus": os.cpu_count(), "ops": os.environ.get("SOAK_OPS", ""),
-                          "opted_in": opted_in(run.ops)},
+                          "sample_secs": SAMPLE_SECS, "cpus": os.cpu_count(),
+                          **({} if CONTROL else {"phones": PHONES, "seed": SEED,
+                                                 "ops": os.environ.get("SOAK_OPS", ""),
+                                                 "opted_in": opted_in(run.ops)})},
                "limits": LIMITS, "metrics": metrics, "totals": stats.total,
                "refusals": stats.refusals, "extension_memory": stats.get_memory(),
                "problems": stats.problems, "limits_broken": broken}
@@ -1050,7 +1060,7 @@ def against_baseline(m):
     groups_m, groups_b = m.get("cpu_pct_by_thread_group", {}), bm.get("cpu_pct_by_thread_group", {})
     return {
         "status": "compared" if not b["problems"] and not b["limits_broken"]
-        else "the control failed: its numbers may not be a fair baseline",
+        else "compared, but the control reported problems: its numbers may not be a fair baseline",
         "problems": b["problems"] + b["limits_broken"],
         "metrics": {k: pair(m.get(k), bm.get(k)) for k in COMPARED if k in m or k in bm},
         "rss_growth_mb_by_mapping": by_mapping,
@@ -1082,26 +1092,37 @@ def print_baseline(cmp):
 
 
 def main():
-    load = "REAPER without REAmo, no phones (the control)" if CONTROL else f"{PHONES} phones + the desk"
-    print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {load}, "
-          f"sample every {SAMPLE_SECS:g} s, seed {SEED}, ops {os.environ.get('SOAK_OPS') or 'default'}, "
+    load = ("REAPER without REAmo, no phones (the control)" if CONTROL else
+            f"{PHONES} phones + the desk, seed {SEED}, ops {os.environ.get('SOAK_OPS') or 'default'}")
+    print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {load}, sample every {SAMPLE_SECS:g} s, "
           f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
     run = Run()
-    # A failure's replay line (results.sh) sets the seed this run used.
-    with open(os.path.join(OUT, "replay.env"), "w") as f:
-        f.write(f"SOAK_SEED={SEED}\n")
+    if not CONTROL:
+        # A failure's replay line (results.sh) sets the seed this run used.
+        with open(os.path.join(OUT, "replay.env"), "w") as f:
+            f.write(f"SOAK_SEED={SEED}\n")
     if SETTING_ERRORS:
         for e in SETTING_ERRORS:
-            stats.problem(f"bad setting: {e}")
+            stats.problem(f"bad setting: {e}", setup=True)
     elif MINUTES < MIN_MINUTES:
         stats.problem(f"SOAK_MINUTES={MINUTES:g}: a soak needs at least {MIN_MINUTES:g} minutes, "
-                      f"to leave samples after warm-up")
+                      f"to leave samples after warm-up", setup=True)
     else:
         try:
             soak(run)
         except Exception:
-            stats.problem(f"the soak stopped: {traceback.format_exc()}")
+            stats.problem(f"the soak stopped: {traceback.format_exc()}", setup=True)
     failures = finish(run)
+    if CONTROL:
+        # The control gives numbers to compare with; what it finds is
+        # reported in its summary, and only a broken setup fails it.
+        if failures:
+            print("control reported (not judged):\n  " + "\n  ".join(failures), flush=True)
+        if stats.setup_problems:
+            print("FAIL (the control's setup):\n  " + "\n  ".join(stats.setup_problems), flush=True)
+            sys.exit(1)
+        print("control done", flush=True)
+        return
     if failures:
         print("FAIL:\n  " + "\n  ".join(failures), flush=True)
         sys.exit(1)
