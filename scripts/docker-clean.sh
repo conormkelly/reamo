@@ -18,7 +18,9 @@
 # needs it. It finds them by a command line containing
 # scripts/harness/run.sh or ws-integration.sh, as make and the README start
 # them; a run started as ./run.sh from inside scripts/harness isn't seen.
-# Removing a release that another checkout pins only costs a rebuild there.
+# The check is made once, at the start, so a run started while this is
+# running isn't seen. Removing a release that another checkout pins only
+# costs a rebuild there.
 #
 # Everything removed is rebuilt on next use. It never touches volumes,
 # running containers, or images without the harness label. The build
@@ -40,7 +42,10 @@ oldest="$(sed -n 's/^OLDEST_REAPER=\([0-9.]*\).*/\1/p' "$RUN_SH")"
 [ -n "$pinned" ] && [ -n "$oldest" ] \
     || { echo "error: couldn't read PINNED_REAPER and OLDEST_REAPER from $RUN_SH" >&2; exit 1; }
 
-if pgrep -f 'scripts/harness/(run|ws-integration)\.sh' >/dev/null; then
+command -v pgrep >/dev/null || { echo "error: needs pgrep, to see harness runs in progress" >&2; exit 1; }
+# The interpreter's command line, so an editor or tail on the script isn't
+# taken for a run.
+if pgrep -f '(^|/)bash [^ ]*scripts/harness/(run|ws-integration)\.sh( |$)' >/dev/null; then
     echo "error: a harness run is in progress; run this after it ends" >&2
     exit 1
 fi
