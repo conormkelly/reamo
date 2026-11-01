@@ -458,8 +458,14 @@ export interface TunerEventPayload {
   noteName: string;  // "C", "C#", "D", etc.
   octave: number;    // Octave number (4 for A4)
   cents: number;     // Deviation from note (-50 to +50)
-  conf: number;      // Detection confidence (0-1)
-  inTune: boolean;   // True when |cents| < 2
+  clarity: number;   // How periodic the input is at the detected period (0-1)
+  conf: number;      // The same as clarity, under its older name
+  inTune: boolean;   // True when there is a pitch and |cents| < 2
+  // From the master tuner's analyser; absent from a track tuner's JSFX,
+  // which can't tell them:
+  settling?: boolean; // A note's attack: the note is known, the cents not yet
+  stable?: boolean;   // The pitch has held still: the reading to tune by
+  multiple?: boolean; // Several notes sound; the reading is one of them
   // Settings (for multi-client sync)
   referenceHz: number;  // A4 reference frequency (400-480)
   thresholdDb: number;  // Silence threshold in dB (-90 to -30)
