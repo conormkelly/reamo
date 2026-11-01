@@ -174,6 +174,12 @@ pub const Reading = struct {
     /// Several notes are sounding: the reading, if there is one, is one
     /// of them, never a subharmonic common to them (which shows none).
     multiple: bool = false,
+    /// A note has started (an onset was taken, the input is pitched and
+    /// over the floor) but its name is held back until the window lies
+    /// wholly after the onset, about 93 ms (`Options.names_after_window`).
+    /// `freq_hz` is 0 then, as with no pitch: a screen can show that a
+    /// note is coming rather than silence.
+    starting: bool = false,
 
     pub const none: Reading = .{ .freq_hz = 0, .note = 0, .cents = 0, .clarity = 0 };
 };
@@ -977,6 +983,8 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         /// The input sample (counted from `init` or `reset`) where the last
         /// onset began, to within a 5 ms block; null before the first.
+        /// `init` with another sample rate starts the count again, so a
+        /// value from before a rate change means nothing after it.
         pub fn lastOnset(self: *const Self) ?u64 {
             if (self.onset_count == 0) return null;
             return self.onset_at * self.fine_decimation * self.decimation;
@@ -992,6 +1000,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.setComb(null);
                 var r = Reading.none;
                 r.multiple = self.heard_several;
+                r.starting = self.note_active and !self.gate_open;
                 return r;
             };
             self.setComb(shown.hz);
@@ -2761,6 +2770,33 @@ test "a showing note keeps its name with no gap through a soft re-pluck of the s
         if (t >= 0.9 and t <= 1.4 and (r.freq_hz == 0 or r.note != 33)) gaps += 1;
     }
     try testing.expectEqual(@as(usize, 0), gaps);
+}
+
+test "while a new note's name is held back the reading says it is starting, and silence never does" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..9600], 0);
+    signals.pluckedString(buf[9600..], 48000, .{ .f0 = 110, .inharmonicity = 6.5e-5 });
+    signals.addNoise(buf, 3e-5, 16);
+    var starting: usize = 0;
+    var first_shown: ?f64 = null;
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        const t = (@as(f64, @floatFromInt(pos + 1600)) - 9600) / 48000;
+        if (t <= 0) try testing.expect(!r.starting);
+        if (r.starting) {
+            try testing.expectEqual(@as(f64, 0), r.freq_hz);
+            try testing.expect(first_shown == null);
+            starting += 1;
+        }
+        if (r.freq_hz > 0 and first_shown == null) first_shown = t;
+    }
+    try testing.expect(starting >= 2);
+    try testing.expect(first_shown.? <= 0.15);
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
