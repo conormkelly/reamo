@@ -29,6 +29,11 @@ The first run builds the `reamo-v1-harness:reaper-7.83` image (~30 s:
 Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb). The Debian base is pinned
 by digest in the `Dockerfile`.
 
+`make docker-clean` removes what runs leave behind: stopped harness
+containers, harness images for REAPER releases other than the pinned and
+oldest ones, and superseded image builds. It never touches volumes or other
+projects' images.
+
 ## The WebSocket integration suite
 
 `tests/ws-integration` asserts against `test-fixtures/test-project-1.RPP`.
