@@ -468,11 +468,30 @@ pub fn mutedString(out: anytype, sample_rate: f64, f0: f64, t60_s: f64, peak: f6
     }
 }
 
-/// Adds white Gaussian noise with RMS `noise_rms`.
+/// Adds white Gaussian noise with RMS `noise_rms`, from `seed`. The
+/// generator is the Park-Miller one above with the Box-Muller transform,
+/// both in this file, so the noise is the same on every Zig version (the
+/// standard library's generators and its normal sampler may change).
 pub fn addNoise(out: anytype, noise_rms: f64, seed: u64) void {
-    var prng = std.Random.DefaultPrng.init(seed);
-    const r = prng.random();
-    for (out) |*s| s.* += @floatCast(noise_rms * r.floatNorm(f64));
+    var rng = MinStd.init(seed % (MinStd.modulus - 1) + 1);
+    var spare: f64 = 0;
+    var have_spare = false;
+    for (out) |*s| {
+        var g: f64 = undefined;
+        if (have_spare) {
+            g = spare;
+            have_spare = false;
+        } else {
+            // Two uniforms in (0, 1], two standard normals.
+            const a = (rng.next() + 1) / 2;
+            const b = (rng.next() + 1) / 2;
+            const r = @sqrt(-2 * @log(@max(a, 1e-300)));
+            g = r * @cos(2 * std.math.pi * b);
+            spare = r * @sin(2 * std.math.pi * b);
+            have_spare = true;
+        }
+        s.* += @floatCast(noise_rms * g);
+    }
 }
 
 /// RMS of the samples.
@@ -601,6 +620,23 @@ test "allpassCoefficient gives the requested phase delay" {
         const w = tau * 110.0 / 44100.0;
         try testing.expectApproxEqAbs(d, allpassPhaseDelay(allpassCoefficient(d, w), w), 1e-9);
     }
+}
+
+test "addNoise is Gaussian, of the RMS asked, and the same for the same seed" {
+    var a: [100000]f32 = undefined;
+    var b: [100000]f32 = undefined;
+    @memset(&a, 0);
+    @memset(&b, 0);
+    addNoise(&a, 0.1, 7);
+    addNoise(&b, 0.1, 7);
+    try testing.expectEqualSlices(f32, &a, &b);
+    try testing.expectApproxEqRel(@as(f64, 0.1), rms(&a), 0.01);
+    // A normal's share within one sigma: 68.3%.
+    var inside: f64 = 0;
+    for (a) |v| {
+        if (@abs(v) < 0.1) inside += 1;
+    }
+    try testing.expectApproxEqAbs(@as(f64, 0.683), inside / a.len, 0.005);
 }
 
 test "addNoiseAtSnr reaches the requested signal-to-noise ratio" {

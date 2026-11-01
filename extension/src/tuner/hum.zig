@@ -287,11 +287,13 @@ const Learner = struct {
 const test_rate: f64 = 11025;
 
 
+var hum_seed: u64 = 1;
+
 fn hum(out: []f64, base: f64, kind: sig.Mains, db: f64) void {
     const tmp = testing.allocator.alloc(f32, out.len) catch unreachable;
     defer testing.allocator.free(tmp);
     sig.mains(tmp, test_rate, base, kind, db);
-    sig.addNoise(tmp, 3e-5, 1);
+    sig.addNoise(tmp, 3e-5, hum_seed);
     for (out, tmp) |*o, v| o.* = v;
 }
 
@@ -320,22 +322,27 @@ test "learns hum and buzz on 50 and 60 Hz mains, off nominal, and takes them out
     const n: usize = @intFromFloat(3.5 * test_rate);
     const x = try testing.allocator.alloc(f64, n);
     defer testing.allocator.free(x);
-    // From 0.5 s of hum (the most the analyser learns from) 25 dB out; from
-    // 0.15 s (the least) 15 dB.
-    for ([_][2]f64{ .{ 0.5, -25 }, .{ 0.15, -15 } }) |c| {
-        for ([_]f64{ 49.97, 50, 60, 60.04 }) |base| {
-            for ([_]sig.Mains{ .hum, .buzz }) |kind| {
-                hum(x, base, kind, -50);
-                const learnt: usize = @intFromFloat(c[0] * test_rate);
-                const m = l.learnFrom(x[0..learnt], 0).?;
-                // 3 s on, 0.3 s of it.
-                const at: usize = @intFromFloat(3 * test_rate);
-                var seg: [3307]f64 = undefined;
-                @memcpy(&seg, x[at .. at + seg.len]);
-                m.subtract(&seg, at, test_rate, 0, 2000);
-                const left = residualDb(&seg, x[at .. at + seg.len], base);
-                errdefer std.debug.print("{d} s of {d} Hz {s}: base {d}, residual {d:.1} dB\n", .{ c[0], base, @tagName(kind), m.base_hz, left });
-                try testing.expect(left < c[1]);
+    // From 0.5 s of hum (the most the analyser learns from) 20 dB out at
+    // worst, from 0.15 s (the least) 10 dB, over noise seeds (over 20 seeds
+    // the worst was 24.5 and 11.2 dB, the mean 42 and 24 dB).
+    for ([_][2]f64{ .{ 0.5, -20 }, .{ 0.15, -10 } }) |c| {
+        for (1..6) |seed| {
+            hum_seed = seed;
+            defer hum_seed = 1;
+            for ([_]f64{ 49.97, 50, 60, 60.04 }) |base| {
+                for ([_]sig.Mains{ .hum, .buzz }) |kind| {
+                    hum(x, base, kind, -50);
+                    const learnt: usize = @intFromFloat(c[0] * test_rate);
+                    const m = l.learnFrom(x[0..learnt], 0).?;
+                    // 3 s on, 0.3 s of it.
+                    const at: usize = @intFromFloat(3 * test_rate);
+                    var seg: [3307]f64 = undefined;
+                    @memcpy(&seg, x[at .. at + seg.len]);
+                    m.subtract(&seg, at, test_rate, 0, 2000);
+                    const left = residualDb(&seg, x[at .. at + seg.len], base);
+                    errdefer std.debug.print("{d} s of {d} Hz {s}, seed {d}: base {d}, residual {d:.1} dB\n", .{ c[0], base, @tagName(kind), seed, m.base_hz, left });
+                    try testing.expect(left < c[1]);
+                }
             }
         }
     }
@@ -385,3 +392,4 @@ test "a learn from 0.5 s of buzz takes under half a millisecond" {
     errdefer std.debug.print("{d} us\n", .{best / 1000});
     try testing.expect(best < 500_000);
 }
+
