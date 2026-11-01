@@ -252,7 +252,8 @@ const mains_hold_s = 1.0;
 /// Window levels kept for the mains rule (a little over 2 s at 30 Hz).
 const level_history_len = 72;
 
-/// Analyses kept for the Hampel filter and for the stability slope.
+/// Analyses kept for the Hampel filter, and entries (at most one every
+/// stable_s / 20) for the stability slope.
 const hampel_len = 5;
 const history_len = 32;
 /// The Hampel filter replaces a reading more than 3 scaled median absolute
@@ -902,10 +903,15 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.track_voiced = true;
                 self.track_time = now;
                 self.last_clarity = got.clarity;
-                self.history_t[self.history_pos] = now;
-                self.history_v[self.history_pos] = self.track_value;
-                self.history_pos = (self.history_pos + 1) % history_len;
-                self.history_len_used = @min(self.history_len_used + 1, history_len);
+                // At most one entry every `stable_s` / 20, so the history
+                // spans `stable_s` however often the caller analyses.
+                const latest = self.history_t[(self.history_pos + history_len - 1) % history_len];
+                if (self.history_len_used == 0 or now - latest >= options.stable_s / 20) {
+                    self.history_t[self.history_pos] = now;
+                    self.history_v[self.history_pos] = self.track_value;
+                    self.history_pos = (self.history_pos + 1) % history_len;
+                    self.history_len_used = @min(self.history_len_used + 1, history_len);
+                }
             }
             const settling = now - self.track_start < options.settle_s;
             return .{
@@ -1327,6 +1333,24 @@ test "a sustained string reads stable within a second and a turning peg never do
             .steady => try testing.expect(stable_at.? < 30),
             else => try testing.expect(stable_at == null),
         }
+    }
+}
+
+test "a sustained string reads stable whether polled at 30 Hz or every 256 samples" {
+    const buf = try generate(96000);
+    defer testing.allocator.destroy(buf);
+    signals.pluckedString(buf, 48000, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4, .t60_s = 10 });
+    for ([_]usize{ 1600, 256 }) |block| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        var stable_at: ?usize = null;
+        var pos: usize = 0;
+        while (pos + block <= 48000) : (pos += block) {
+            a.push(buf[pos .. pos + block]);
+            if (a.analyse(.{}).stable and stable_at == null) stable_at = pos;
+        }
+        errdefer std.debug.print("polled every {d} samples\n", .{block});
+        try testing.expect(stable_at != null);
     }
 }
 
