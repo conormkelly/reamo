@@ -1,11 +1,13 @@
 /// Tuner Generator - Generates JSON events for tuner subscription broadcasts.
 ///
-/// Produces "tuner" events containing pitch detection data for subscribed clients.
-/// Reads slider values from the PitchDetect JSFX and validates using FFI utilities.
+/// Produces "tuner" events containing pitch detection data for subscribed
+/// clients, from either source: the slider values of a track's PitchDetect
+/// JSFX, or a reading of the native analyser (the master tuner).
 const std = @import("std");
 const logging = @import("../core/logging.zig");
 const protocol = @import("../core/protocol.zig");
 const ffi = @import("../core/ffi.zig");
+const pitch = @import("../tuner/pitch.zig");
 const tuner_subscriptions = @import("tuner_subscriptions.zig");
 
 const Allocator = std.mem.Allocator;
@@ -15,18 +17,66 @@ const TunerParam = tuner_subscriptions.TunerParam;
 /// Note names for computing from MIDI note number
 const NOTE_NAMES = [_][]const u8{ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
-/// Tuner data parsed from JSFX sliders
-pub const TunerData = struct {
-    freq: f64, // Detected frequency in Hz
+/// What a tuner event says, from whichever source.
+pub const Event = struct {
+    freq: f64, // Detected frequency in Hz, 0 for no pitch
     note: i32, // MIDI note number (69 = A4)
     cents: f64, // Deviation from note (-50 to +50)
-    conf: f64, // Confidence 0-1
-    note_name: []const u8, // "A", "C#", etc.
-    octave: i32, // Octave number (4 for A4)
-    in_tune: bool, // |cents| < 2
+    clarity: f64, // How periodic the input is at the period, 0-1
+    reference_hz: f64,
+    threshold_db: f64,
+    /// Null where the source can't tell (the JSFX): the event then carries
+    /// none of them.
+    flags: ?Flags,
+
+    pub const Flags = struct { settling: bool, stable: bool, multiple: bool };
 };
 
-/// Generate tuner event JSON for a subscription.
+/// The event JSON. `conf` repeats `clarity` (the same measure under its
+/// older name) for pages that read only that. `inTune` needs a pitch.
+pub fn writeEvent(w: anytype, track_guid: []const u8, ev: Event) !void {
+    const note_idx: usize = @intCast(@mod(ev.note, 12));
+    const octave = @divFloor(ev.note, 12) - 1; // MIDI note 0 = C-1
+    const in_tune = ev.freq > 0 and @abs(ev.cents) < 2.0;
+
+    try w.writeAll("{\"type\":\"event\",\"event\":\"tuner\",\"payload\":{\"trackGuid\":\"");
+    try protocol.writeJsonString(w, track_guid);
+    try w.print("\",\"freq\":{d:.2},\"note\":{d},\"noteName\":\"{s}\",\"octave\":{d}", .{ ev.freq, ev.note, NOTE_NAMES[note_idx], octave });
+    try w.print(",\"cents\":{d:.2},\"conf\":{d:.3},\"clarity\":{d:.3}", .{ ev.cents, ev.clarity, ev.clarity });
+    try w.writeAll(if (in_tune) ",\"inTune\":true" else ",\"inTune\":false");
+    if (ev.flags) |f| {
+        try w.print(",\"settling\":{},\"stable\":{},\"multiple\":{}", .{ f.settling, f.stable, f.multiple });
+    }
+    // Settings (for multi-client sync - other clients can see if someone changed them)
+    try w.print(",\"referenceHz\":{d:.1},\"thresholdDb\":{d:.0}}}}}", .{ ev.reference_hz, ev.threshold_db });
+}
+
+fn render(allocator: Allocator, track_guid: []const u8, ev: Event) ?[]const u8 {
+    const buf = allocator.alloc(u8, 512) catch return null;
+    var stream = std.io.fixedBufferStream(buf);
+    writeEvent(stream.writer(), track_guid, ev) catch return null;
+    return stream.getWritten();
+}
+
+/// The event for a reading of the native analyser.
+pub fn generateReadingEvent(
+    allocator: Allocator,
+    track_guid: []const u8,
+    reading: pitch.Reading,
+    settings: pitch.Settings,
+) ?[]const u8 {
+    return render(allocator, track_guid, .{
+        .freq = reading.freq_hz,
+        .note = reading.note,
+        .cents = reading.cents,
+        .clarity = reading.clarity,
+        .reference_hz = settings.reference_hz,
+        .threshold_db = settings.silence_db,
+        .flags = .{ .settling = reading.settling, .stable = reading.stable, .multiple = reading.multiple },
+    });
+}
+
+/// Generate the tuner event for a track tuner's JSFX.
 /// Returns null on error (track not found, FX not found, invalid slider values).
 /// Searches for FX by GUID each call to handle user reordering the chain.
 /// Reads ALL values (including settings) directly from JSFX for bidirectional sync.
@@ -95,53 +145,15 @@ pub fn generateTunerEvent(
         return null;
     };
 
-    // Compute note name and octave from MIDI note number
-    const note_idx: usize = @intCast(@mod(note, 12));
-    const note_name = NOTE_NAMES[note_idx];
-    const octave = @divFloor(note, 12) - 1; // MIDI note 0 = C-1
-    const in_tune = @abs(cents) < 2.0;
-
-    // Build JSON
-    const buf = allocator.alloc(u8, 512) catch return null;
-    var stream = std.io.fixedBufferStream(buf);
-    var w = stream.writer();
-
-    // Event envelope
-    w.writeAll("{\"type\":\"event\",\"event\":\"tuner\",\"payload\":{") catch return null;
-
-    // Track GUID
-    w.writeAll("\"trackGuid\":\"") catch return null;
-    protocol.writeJsonString(w, track_guid) catch return null;
-
-    // Frequency
-    w.print("\",\"freq\":{d:.2}", .{freq}) catch return null;
-
-    // Note number
-    w.print(",\"note\":{d}", .{note}) catch return null;
-
-    // Note name
-    w.writeAll(",\"noteName\":\"") catch return null;
-    w.writeAll(note_name) catch return null;
-
-    // Octave
-    w.print("\",\"octave\":{d}", .{octave}) catch return null;
-
-    // Cents
-    w.print(",\"cents\":{d:.2}", .{cents}) catch return null;
-
-    // Confidence
-    w.print(",\"conf\":{d:.3}", .{conf}) catch return null;
-
-    // In tune
-    w.writeAll(if (in_tune) ",\"inTune\":true" else ",\"inTune\":false") catch return null;
-
-    // Settings (for multi-client sync - other clients can see if someone changed them)
-    w.print(",\"referenceHz\":{d:.1}", .{reference_hz}) catch return null;
-    w.print(",\"thresholdDb\":{d:.0}", .{threshold_db}) catch return null;
-
-    w.writeAll("}}") catch return null;
-
-    return stream.getWritten();
+    return render(allocator, track_guid, .{
+        .freq = freq,
+        .note = note,
+        .cents = cents,
+        .clarity = conf,
+        .reference_hz = reference_hz,
+        .threshold_db = threshold_db,
+        .flags = null,
+    });
 }
 
 /// Compute hash of tuner event JSON for change detection.
@@ -176,4 +188,55 @@ test "NOTE_NAMES contains expected values" {
     try std.testing.expectEqualStrings("C", NOTE_NAMES[0]);
     try std.testing.expectEqualStrings("A", NOTE_NAMES[9]);
     try std.testing.expectEqualStrings("B", NOTE_NAMES[11]);
+}
+
+fn renderTest(ev: Event) ![]const u8 {
+    const json = render(std.testing.allocator, "{GUID}", ev) orelse return error.RenderFailed;
+    return json;
+}
+
+test "a reading's event carries clarity under both names and the analyser's flags" {
+    const json = generateReadingEvent(std.testing.allocator, "master", .{
+        .freq_hz = 220.004,
+        .note = 57,
+        .cents = 0.03,
+        .clarity = 0.987,
+        .settling = false,
+        .stable = true,
+        .multiple = false,
+    }, .{ .reference_hz = 442, .silence_db = -90 }) orelse return error.RenderFailed;
+    defer std.testing.allocator.free(json.ptr[0..512]);
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const p = parsed.value.object.get("payload").?.object;
+    try std.testing.expectEqualStrings("master", p.get("trackGuid").?.string);
+    try std.testing.expectEqual(@as(f64, 220.0), p.get("freq").?.float);
+    try std.testing.expectEqual(@as(i64, 57), p.get("note").?.integer);
+    try std.testing.expectEqualStrings("A", p.get("noteName").?.string);
+    try std.testing.expectEqual(@as(i64, 3), p.get("octave").?.integer);
+    try std.testing.expectEqual(@as(f64, 0.987), p.get("clarity").?.float);
+    try std.testing.expectEqual(@as(f64, 0.987), p.get("conf").?.float);
+    try std.testing.expect(p.get("inTune").?.bool);
+    try std.testing.expect(!p.get("settling").?.bool);
+    try std.testing.expect(p.get("stable").?.bool);
+    try std.testing.expect(!p.get("multiple").?.bool);
+    try std.testing.expectEqual(@as(f64, 442.0), p.get("referenceHz").?.float);
+    try std.testing.expectEqual(@as(i64, -90), p.get("thresholdDb").?.integer);
+}
+
+test "an event from the JSFX has no flags, as the JSFX can't tell them" {
+    const json = try renderTest(.{ .freq = 82.41, .note = 40, .cents = -1, .clarity = 0.9, .reference_hz = 440, .threshold_db = -60, .flags = null });
+    defer std.testing.allocator.free(json.ptr[0..512]);
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const p = parsed.value.object.get("payload").?.object;
+    try std.testing.expect(p.get("settling") == null and p.get("stable") == null and p.get("multiple") == null);
+    try std.testing.expectEqual(@as(f64, 0.9), p.get("conf").?.float);
+    try std.testing.expectEqual(@as(f64, 0.9), p.get("clarity").?.float);
+}
+
+test "no pitch is never in tune, though its cents are 0" {
+    const json = try renderTest(.{ .freq = 0, .note = 0, .cents = 0, .clarity = 0, .reference_hz = 440, .threshold_db = -90, .flags = .{ .settling = false, .stable = false, .multiple = false } });
+    defer std.testing.allocator.free(json.ptr[0..512]);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"inTune\":false") != null);
 }
