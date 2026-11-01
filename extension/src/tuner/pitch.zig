@@ -27,6 +27,17 @@
 //!   dip under 0.15, the deepest one must still be under 0.3, or there is
 //!   no pitch. Noise, which the JSFX turns into notes, reads as no pitch.
 //!
+//! A note shows only from an onset (an energy jump of 9 dB over the last
+//! 10-40 ms; the start of the input is not one, as whatever is sounding
+//! then was already sounding), only while the window's level stands 12 dB
+//! over a noise floor learned while nothing shows, and only while the
+//! latest 40 ms still hold energy within 20 dB of the window's mean.
+//! Hum, buzz and noise have no onset and never show; a note decaying into
+//! them stops at 12 dB over them instead of reading them or a
+//! subharmonic; a muted stroke's tail in the window doesn't show once the
+//! string has stopped. Settings.silence_db stays an absolute floor the
+//! user can raise, and defaults to -90 dBFS, the lowest the tuner offers.
+//!
 //! YIN's period answers to every partial at once, and a real string's
 //! upper partials are sharp of whole multiples of the first (partial n by
 //! about 866 B n^2 cents), so on a stiff string YIN reads up to several
@@ -39,7 +50,7 @@
 //! buried fundamental) the two estimates are weighted by the inverse of
 //! their variances, YIN's taken as 1 cent: on sustained stiff strings the
 //! error falls from 4.4 cents (95th percentile) to 0.03 (`zig build
-//! tuner-targets`). An onset is an energy jump of 9 dB over the last 10-40 ms.
+//! tuner-targets`).
 //!
 //! After an onset, a jump of the frequency by an octave, a twelfth or two
 //! octaves (YIN's first dip moving between multiples of the period, as a
@@ -68,8 +79,12 @@ pub const Settings = struct {
     /// A4's frequency. Readings are none unless it is positive and finite;
     /// tuner/setParam holds it to 400-480 Hz.
     reference_hz: f64 = 440,
-    /// A window whose input RMS is under this many dBFS is silence.
-    silence_db: f64 = -60,
+    /// A window whose input RMS is under this many dBFS is silence, whatever
+    /// the noise floor. The gate that matters is the learned noise floor
+    /// (`Options.floor_margin_db`); this is an absolute one the user can
+    /// raise on a noisy rig, and at its lowest (the default) it lets a note
+    /// read for as long as it stands over the floor.
+    silence_db: f64 = -90,
     /// An instrument's range (a guitar or bass mode's strings, a few
     /// semitones either side): no period outside it is considered, so
     /// nothing can read an octave or more outside it. Null for a chromatic
@@ -159,7 +174,40 @@ pub const Options = struct {
     /// under `stable_cents_per_s`.
     stable_s: f64 = 0.3,
     stable_cents_per_s: f64 = 0.5,
+    /// A note shows only while the window's level stands this many dB over
+    /// a noise floor learned while no note shows (it follows the level down
+    /// at once and up at `floor_rise_db_per_s`); null for no learned floor.
+    floor_margin_db: ?f64 = 12,
+    /// Whether a note needs an onset to start showing: hum and noise have
+    /// none. A note that stops showing starts again only at a new onset,
+    /// unless it dropped out for under `resume_s` with the level still up.
+    onset_gate: bool = true,
+    /// A note shows only while the latest `release_s` of input holds energy
+    /// within this many dB of the window's mean: once a string has stopped
+    /// (a muted stroke, a damped note) the window still holds its tail for
+    /// 93 ms, but nothing is sounding now. Null for no such check.
+    release_drop_db: ?f64 = 20,
+    /// Whether a note within `mains_cents` of a harmonic of 50 or 60 Hz
+    /// whose level has fallen less than `mains_decay_db` over the last
+    /// `mains_hold_s` stops showing, as mains hum or buzz. Off: hum and
+    /// buzz have no onset, so the onset gate already keeps them from
+    /// showing, and a note held at a steady level near a mains harmonic
+    /// (E5 is 2 cents under 11 x 60 Hz, C6 6 cents under 21 x 50 Hz; a
+    /// compressor or sustainer holds a string's level) would vanish after
+    /// a second. It catches only buzz that switches on.
+    mains_rule: bool = false,
 };
+
+const floor_rise_db_per_s = 20.0;
+const resume_s = 0.25;
+/// Longer than B0's period, so a low note's waveform doesn't swing it.
+const release_s = 0.04;
+const onset_floor_hold_s = 0.25;
+const mains_cents = 15.0;
+const mains_decay_db = 1.0;
+const mains_hold_s = 1.0;
+/// Window levels kept for the mains rule (a little over 2 s at 30 Hz).
+const level_history_len = 72;
 
 /// Analyses kept for the Hampel filter and for the stability slope.
 const hampel_len = 5;
@@ -191,7 +239,7 @@ pub const Analyser = AnalyserWith(.{});
 pub fn AnalyserWith(comptime options: Options) type {
     const max_window: usize = @intFromFloat(@ceil(window_seconds * options.max_analysis_rate));
     const max_fft = std.math.ceilPowerOfTwo(usize, max_window + max_window / 2) catch unreachable;
-    const fine_needed = options.refinement != null;
+    const fine_needed = options.refinement != null or options.onset_gate;
     const max_fine: usize = if (!fine_needed) 1 else @intFromFloat(@ceil(options.refine_window_s * 2 * fine_rate_floor));
     const max_block: usize = @intFromFloat(@ceil(onset_block_s * 2 * fine_rate_floor));
     return struct {
@@ -246,6 +294,11 @@ pub fn AnalyserWith(comptime options: Options) type {
         blocks_pos: usize,
         /// The fine input since the last onset (at most refine_window_s),
         /// oldest first, loaded by each analysis.
+        /// Full blocks since the reset (onsets are looked for only once the
+        /// blocks before one are input, not the reset's silence), and onsets
+        /// in all.
+        blocks_seen: usize,
+        onset_count: u64,
         segment: [max_fine]f64,
         segment_len: usize,
         refine_work: first_partial.Work(max_fine_period),
@@ -283,6 +336,30 @@ pub fn AnalyserWith(comptime options: Options) type {
         history_len_used: usize,
         history_pos: usize,
         last_clarity: f64,
+
+        /// The gate: the input it last decided at and its decision, the
+        /// learned floor (dBFS, NaN before any input) and when it was last
+        /// moved, whether a note is showing, the onset that started it and
+        /// when, when it stopped and whether it may resume, and the window
+        /// levels of recent analyses.
+        gate_at: u64,
+        gate_open: bool,
+        floor_db: f64,
+        /// Floor learning stops at an onset until the gate has decided on it.
+        floor_paused: bool,
+        /// The window's input energy, kept as a running sum, and the kept
+        /// samples to the next floor update.
+        window_energy: f64,
+        floor_countdown: usize,
+        note_active: bool,
+        note_onset_count: u64,
+        note_start: f64,
+        note_end: f64,
+        note_may_resume: bool,
+        level_t: [level_history_len]f64,
+        level_v: [level_history_len]f64,
+        level_pos: usize,
+        level_used: usize,
 
         /// Sets up for `sample_rate` and starts from silence.
         pub fn init(self: *Self, sample_rate: f64) error{UnsupportedSampleRate}!void {
@@ -338,6 +415,21 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.history_len_used = 0;
             self.history_pos = 0;
             self.last_clarity = 0;
+            self.blocks_seen = 0;
+            self.onset_count = 0;
+            self.gate_at = std.math.maxInt(u64);
+            self.gate_open = false;
+            self.floor_db = std.math.nan(f64);
+            self.floor_paused = false;
+            self.window_energy = 0;
+            self.floor_countdown = 0;
+            self.note_active = false;
+            self.note_onset_count = 0;
+            self.note_start = 0;
+            self.note_end = -std.math.inf(f64);
+            self.note_may_resume = false;
+            self.level_pos = 0;
+            self.level_used = 0;
             self.block_fill = 0;
             self.block_energy = 0;
             @memset(&self.blocks, 0);
@@ -355,14 +447,43 @@ pub fn AnalyserWith(comptime options: Options) type {
                 if (self.phase == self.decimation) {
                     self.phase = 0;
                     self.history[self.write_pos] = y;
+                    self.window_energy += self.energy_acc - self.energy[self.write_pos];
                     self.energy[self.write_pos] = self.energy_acc;
                     self.energy_acc = 0;
                     self.write_pos += 1;
                     if (self.write_pos == self.window) self.write_pos = 0;
                     self.kept_count += 1;
                     if (fine_needed) self.pushFine(y);
+                    if (options.floor_margin_db != null) self.learnFloor();
                 }
             }
+        }
+
+        /// Every 5 ms of kept input while no note shows, moves the floor to
+        /// the window's level if lower, or up towards it at
+        /// `floor_rise_db_per_s`; the first full window sets it.
+        fn learnFloor(self: *Self) void {
+            if (self.floor_countdown > 0) {
+                self.floor_countdown -= 1;
+                return;
+            }
+            const step_s = 0.005;
+            self.floor_countdown = @intFromFloat(@round(step_s * self.analysis_rate));
+            if (self.kept_count % 8192 == 0) {
+                // Re-sum, so the running sum's rounding can't drift.
+                var e: f64 = 0;
+                for (self.energy[0..self.window]) |v| e += v;
+                self.window_energy = e;
+            }
+            if (self.note_active or self.floor_paused) return;
+            // While a note that dropped out may still resume, the input is
+            // that note, not the floor.
+            const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
+            if (self.note_may_resume and now - self.note_end < resume_s) return;
+            // A window not yet full of input reads low.
+            if (self.kept_count < self.window) return;
+            const level = self.windowLevelDb();
+            self.floor_db = if (std.math.isNan(self.floor_db)) level else @min(level, self.floor_db + floor_rise_db_per_s * step_s);
         }
 
         fn pushFine(self: *Self, y: f64) void {
@@ -381,9 +502,13 @@ pub fn AnalyserWith(comptime options: Options) type {
             before /= onset_history - 2;
             const since_last = self.fine_count - self.onset_at;
             const refractory: u64 = @intFromFloat(onset_refractory_s * self.fine_rate);
-            if (self.block_energy > onset_ratio * before and self.block_energy > 0 and (self.onset_at == 0 or since_last >= refractory)) {
+            const heard = self.blocks_seen >= onset_history;
+            if (heard and self.block_energy > onset_ratio * before and self.block_energy > 0 and (self.onset_count == 0 or since_last >= refractory)) {
                 self.onset_at = self.fine_count - self.block_len;
+                self.onset_count += 1;
+                self.floor_paused = true;
             }
+            self.blocks_seen += 1;
             self.blocks[self.blocks_pos] = self.block_energy;
             self.blocks_pos = (self.blocks_pos + 1) % onset_history;
             self.block_energy = 0;
@@ -463,7 +588,9 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// The pitch of the last 92.9 ms of input.
         pub fn analyse(self: *Self, settings: Settings) Reading {
             if (!(settings.reference_hz > 0 and std.math.isFinite(settings.reference_hz))) return Reading.none;
-            const shown = self.track(self.measure(settings)) orelse return Reading.none;
+            const level = self.windowLevelDb();
+            const measured = if (level < settings.silence_db) null else self.measure(settings);
+            const shown = self.track(self.gate(measured, level, settings)) orelse return Reading.none;
             const midi = 69 + 12 * @log2(shown.hz / settings.reference_hz);
             const note = @floor(midi + 0.5);
             return .{
@@ -480,18 +607,96 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         /// The first partial's frequency now, unsmoothed, or null for no pitch.
         fn measure(self: *Self, settings: Settings) ?Measured {
-            const w = self.window;
-            var energy: f64 = 0;
-            for (self.energy[0..w]) |e| energy += e;
-            const rms = @sqrt(energy / @as(f64, @floatFromInt(w * self.decimation)));
-            if (20 * std.math.log10(@max(rms, 1e-7)) < settings.silence_db) return null;
-
             self.difference();
             const best = self.pickPeriod(settings.range) orelse return null;
             const detected = self.analysis_rate / self.interpolate(best);
             if (fine_needed) self.loadSegment();
             const coarse = self.holdOctave(detected);
             return .{ .hz = self.combine(coarse), .clarity = std.math.clamp(1 - self.cmnd[best], 0, 1) };
+        }
+
+        /// The RMS of the window's input (before the low-pass), dBFS.
+        fn windowLevelDb(self: *const Self) f64 {
+            const rms = @sqrt(@max(0, self.window_energy) / @as(f64, @floatFromInt(self.window * self.decimation)));
+            return 20 * std.math.log10(@max(rms, 1e-7));
+        }
+
+        /// `m` if a note may show: over the learned floor, started at an
+        /// onset, still sounding, and not mains hum. Decides only with
+        /// new input.
+        fn gate(self: *Self, m: ?Measured, level: f64, settings: Settings) ?Measured {
+            if (self.kept_count == self.gate_at) return if (self.gate_open) m else null;
+            self.gate_at = self.kept_count;
+            const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
+            self.level_t[self.level_pos] = now;
+            self.level_v[self.level_pos] = level;
+            self.level_pos = (self.level_pos + 1) % level_history_len;
+            self.level_used = @min(self.level_used + 1, level_history_len);
+
+            const loud = if (options.floor_margin_db) |margin| std.math.isNan(self.floor_db) or level >= self.floor_db + margin else true;
+            const pitched = m != null and level >= settings.silence_db;
+            if (self.note_active) {
+                const keep = pitched and loud and self.sounding() and !self.mainsHeld(m.?.hz, now);
+                if (!keep) {
+                    self.note_active = false;
+                    self.note_end = now;
+                    // Only a moment without a pitch, the level still up, may
+                    // resume without a new onset.
+                    self.note_may_resume = !pitched and loud;
+                }
+            } else if (pitched and loud and self.sounding()) {
+                const fresh_onset = self.onset_count > self.note_onset_count;
+                const resuming = self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
+                if (!options.onset_gate or fresh_onset or resuming) {
+                    if (!resuming) self.note_start = now;
+                    self.note_active = true;
+                    self.note_onset_count = self.onset_count;
+                }
+            }
+            self.gate_open = self.note_active;
+            // An onset holds the floor until a note it started has ended, or
+            // for `onset_floor_hold_s` if none shows (the window takes a while
+            // to fill with a new note).
+            if (!self.note_active and self.floor_paused) {
+                const since_onset = @as(f64, @floatFromInt(self.fine_count - self.onset_at)) / self.fine_rate;
+                if (self.note_onset_count == self.onset_count or since_onset >= onset_floor_hold_s) self.floor_paused = false;
+            }
+            return if (self.note_active) m else null;
+        }
+
+        /// Whether the latest `release_s` of input holds energy within
+        /// `release_drop_db` of the window's mean.
+        fn sounding(self: *const Self) bool {
+            const drop = options.release_drop_db orelse return true;
+            const n: usize = @intFromFloat(@round(release_s * self.analysis_rate));
+            var recent: f64 = 0;
+            for (0..n) |k| recent += self.energy[(self.write_pos + self.window - 1 - k) % self.window];
+            const recent_mean = recent / @as(f64, @floatFromInt(n));
+            const window_mean = @max(0, self.window_energy) / @as(f64, @floatFromInt(self.window));
+            return recent_mean >= window_mean * std.math.pow(f64, 10, -drop / 10);
+        }
+
+        /// Whether `hz` is within `mains_cents` of a harmonic of 50 or 60
+        /// Hz and the level has fallen less than `mains_decay_db` over the
+        /// last `mains_hold_s`, measured from a window wholly inside the
+        /// note.
+        fn mainsHeld(self: *const Self, hz: f64, now: f64) bool {
+            if (!options.mains_rule or now - self.note_start < mains_hold_s) return false;
+            var near = false;
+            for ([_]f64{ 50, 60 }) |base| {
+                const k = @round(hz / base);
+                if (k >= 1 and @abs(1200 * @log2(hz / (k * base))) <= mains_cents) near = true;
+            }
+            if (!near) return false;
+            const latest = self.level_v[(self.level_pos + level_history_len - 1) % level_history_len];
+            for (0..self.level_used) |back| {
+                const i = (self.level_pos + level_history_len - 1 - back) % level_history_len;
+                if (self.level_t[i] > now - mains_hold_s) continue;
+                // Only a window wholly inside the note gives its level.
+                if (self.level_t[i] < self.note_start + window_seconds) return false;
+                return self.level_v[i] - latest < mains_decay_db;
+            }
+            return false;
         }
 
         const Shown = struct { hz: f64, clarity: f64, settling: bool, stable: bool };
@@ -719,11 +924,39 @@ const signals = @import("signals.zig");
 
 const required_rates = [_]f64{ 44100, 48000, 88200, 96000 };
 
+/// A new analyser that has heard 50 ms of silence, so a tone pushed next
+/// starts at an onset: the start of the input is not one.
 fn newAnalyser(sample_rate: f64) !*Analyser {
     const a = try testing.allocator.create(Analyser);
     errdefer testing.allocator.destroy(a);
     try a.init(sample_rate);
+    prime(a);
     return a;
+}
+
+fn prime(a: anytype) void {
+    const zeros = [_]f32{0} ** 256;
+    var left: usize = @intFromFloat(0.05 * a.sample_rate);
+    while (left > 0) {
+        const n = @min(left, zeros.len);
+        a.push(zeros[0..n]);
+        left -= n;
+    }
+}
+
+/// A new analyser that has heard nothing: whatever is pushed first was
+/// already sounding, with no onset.
+fn bareAnalyser(sample_rate: f64) !*Analyser {
+    const a = try testing.allocator.create(Analyser);
+    errdefer testing.allocator.destroy(a);
+    try a.init(sample_rate);
+    return a;
+}
+
+/// `reset`, then 50 ms of silence.
+fn restart(a: anytype) void {
+    a.reset();
+    prime(a);
 }
 
 /// Pushes `seconds` of `signal` in 256-sample blocks, as an audio callback
@@ -751,7 +984,7 @@ test "reads a steady sine within two hundredths of a cent from B0 to E6 at every
         for ([_]f64{ 30.8677, 41.2034, 82.4069, 110, 196, 329.628, 659.255, 1318.51 }) |f0| {
             const s = buf[0..@intFromFloat(sr * 0.5)];
             signals.sine(s, sr, f0, 0.5, 0.3);
-            a.reset();
+            restart(a);
             const r = readAfter(a, s, .{});
             errdefer std.debug.print("{d} Hz at {d}: {any}\n", .{ f0, sr, r });
             try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, f0), 0.02);
@@ -775,7 +1008,7 @@ test "reads a sustained stiff string's first partial within 0.05 cent, not a per
         for (strings) |opts| {
             const s = buf[0..@intFromFloat(sr * 1.5)];
             signals.pluckedString(s, sr, opts);
-            a.reset();
+            restart(a);
             const r = readAfter(a, s, .{});
             errdefer std.debug.print("{d} Hz B {d} at {d}: {d} c\n", .{ opts.f0, opts.inharmonicity, sr, centsOff(r, opts.firstPartialHz(0)) });
             try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, opts.firstPartialHz(0)), 0.05);
@@ -811,6 +1044,7 @@ test "after an onset, a jump of the pitch by an octave is held until three analy
     const free = try testing.allocator.create(AnalyserWith(.{ .octave_hold = 0 }));
     defer testing.allocator.destroy(free);
     try free.init(48000);
+    prime(free);
     // E2, then E3 at the same level: no onset between them.
     const buf = try generate(48000);
     defer testing.allocator.destroy(buf);
@@ -902,10 +1136,101 @@ test "the clarity of a clean tone is near 1 and of a noisy one lower" {
     const clean = readAfter(a, buf, .{}).clarity;
     // About 11 dB under the tone inside the 2 kHz low-pass.
     signals.addNoise(buf, 0.2, 9);
-    a.reset();
+    restart(a);
     const noisy = readAfter(a, buf, .{}).clarity;
     try testing.expect(clean > 0.99);
     try testing.expect(noisy < clean - 0.05);
+}
+
+/// Pushes `signal` in 1/30 s blocks and returns how many analyses showed a
+/// note from `from_s` on, and how many of those were not `note`.
+fn countNotes(a: anytype, signal: []const f32, sample_rate: f64, from_s: f64, note: ?i32) struct { shown: usize, other: usize } {
+    const tick: usize = @intFromFloat(@round(sample_rate / 30));
+    var shown: usize = 0;
+    var other: usize = 0;
+    var pos: usize = 0;
+    while (pos + tick <= signal.len) : (pos += tick) {
+        a.push(signal[pos .. pos + tick]);
+        const r = a.analyse(.{});
+        if (@as(f64, @floatFromInt(pos + tick)) / sample_rate < from_s or r.freq_hz == 0) continue;
+        shown += 1;
+        if (note == null or r.note != note.?) other += 1;
+    }
+    return .{ .shown = shown, .other = other };
+}
+
+test "a note keeps reading while it is 12 dB over the noise floor, under the old -60 dBFS gate" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..12000], 0);
+    // About -50 dBFS RMS at the pluck, -64 two seconds on, over a -90 dBFS floor.
+    signals.pluckedString(buf[12000..], 48000, .{ .f0 = 110, .inharmonicity = 6.5e-5, .peak = 0.03 });
+    signals.addNoise(buf, std.math.pow(f64, 10, -90.0 / 20.0), 5);
+    const late = countNotes(a, buf, 48000, 2.25, 45);
+    try testing.expect(late.shown >= 20);
+    try testing.expectEqual(@as(usize, 0), late.other);
+}
+
+test "hum and buzz with no onset never read as a note" {
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    for ([_]f64{ 50, 60 }) |hz| {
+        for ([_]signals.Mains{ .hum, .buzz }) |kind| {
+            const a = try bareAnalyser(48000);
+            defer testing.allocator.destroy(a);
+            signals.mains(buf, 48000, hz, kind, -30);
+            signals.addNoise(buf, 3e-5, 6);
+            try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 0, null).shown);
+        }
+    }
+}
+
+test "a note decaying into hum stops reading instead of reading the hum or a subharmonic" {
+    const a = try bareAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 4);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 4);
+    defer testing.allocator.destroy(other);
+    @memset(buf, 0);
+    signals.pluckedString(buf[48000..], 48000, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4, .t60_s = 3 });
+    signals.mains(other, 48000, 50, .buzz, -50);
+    signals.mix(buf, other);
+    // E2 shows until it is within 12 dB of the buzz, about a second.
+    const r = countNotes(a, buf, 48000, 1.1, 40);
+    try testing.expect(r.shown > 20);
+    try testing.expectEqual(@as(usize, 0), r.other);
+}
+
+test "fretting-hand-muted strokes read no note" {
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    for ([_]f64{ 41.2034, 82.4069, 110, 196 }) |hz| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        @memset(buf, 0);
+        for (0..4) |k| signals.mutedString(buf[12000 + k * 30011 ..], 48000, hz, 0.03, 0.5, 3 + k);
+        signals.addNoise(buf, 3e-5, 7);
+        errdefer std.debug.print("{d} Hz\n", .{hz});
+        try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 0, null).shown);
+    }
+}
+
+test "with the mains rule, buzz that switches on stops reading once it has held its level for a second" {
+    const a = try testing.allocator.create(AnalyserWith(.{ .mains_rule = true }));
+    defer testing.allocator.destroy(a);
+    try a.init(48000);
+    prime(a);
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..24000], 0);
+    signals.mains(buf[24000..], 48000, 60, .buzz, -30);
+    signals.addNoise(buf, 3e-5, 8);
+    // On at 0.5 s; the level is judged from the first window wholly inside
+    // it (93 ms on) over the next second, so nothing from 1.75 s.
+    try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 1.75, null).shown);
 }
 
 test "reads bass E1 and B0 at 88.2 and 96 kHz, where the JSFX's 4096 samples are too short" {
@@ -917,7 +1242,7 @@ test "reads bass E1 and B0 at 88.2 and 96 kHz, where the JSFX's 4096 samples are
         for ([_]f64{ 30.8677, 41.2034 }) |f0| {
             const s = buf[0..@intFromFloat(sr)];
             signals.pluck(s, sr, f0, .{ .t60_s = 5, .excitation_lowpass = 0.9 });
-            a.reset();
+            restart(a);
             const r = readAfter(a, s[0..@intFromFloat(sr * 0.6)], .{});
             try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, f0), 0.5);
         }
@@ -946,7 +1271,7 @@ test "reads a tone whose fundamental is missing within half a cent at every read
         for ([_]f64{ 55, 98, 110 }) |f0| {
             const s = buf[0..@intFromFloat(sr)];
             signals.harmonics(s, sr, f0, &.{ 0, 0.3, 0.25, 0.2, 0.15, 0.1 });
-            a.reset();
+            restart(a);
             const tick: usize = @intFromFloat(@round(sr / 30));
             var pos: usize = 0;
             while (pos + tick <= s.len) : (pos += tick) {
@@ -968,10 +1293,27 @@ test "a DC offset doesn't move the reading" {
     signals.sawtooth(buf, 44100, 146.832, 0.3);
     const without = readAfter(a, buf, .{});
     signals.addDc(buf, 0.3);
-    a.reset();
+    restart(a);
     const with = readAfter(a, buf, .{});
     try testing.expect(without.freq_hz > 0);
     try testing.expectApproxEqAbs(@as(f64, 0), signals.cents(with.freq_hz, without.freq_hz), 0.001);
+}
+
+test "a low tone with a DC offset reads at every analysis" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(72000);
+    defer testing.allocator.destroy(buf);
+    signals.sawtooth(buf, 48000, 41.2034, 0.3);
+    signals.addDc(buf, 0.3);
+    var pos: usize = 0;
+    while (pos + 1600 <= buf.len) : (pos += 1600) {
+        a.push(buf[pos .. pos + 1600]);
+        const r = a.analyse(.{});
+        if (pos < 9600) continue;
+        errdefer std.debug.print("at {d} s: {any}\n", .{ @as(f64, @floatFromInt(pos + 1600)) / 48000, r });
+        try testing.expectApproxEqAbs(@as(f64, 0), centsOff(r, 41.2034), 1);
+    }
 }
 
 test "names the note and its cents against the reference pitch" {
@@ -989,7 +1331,7 @@ test "names the note and its cents against the reference pitch" {
     try testing.expectEqual(@as(i32, 69), at_442.note);
     try testing.expectApproxEqAbs(@as(f64, -7.851), at_442.cents, 0.01);
     // E2 30 cents sharp is E2 +30, not F2 -70.
-    a.reset();
+    restart(a);
     signals.sine(buf, 48000, signals.midiToHz(40.3, 440), 0.5, 0);
     a.push(buf);
     const e2_sharp = a.analyse(.{});
@@ -1021,7 +1363,7 @@ test "reports no pitch for noise above the silence threshold" {
         for ([_]f64{ -50, -30, -10 }) |level_db| {
             @memset(s, 0);
             signals.addNoise(s, std.math.pow(f64, 10, level_db / 20), 40 + i);
-            a.reset();
+            restart(a);
             var pos: usize = 0;
             while (pos < s.len) : (pos += 1470) {
                 a.push(s[pos..@min(s.len, pos + 1470)]);

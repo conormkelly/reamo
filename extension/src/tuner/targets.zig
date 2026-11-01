@@ -363,6 +363,10 @@ fn display(r: pitch.Reading) Display {
 }
 
 fn analyserCandidate(comptime T: type, name: []const u8, about: []const u8, allocator: std.mem.Allocator) !Candidate {
+    return analyserCandidateWith(T, .{}, name, about, allocator);
+}
+
+fn analyserCandidateWith(comptime T: type, comptime settings: pitch.Settings, name: []const u8, about: []const u8, allocator: std.mem.Allocator) !Candidate {
     const Adapter = struct {
         fn reset(ctx: *anyopaque, sample_rate: f64) void {
             const a: *T = @ptrCast(@alignCast(ctx));
@@ -374,7 +378,7 @@ fn analyserCandidate(comptime T: type, name: []const u8, about: []const u8, allo
         }
         fn read(ctx: *anyopaque) Display {
             const a: *T = @ptrCast(@alignCast(ctx));
-            return display(a.analyse(.{}));
+            return display(a.analyse(settings));
         }
     };
     return .{ .name = name, .note = about, .ctx = try allocator.create(T), .resetFn = Adapter.reset, .pushFn = Adapter.push, .readFn = Adapter.read };
@@ -687,6 +691,11 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .refine_window_s = 0.4 }), "refine-0.4s", "the phase slope over at most 0.4 s", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .octave_hold = 0 }), "no-octave-hold", "the analyser without the octave hold", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .smoothing = true }), "smoothing", "the analyser with the Hampel and one-euro filters", allocator),
+        try analyserCandidateWith(pitch.AnalyserWith(.{ .floor_margin_db = null, .onset_gate = false, .release_drop_db = null, .mains_rule = false }), .{ .silence_db = -60 }, "fixed-gate", "the analyser gated only by the -60 dBFS silence threshold", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .floor_margin_db = null }), "no-floor", "the analyser without the learned noise floor", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .onset_gate = false }), "no-onset-gate", "the analyser showing notes without an onset", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .release_drop_db = null }), "no-release", "the analyser without the release check", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .mains_rule = true }), "mains-rule", "the analyser with the mains rule", allocator),
     };
     var cands: [all.len]Candidate = undefined;
     var nc: usize = 0;

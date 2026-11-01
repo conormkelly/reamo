@@ -5,8 +5,9 @@
 //! and 96 kHz, and prints a summary table, per-family detail and CPU cost.
 //! A name passed after `--` runs only the candidates whose name contains it.
 //!
-//! Every candidate hears the input in 256-sample blocks and is read every
-//! sample_rate / 30 samples, as the tuner reads it. Measures:
+//! Every candidate hears 100 ms of silence and then the input in 256-sample
+//! blocks, and is read every sample_rate / 30 samples, as the tuner reads
+//! it. Measures:
 //!
 //! - Steady tones, read from 0.3 s (0.2 s for plucks) to 1.6 s (1.2 s for
 //!   plucks, which decay towards the -60 dB silence threshold). Per tone, the
@@ -66,6 +67,10 @@ const Candidate = struct {
 };
 
 fn analyserCandidate(comptime T: type, name: []const u8, allocator: std.mem.Allocator) !Candidate {
+    return analyserCandidateWith(T, .{}, name, allocator);
+}
+
+fn analyserCandidateWith(comptime T: type, comptime settings: pitch.Settings, name: []const u8, allocator: std.mem.Allocator) !Candidate {
     const Adapter = struct {
         fn reset(ctx: *anyopaque, sample_rate: f64) void {
             const a: *T = @ptrCast(@alignCast(ctx));
@@ -77,7 +82,7 @@ fn analyserCandidate(comptime T: type, name: []const u8, allocator: std.mem.Allo
         }
         fn read(ctx: *anyopaque) Reading {
             const a: *T = @ptrCast(@alignCast(ctx));
-            return .{ .freq = a.analyse(.{}).freq_hz };
+            return .{ .freq = a.analyse(settings).freq_hz };
         }
         fn window(_: f64) f64 {
             return 4096.0 / 44100.0;
@@ -123,21 +128,33 @@ fn jsfxCandidate(allocator: std.mem.Allocator) !Candidate {
 
 const candidate_notes = [_][2][]const u8{
     .{ "jsfx", "PitchDetect.jsfx ported: 4096 samples, analysed every 512, read at 30 Hz" },
-    .{ "analyser", "the tuner's: 2 kHz low-pass, analysed at 44.1-48 kHz, voicing gate 0.3, first-partial refinement, octave hold" },
+    .{ "analyser", "the tuner's: 2 kHz low-pass, analysed at 44.1-48 kHz, voicing gate 0.3, first-partial refinement, octave hold, learned noise floor and onset gate" },
     .{ "no-lowpass", "the analyser without its low-pass, so analysing at the input rate (the JSFX's YIN with a 92.9 ms window and the voicing gate)" },
     .{ "lowpass-1k", "the analyser with a 1 kHz low-pass" },
     .{ "rate-24k", "the analyser analysing at 22.05-24 kHz" },
     .{ "no-voicing", "the analyser reporting the deepest dip whatever its depth, as the JSFX" },
-    .{ "yin-only", "the analyser reporting YIN's period, without the first-partial refinement, octave hold" },
+    .{ "yin-only", "the analyser reporting YIN's period, without the first-partial refinement, octave hold, learned noise floor and onset gate" },
     .{ "no-octave-hold", "the analyser without the octave hold" },
+    .{ "fixed-gate", "the analyser gated only by a -60 dBFS silence threshold, without the learned floor, the onset gate and the release check" },
+    .{ "mains-rule", "the analyser with the mains rule" },
 };
 
 var readings_buf: [256]Reading = undefined;
 
-/// Feeds `signal` in 256-sample blocks and reads at every 30 Hz tick:
-/// readings[i] is the reading after (i + 1) ticks.
+/// Feeds 100 ms of silence, then `signal` in 256-sample blocks, and reads
+/// at every 30 Hz tick of the signal: readings[i] is the reading after
+/// (i + 1) ticks. The silence makes the signal's start an onset, as a
+/// pluck after silence is (the analyser takes the start of its input for
+/// something already sounding).
 fn run(c: Candidate, sample_rate: f64, signal: []const f32) []const Reading {
     c.reset(sample_rate);
+    const zeros = [_]f32{0} ** 256;
+    var lead: usize = @intFromFloat(0.1 * sample_rate);
+    while (lead > 0) {
+        const n = @min(lead, zeros.len);
+        c.push(zeros[0..n]);
+        lead -= n;
+    }
     const tick: usize = @intFromFloat(@round(sample_rate / 30.0));
     var pos: usize = 0;
     var next_tick = tick;
@@ -428,6 +445,8 @@ pub fn main() !void {
         try analyserCandidate(pitch.AnalyserWith(.{ .voicing_threshold = null }), "no-voicing", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .refinement = null }), "yin-only", allocator),
         try analyserCandidate(pitch.AnalyserWith(.{ .octave_hold = 0 }), "no-octave-hold", allocator),
+        try analyserCandidateWith(pitch.AnalyserWith(.{ .floor_margin_db = null, .onset_gate = false, .release_drop_db = null }), .{ .silence_db = -60 }, "fixed-gate", allocator),
+        try analyserCandidate(pitch.AnalyserWith(.{ .mains_rule = true }), "mains-rule", allocator),
     };
     var cands: [max_candidates]Candidate = undefined;
     var nc: usize = 0;
