@@ -163,9 +163,10 @@ class Feeder:
         return reply
 
     def tone(self, ch, freq, amp):
-        """A steady sine on channel `ch` from the next block on. From a tone
-        already playing it carries on at the same phase (a note change, no
-        click); otherwise it starts at phase 0. Returns the exact frequency."""
+        """A steady sine on channel `ch` from the next block on. From a voice
+        still sounding (a tone, a pluck or a swell, rising or held) it
+        carries on at that voice's phase (a note change, no click); from
+        silence it starts at phase 0. Returns the exact frequency."""
         return self._call(op="tone", ch=ch, freq=freq, amp=amp)["freq"]
 
     def pluck(self, ch, freq, amp, decay=1.0):
@@ -324,21 +325,33 @@ class _Loop:
 
 class _Voice:
     """What one channel plays: `head` once (or nothing), then `loop`
-    forever (or silence). `follow` starts the loop at the phase the
-    previous voice's loop had reached."""
+    forever (or silence). `ref` is the loop whose table the head was
+    rendered from, sample i of the head at table position i, so a voice
+    knows its phase mid-head too. `follow` starts the loop at the phase the
+    previous voice had reached, if it was still sounding."""
 
-    def __init__(self, head=None, loop=None, loop_pos=0, follow=False):
+    def __init__(self, head=None, loop=None, loop_pos=0, follow=False, ref=None):
         self.head = head
         self.head_addr = head.buffer_info()[0] if head is not None else 0
         self.head_pos = 0
         self.loop = loop
         self.loop_pos = loop_pos
         self.follow = follow
+        self.ref = ref or loop
+
+    def phase(self):
+        """The phase of the next sample, or None once the voice is silent."""
+        if self.head is not None:
+            return self.ref.phase_at(self.head_pos % self.ref.n)
+        if self.loop is not None:
+            return self.loop.phase_at(self.loop_pos)
+        return None
 
     def take_over_from(self, prev):
-        if self.follow and self.loop is not None and prev is not None and prev.loop is not None \
-                and prev.head is None:
-            self.loop_pos = self.loop.pos_at(prev.loop.phase_at(prev.loop_pos))
+        if self.follow and self.loop is not None:
+            phase = prev.phase()
+            if phase is not None:
+                self.loop_pos = self.loop.pos_at(phase)
 
     def fill(self, addr, n, memmove=C.memmove, memset=C.memset):
         done = 0
@@ -533,7 +546,7 @@ class _Child:
             k = -1 / (tau * self.sr)
             exp = math.exp
             head = array.array("f", [t[i % n] * exp(k * i) for i in range(length)])
-            self.wanted[ch] = _Voice(head=head)
+            self.wanted[ch] = _Voice(head=head, ref=loop)
         else:  # swell
             length = int(self.sr * seconds)
             head = array.array("f", [t[i % n] * (i / length) for i in range(length)])
