@@ -423,8 +423,11 @@ const mains_first_cents = th.mains.first_cents;
 /// repeat at the mains period wherever they lie within 17 cents of any
 /// multiple, and are never taken for it.
 const mains_reading_max_hz = th.mains.reading_max_hz;
-/// Window levels kept for the mains rule (a little over 2 s at 30 Hz).
-const level_history_len = 72;
+/// Window levels kept for the mains hold and rule, as the latest and the
+/// loudest in each of `level_history_len` spans of `level_bucket_s`, so
+/// the history covers the same time at any poll rate.
+const level_history_len = th.mains.history_buckets;
+const level_bucket_s = th.mains.history_bucket_s;
 
 /// Analyses kept for the Hampel filter, and entries (at most one every
 /// stable_s / 20) for the stability slope.
@@ -620,10 +623,13 @@ pub fn AnalyserWith(comptime options: Options) type {
         jump_from_hz: f64,
         jump_wait_hz: f64,
         jump_wait_since: f64,
+        /// Per span: when its latest analysis was (-inf for none), that
+        /// analysis's window level, and the loudest in the span; and the
+        /// latest span's number.
         level_t: [level_history_len]f64,
         level_v: [level_history_len]f64,
-        level_pos: usize,
-        level_used: usize,
+        level_max: [level_history_len]f64,
+        level_last: u64,
         /// The lowest window level in each span of slow_onset_s /
         /// rise_buckets (+inf for none), and the span of the latest.
         rise_min: [rise_buckets]f64,
@@ -721,8 +727,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.jump_from_hz = 0;
             self.jump_wait_hz = 0;
             self.jump_wait_since = 0;
-            self.level_pos = 0;
-            self.level_used = 0;
+            @memset(&self.level_t, -std.math.inf(f64));
+            @memset(&self.level_v, 0);
+            @memset(&self.level_max, -std.math.inf(f64));
+            self.level_last = 0;
             @memset(&self.rise_min, std.math.inf(f64));
             self.rise_last = 0;
             self.rise_prev = false;
@@ -1138,10 +1146,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.saveGate();
                 self.gate_at = self.kept_count;
                 const t = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
-                self.level_t[self.level_pos] = t;
-                self.level_v[self.level_pos] = level;
-                self.level_pos = (self.level_pos + 1) % level_history_len;
-                self.level_used = @min(self.level_used + 1, level_history_len);
+                self.keepLevel(t, level);
                 self.noteLevel(t, level);
             }
             self.gate_settings = settings;
@@ -1412,10 +1417,10 @@ pub fn AnalyserWith(comptime options: Options) type {
             const earlier = self.levelAt(now - 2 * mains_fall_s) orelse return true;
             if (!(earlier - before >= mains_fall_db and before - latest >= mains_fall_db)) return true;
             var loudest = latest;
-            for (0..self.level_used) |back| {
-                const i = (self.level_pos + level_history_len - 1 - back) % level_history_len;
-                if (self.level_t[i] < now - mains_hold_s) break;
-                loudest = @max(loudest, self.level_v[i]);
+            for (0..level_history_len) |back| {
+                const i = self.levelSlot(back);
+                if (self.level_t[i] < now - mains_hold_s) continue;
+                loudest = @max(loudest, self.level_max[i]);
             }
             return loudest - latest < mains_decay_db;
         }
@@ -1494,11 +1499,35 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// The level of the latest analysis at or before `t`, if the
         /// history reaches back that far.
         fn levelAt(self: *const Self, t: f64) ?f64 {
-            for (0..self.level_used) |back| {
-                const i = (self.level_pos + level_history_len - 1 - back) % level_history_len;
+            for (0..level_history_len) |back| {
+                const i = self.levelSlot(back);
+                if (std.math.isInf(self.level_t[i])) continue;
                 if (self.level_t[i] <= t) return self.level_v[i];
             }
             return null;
+        }
+
+        /// The slot of the span `back` spans before the latest.
+        fn levelSlot(self: *const Self, back: usize) usize {
+            return @intCast((self.level_last + level_history_len - back) % level_history_len);
+        }
+
+        /// Keeps `level`, at `t`, as its span's latest and maybe loudest.
+        fn keepLevel(self: *Self, t: f64, level: f64) void {
+            const span: u64 = @intFromFloat(@floor(t / level_bucket_s));
+            if (span > self.level_last or std.math.isInf(self.level_t[self.levelSlot(0)])) {
+                const fresh = @min(span -| self.level_last, level_history_len);
+                for (0..fresh) |k| {
+                    const slot: usize = @intCast((span - k) % level_history_len);
+                    self.level_t[slot] = -std.math.inf(f64);
+                    self.level_max[slot] = -std.math.inf(f64);
+                }
+                self.level_last = span;
+            }
+            const i = self.levelSlot(0);
+            self.level_t[i] = t;
+            self.level_v[i] = level;
+            self.level_max[i] = @max(self.level_max[i], level);
         }
 
         fn mainsHeld(self: *const Self, hz: f64, now: f64) bool {
@@ -1509,10 +1538,10 @@ pub fn AnalyserWith(comptime options: Options) type {
                 if (k >= 1 and @abs(1200 * @log2(hz / (k * base))) <= mains_cents) near = true;
             }
             if (!near) return false;
-            const latest = self.level_v[(self.level_pos + level_history_len - 1) % level_history_len];
-            for (0..self.level_used) |back| {
-                const i = (self.level_pos + level_history_len - 1 - back) % level_history_len;
-                if (self.level_t[i] > now - mains_hold_s) continue;
+            const latest = self.levelAt(now) orelse return false;
+            for (0..level_history_len) |back| {
+                const i = self.levelSlot(back);
+                if (std.math.isInf(self.level_t[i]) or self.level_t[i] > now - mains_hold_s) continue;
                 // Only a window wholly inside the note gives its level.
                 if (self.level_t[i] < self.note_start + window_seconds) return false;
                 return self.level_v[i] - latest < mains_decay_db;
@@ -2870,6 +2899,29 @@ test "a decaying harmonic tone exactly at 50 or 60 Hz shows once its level is se
         errdefer std.debug.print("{d} Hz: {any}\n", .{ f0, r });
         try testing.expect(r.shown >= 30);
         try testing.expectEqual(@as(usize, 0), r.other);
+    }
+}
+
+test "the mains hold judges a level's fall the same whether polled at 30 or at 500 Hz" {
+    for ([_]usize{ 1600, 96 }) |tick| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(48000 * 2);
+        defer testing.allocator.destroy(buf);
+        @memset(buf[0..12000], 0);
+        signals.pluckedString(buf[12000..], 48000, .{ .f0 = 50, .inharmonicity = 0, .t60_s = 3 });
+        signals.addNoise(buf, 3e-5, 19);
+        var shown: usize = 0;
+        var pos: usize = 0;
+        while (pos + tick <= buf.len) : (pos += tick) {
+            a.push(buf[pos .. pos + tick]);
+            const r = a.analyse(.{});
+            if (r.freq_hz > 0) shown += 1;
+        }
+        // Shown from about 0.4 s to 2 s.
+        const reads = (buf.len - 12000) / tick;
+        errdefer std.debug.print("tick {d}: {d} of {d}\n", .{ tick, shown, reads });
+        try testing.expect(shown * 2 >= reads);
     }
 }
 
