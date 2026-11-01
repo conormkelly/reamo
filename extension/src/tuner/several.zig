@@ -14,9 +14,10 @@
 //! half and a third of it. A candidate explains the input if every strong
 //! peak up to 6.5 times the lowest is near one of its multiples, allowing
 //! for a stiff string's stretch, and its harmonics from the 2nd to the
-//! 6th are all present (a local maximum within `present_db` of the
-//! strongest) up to the highest of those peaks. None explaining it means
-//! several notes.
+//! 8th are present (a local maximum within `present_db` of the
+//! strongest) up to the highest of those peaks, but for the multiples of
+//! one number (a string plucked at a third has no 3rd or 6th). None
+//! explaining it means several notes.
 //!
 //! The spectrum should be Blackman-Harris windowed: Hann's leakage from
 //! two strong neighbours puts power in the holes. Pure and allocation-free.
@@ -177,18 +178,26 @@ fn multiples(peaks: []const f64, c: f64) bool {
     return true;
 }
 
-/// Whether c's harmonics from the 2nd to the 6th are present, up to the
-/// highest strong peak counted: a gap under a strong partial is a hole
-/// two notes leave, while a decaying string's series just runs out.
+/// Whether c's harmonics from the 2nd to the 8th are present, up to the
+/// highest strong peak counted, but for the multiples of one number: a gap
+/// under a strong partial is a hole two notes leave (E2 and B2 on 41.2 Hz
+/// leave the 5th and 7th, which no one number divides), while a string
+/// plucked at 1/m of its length lacks only multiples of m, and a decaying
+/// string's series just runs out at the top.
 fn complete(sp: Spectrum, peaks: []const f64, c: f64, present_min: f64) bool {
     var top = peaks[0];
     for (peaks) |p| {
         if (p > 6.5 * peaks[0]) break;
         top = p;
     }
-    var k: f64 = 2;
-    while (k <= 6 and k * c <= top * 1.01) : (k += 1) {
-        if (!present(sp, k * c, tolerance(k), present_min)) return false;
+    var first_missing: ?u32 = null;
+    var k: u32 = 2;
+    while (k <= 8 and @as(f64, @floatFromInt(k)) * c <= top * 1.01) : (k += 1) {
+        const kf: f64 = @floatFromInt(k);
+        if (present(sp, kf * c, tolerance(kf), present_min)) continue;
+        if (first_missing) |m| {
+            if (k % m != 0) return false;
+        } else first_missing = k;
     }
     return true;
 }
@@ -295,6 +304,18 @@ test "names the fundamental of one string, its fundamental 20 dB down or missing
         const sp: Spectrum = .{ .power = &fx.power, .bin_hz = rate / fft_n, .length_s = seg_len / rate };
         const j = judge(sp, 25, 2000, 2000, &fx.scratch);
         try testing.expectApproxEqRel(@as(f64, 110), j.fundamental_hz.?, 0.01);
+    }
+}
+
+test "a string plucked at a third, its 3rd and 6th harmonics missing, is one" {
+    const fx = try fixture();
+    defer testing.allocator.destroy(fx);
+    for ([_]f64{ 82.4069, 110, 195.998 }) |f0| {
+        for ([_]f64{ 1, 0.05 }) |gain| {
+            fx.string(.{ .f0 = f0, .inharmonicity = 1e-4, .pluck_at = 1.0 / 3.0, .fundamental_gain = gain, .max_hz = 5000 });
+            errdefer std.debug.print("{d} Hz gain {d}\n", .{ f0, gain });
+            try testing.expect(fx.judgeNow(seg_len, f0) != .several);
+        }
     }
 }
 
