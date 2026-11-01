@@ -32,7 +32,11 @@
 //! then was already sounding), only while the window's level stands 12 dB
 //! over a noise floor learned while nothing shows, and only while the
 //! latest 40 ms still hold energy within 20 dB of the window's mean.
-//! Hum, buzz and noise have no onset and never show; a note decaying into
+//! Steady hum, buzz and noise have no onset and never show. Hum and buzz
+//! that switch on do have one, so a note reading near 50 or 60 Hz times 1
+//! to 4 whose input since its onset repeats at the mains period waits to
+//! start until its level is seen to fall, as a string's does and theirs
+//! doesn't. A note decaying into
 //! them stops at 12 dB over them instead of reading them or a
 //! subharmonic; a muted stroke's tail in the window doesn't show once the
 //! string has stopped. Settings.silence_db stays an absolute floor the
@@ -94,7 +98,6 @@
 //!   drifts 20 mHz a second (the learned hum is carried through the note
 //!   unchanged; drift of 2-5 mHz a second is mostly within 0.5 cent),
 //!   with 16 octave readings and 492 readings flagged several;
-//! - 288 false notes from buzz that switches on (its onset opens the gate);
 //! - 6 single-string readings flagged several, weak-fundamental strings
 //!   early on.
 //!
@@ -238,6 +241,20 @@ pub const Options = struct {
     /// compressor or sustainer holds a string's level) would vanish after
     /// a second. It catches only buzz that switches on.
     mains_rule: bool = false,
+    /// Whether a note whose input since its onset repeats at the period of
+    /// 50 or 60 Hz mains (see `mainsPeriodic`) waits to start until its
+    /// level is seen to fall: by `mains_fall_db` over each of the last two
+    /// `mains_fall_s`, and `mains_decay_db` under the loudest of the last
+    /// `mains_hold_s`. Hum and buzz that switch on have an onset, and hold
+    /// their level; the first readings of a sound that has just started
+    /// can be 30 cents out, so its frequency can't tell it from a note.
+    /// Only readings up to about 245 Hz are held (hum and buzz read 50 or
+    /// 60 Hz, or a low multiple), and a note repeats at the mains period
+    /// only within about 17 cents of 50 or 60 Hz times a whole number: no
+    /// note in tune at A = 440 Hz up to 245 Hz is within 33 cents of one.
+    /// One held level there (an e-bow, a pad) never shows, and a note
+    /// already showing is not affected.
+    mains_start_hold: bool = true,
     /// Whether the spectrum of the input since the onset is checked for
     /// several notes (see several.zig).
     several_guard: bool = true,
@@ -276,6 +293,27 @@ const onset_life_s = 0.25;
 const mains_cents = 15.0;
 const mains_decay_db = 1.0;
 const mains_hold_s = 1.0;
+/// Longer than the window, so a step in the level can't fall over two
+/// spans in a row.
+const mains_fall_s = 0.1;
+const mains_fall_db = 0.1;
+/// The input since an onset repeats at the mains period if, at a lag
+/// within `mains_period_tolerance` of 1/50 or 1/60 s, its normalised
+/// difference with itself is under `mains_periodic_max`; at least
+/// `mains_periodic_min_s` of it must overlap.
+const mains_period_tolerance = 0.01;
+const mains_periodic_max = 0.01;
+const mains_periodic_min_s = 0.005;
+/// The first readings of hum or buzz that has just switched on are within
+/// this of 50 or 60 Hz times 1 to 4 (33 cents seen); only such readings
+/// wait for the input to be judged, and no note in tune at A = 440 Hz is
+/// within it (G1, G2, D3 and G3 are 35-37 cents away, F#3 47).
+const mains_first_cents = 45.0;
+/// Hum and buzz read 50 or 60 Hz, or a low multiple where the fundamental
+/// is weak: 4 x 60 Hz, and the first readings' 30 cents. Higher notes
+/// repeat at the mains period wherever they lie within 17 cents of any
+/// multiple, and are never taken for it.
+const mains_reading_max_hz = 4 * 60 * 1.02;
 /// Window levels kept for the mains rule (a little over 2 s at 30 Hz).
 const level_history_len = 72;
 
@@ -838,7 +876,7 @@ pub fn AnalyserWith(comptime options: Options) type {
                 }
             } else if (pitched and loud and self.sounding()) {
                 const resuming = self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
-                if (!options.onset_gate or fresh_onset or resuming) {
+                if (resuming or ((!options.onset_gate or fresh_onset) and !self.mainsLike(m.?.hz, now, self.sinceOnset()))) {
                     if (!resuming) self.note_start = now;
                     self.note_active = true;
                     self.note_onset_count = self.onset_count;
@@ -922,6 +960,15 @@ pub fn AnalyserWith(comptime options: Options) type {
             return now - self.onset_seen_at <= onset_life_s;
         }
 
+        /// How many of the window's samples came after the block the last
+        /// onset was found in (all of them with no onset): a sound that
+        /// starts within that block has silence before it there.
+        fn sinceOnset(self: *const Self) usize {
+            if (self.onset_count == 0) return self.window;
+            const fine_since = (self.fine_count - self.onset_at) -| self.block_len;
+            return @intCast(@min(fine_since * self.fine_decimation, self.window));
+        }
+
         /// Whether the latest `release_s` of input holds energy within
         /// `release_drop_db` of the window's mean.
         fn sounding(self: *const Self) bool {
@@ -940,6 +987,71 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// Hz and the level has fallen less than `mains_decay_db` over the
         /// last `mains_hold_s`, measured from a window wholly inside the
         /// note.
+        /// Whether the input, reading `hz`, may be mains hum or buzz: see
+        /// `Options.mains_start_hold`. The level history must hold the
+        /// current input's level; `since_onset` is how many of the
+        /// window's samples came after the onset.
+        fn mainsLike(self: *const Self, hz: f64, now: f64, since_onset: usize) bool {
+            if (!options.mains_start_hold or hz > mains_reading_max_hz) return false;
+            var near = false;
+            for ([_]f64{ 50, 60 }) |base| {
+                const k = @round(hz / base);
+                if (k >= 1 and @abs(1200 * @log2(hz / (k * base))) <= mains_first_cents / k) near = true;
+            }
+            if (!near or !self.mainsPeriodic(since_onset)) return false;
+            const latest = self.levelAt(now) orelse return true;
+            const before = self.levelAt(now - mains_fall_s) orelse return true;
+            const earlier = self.levelAt(now - 2 * mains_fall_s) orelse return true;
+            if (!(earlier - before >= mains_fall_db and before - latest >= mains_fall_db)) return true;
+            var loudest = latest;
+            for (0..self.level_used) |back| {
+                const i = (self.level_pos + level_history_len - 1 - back) % level_history_len;
+                if (self.level_t[i] < now - mains_hold_s) break;
+                loudest = @max(loudest, self.level_v[i]);
+            }
+            return loudest - latest < mains_decay_db;
+        }
+
+        /// Whether the latest `since_onset` samples of the window, less
+        /// their mean, repeat at a lag within `mains_period_tolerance` of
+        /// 1/50 or 1/60 s; true while too few to tell (a note waits for
+        /// them, at most `mains_periodic_min_s` more than 20 ms).
+        fn mainsPeriodic(self: *const Self, since_onset: usize) bool {
+            const w = self.window;
+            const len = @min(since_onset, w);
+            const min_overlap: usize = @intFromFloat(@ceil(mains_periodic_min_s * self.analysis_rate));
+            var mean: f64 = 0;
+            for (0..len) |i| mean += self.history[(self.write_pos + w - 1 - i) % w];
+            mean /= @floatFromInt(@max(len, 1));
+            for ([_]f64{ 50, 60 }) |base| {
+                const lo: usize = @intFromFloat(@floor(self.analysis_rate / base * (1 - mains_period_tolerance)));
+                const hi: usize = @intFromFloat(@ceil(self.analysis_rate / base * (1 + mains_period_tolerance)));
+                if (len < hi + min_overlap) return true;
+                for (lo..hi + 1) |lag| {
+                    var diff: f64 = 0;
+                    var power: f64 = 0;
+                    for (0..len - lag) |i| {
+                        const a = self.history[(self.write_pos + w - 1 - i) % w] - mean;
+                        const b = self.history[(self.write_pos + w - 1 - i - lag) % w] - mean;
+                        diff += (a - b) * (a - b);
+                        power += a * a + b * b;
+                    }
+                    if (power > 0 and diff < mains_periodic_max * power) return true;
+                }
+            }
+            return false;
+        }
+
+        /// The level of the latest analysis at or before `t`, if the
+        /// history reaches back that far.
+        fn levelAt(self: *const Self, t: f64) ?f64 {
+            for (0..self.level_used) |back| {
+                const i = (self.level_pos + level_history_len - 1 - back) % level_history_len;
+                if (self.level_t[i] <= t) return self.level_v[i];
+            }
+            return null;
+        }
+
         fn mainsHeld(self: *const Self, hz: f64, now: f64) bool {
             if (!options.mains_rule or now - self.note_start < mains_hold_s) return false;
             var near = false;
@@ -1880,6 +1992,43 @@ test "reports no pitch for silence, and for a tone under the silence threshold" 
     try testing.expectEqual(Reading.none, readAfter(a, buf, .{ .silence_db = -60 }));
     restart(a);
     try testing.expect(readAfter(a, buf, .{ .silence_db = -70 }).freq_hz > 0);
+}
+
+test "hum and buzz that switch on mid-signal never read as a note" {
+    const buf = try generate(48000 * 3);
+    defer testing.allocator.destroy(buf);
+    for ([_]f64{ 50, 60 }) |hz| {
+        for ([_]signals.Mains{ .hum, .buzz }) |kind| {
+            const a = try newAnalyser(48000);
+            defer testing.allocator.destroy(a);
+            @memset(buf[0..24000], 0);
+            signals.mains(buf[24000..], 48000, hz, kind, -40);
+            signals.addNoise(buf, 3e-5, 6);
+            errdefer std.debug.print("{d} Hz {s}\n", .{ hz, @tagName(kind) });
+            try testing.expectEqual(@as(usize, 0), countNotes(a, buf, 48000, 0, null).shown);
+        }
+    }
+}
+
+test "a pluck on a mains harmonic, 34 cents sharp of G2, shows within half a second once its level is seen to fall" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 2);
+    defer testing.allocator.destroy(buf);
+    @memset(buf[0..12000], 0);
+    signals.pluckedString(buf[12000..], 48000, .{ .f0 = 100, .inharmonicity = 1e-4, .t60_s = 3 });
+    signals.addNoise(buf, 3e-5, 7);
+    const tick: usize = 1600;
+    var pos: usize = 0;
+    var first: ?f64 = null;
+    while (pos + tick <= buf.len) : (pos += tick) {
+        a.push(buf[pos .. pos + tick]);
+        const r = a.analyse(.{});
+        if (r.freq_hz == 0) continue;
+        try testing.expectEqual(@as(i32, 43), r.note);
+        if (first == null) first = @as(f64, @floatFromInt(pos + tick - 12000)) / 48000;
+    }
+    try testing.expect(first.? <= 0.5);
 }
 
 test "an onset that shows no note expires, so a swell over hum long after a click never shows" {
