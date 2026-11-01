@@ -139,6 +139,7 @@ pub fn build(b: *std.Build) void {
         "src/server/frame_arena.zig",
         "src/server/host_validation.zig",
         "src/audio/ring_buffer.zig",
+        "src/tuner/signals.zig",
         // protocol.zig, state/, subscription/ modules have ../ imports — tested via main.zig test block
     };
 
