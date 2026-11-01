@@ -180,7 +180,6 @@ SOAK_STALE_SECS = max(30.0, 6 * SAMPLE_SECS)
 BASELINE_WAIT_SECS = 120.0
 
 
-
 def write_json(path, data):
     """Written whole or not at all: the other container reads it."""
     with open(path + ".tmp", "w") as f:
@@ -220,9 +219,13 @@ def this_run(scenario, name):
     """[(out dir name, contents)] of the file `name` in each out dir of
     `scenario` that this run wrote, in out dir order."""
     try:
-        dirs = sorted(d for d in os.listdir(OUT_ROOT) if re.fullmatch(re.escape(scenario) + r"(\.\d+)?", d))
+        names = os.listdir(OUT_ROOT)
     except OSError:
         return []
+    # out/<scenario>, then out/<scenario>.<i> in run order (.2 before .10).
+    places = {d: int(m.group(1) or -1) for d in names
+              if (m := re.fullmatch(re.escape(scenario) + r"(?:\.(\d+))?", d))}
+    dirs = sorted(places, key=places.get)
     found = []
     for d in dirs:
         try:

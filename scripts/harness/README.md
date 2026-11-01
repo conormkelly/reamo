@@ -383,7 +383,8 @@ the same time, sampled the same way, on a REAPER without REAmo (its
 `no-extension` file) and with no phones.
 
 - Report-only: it fails only if its setup is wrong (REAmo loaded,
-  REAPER's mappings unreadable, a bad setting) or REAPER exits. A stalled
+  REAPER's mappings unreadable, a bad setting, `SOAK_MINUTES` under 2,
+  the script stopping on an error) or REAPER exits. A stalled
   ReaScript call, a stopped transport, a moved undo history or a broken
   limit go in its summary, not its result.
 - No WebSocket probe, REAmo memory stats or refusals: those need REAmo.
@@ -395,12 +396,16 @@ the same time, sampled the same way, on a REAPER without REAmo (its
   there (REAPER not ready at boot, its script killed), the control stops
   on the soak's heartbeat, `soak-alive.json`, written at every sample:
   none within 180 s of the control's start, or none for 30 s (six
-  samples, if longer). The soak waits up to 120 s for it, then reports
+  samples, if longer). The soak waits up to 120 s for the control's
+  summary, then reports
   both runs and the difference, against the first control if named
   twice. A failed soak isn't compared.
-- No comparison, and the summary says why, if the soak runs alone, or
-  the control didn't run alongside it (`run.sh` with the control named
-  second and `HARNESS_JOBS=1`, or the control finished first).
+- "Beside" means the two runs overlapped at all. No comparison, and the
+  summary says why, if the soak runs alone, the control hadn't started by
+  the soak's end, or the control ended before the soak started
+  (`HARNESS_JOBS=1` does either; a control whose boot failed, the first).
+- With the soak named twice, the control stops when the first soak ends,
+  so a later soak compares with a shortened control.
 - A failed soak's replay line runs both, and its kept copy holds the
   control's out dir too.
 - The difference is REAmo plus what REAmo has REAPER do (API calls, peak
