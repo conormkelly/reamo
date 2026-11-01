@@ -28,8 +28,10 @@
 //!   no pitch. Noise, which the JSFX turns into notes, reads as no pitch.
 //!
 //! A note shows only from an onset (an energy jump of 9 dB over the last
-//! 10-40 ms; the start of the input is not one, as whatever is sounding
-//! then was already sounding), only while the window's level stands 12 dB
+//! 10-40 ms, or with nothing showing the window's level rising 12 dB over
+//! its lowest of the last 2 s, as a swell, volume pedal, e-bow or bow
+//! does; the start of the input is not one, as whatever is sounding then
+//! was already sounding), only while the window's level stands 12 dB
 //! over a noise floor learned while nothing shows, and only while the
 //! latest 40 ms still hold energy within 20 dB of the window's mean.
 //! Steady hum, buzz and noise have no onset and never show. Hum and buzz
@@ -241,6 +243,15 @@ pub const Options = struct {
     /// compressor or sustainer holds a string's level) would vanish after
     /// a second. It catches only buzz that switches on.
     mains_rule: bool = false,
+    /// With no note showing, the window level rising to this many dB over
+    /// the lowest of the last `slow_onset_s` is an onset (a swell, a
+    /// volume pedal, an e-bow, a bow have no energy jump), placed where the
+    /// level last stood within `rise_quiet_db` of that lowest, with the
+    /// floor put back to the lowest;
+    /// null for none. Hum, buzz and noise switching on rise too: noise has
+    /// no pitch, and hum and buzz wait as after any onset
+    /// (`mains_start_hold`).
+    slow_onset_db: ?f64 = 12,
     /// Whether a note whose input since its onset repeats at the period of
     /// 50 or 60 Hz mains (see `mainsPeriodic`) waits to start until its
     /// level is seen to fall: by `mains_fall_db` over each of the last two
@@ -296,6 +307,12 @@ const mains_hold_s = 1.0;
 /// Longer than the window, so a step in the level can't fall over two
 /// spans in a row.
 const mains_fall_s = 0.1;
+/// The slow onset looks back this far, over the lowest window level in
+/// each of `rise_buckets` spans.
+const slow_onset_s = 2.0;
+const rise_buckets: usize = 40;
+/// A rise starts where the level last stood within this of its lowest.
+const rise_quiet_db = 3.0;
 const mains_fall_db = 0.1;
 /// The input since an onset repeats at the mains period if, at a lag
 /// within `mains_period_tolerance` of 1/50 or 1/60 s, its normalised
@@ -489,6 +506,18 @@ pub fn AnalyserWith(comptime options: Options) type {
         level_v: [level_history_len]f64,
         level_pos: usize,
         level_used: usize,
+        /// The lowest window level in each span of slow_onset_s /
+        /// rise_buckets (+inf for none), and the span of the latest.
+        rise_min: [rise_buckets]f64,
+        rise_last: u64,
+        /// Whether the input had risen at the last analysis, with no note
+        /// showing.
+        rise_prev: bool,
+        /// The onset count the lowest levels were kept since.
+        rise_onset: u64,
+        /// `fine_count` at the latest analysis whose level was within
+        /// `rise_quiet_db` of the lowest.
+        rise_quiet_at: u64,
         /// The last onset the gate has seen, and when it first saw it.
         onset_seen: u64,
         onset_seen_at: f64,
@@ -570,6 +599,11 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.note_may_resume = false;
             self.level_pos = 0;
             self.level_used = 0;
+            @memset(&self.rise_min, std.math.inf(f64));
+            self.rise_last = 0;
+            self.rise_prev = false;
+            self.rise_onset = 0;
+            self.rise_quiet_at = 0;
             self.onset_seen = 0;
             self.onset_seen_at = 0;
             self.block_fill = 0;
@@ -857,9 +891,23 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.level_v[self.level_pos] = level;
                 self.level_pos = (self.level_pos + 1) % level_history_len;
                 self.level_used = @min(self.level_used + 1, level_history_len);
+                self.noteLevel(t, level);
             }
             self.gate_settings = settings;
             const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
+            // A rise in level with no note showing is an onset where the
+            // level last stood near its lowest, from a floor at that level,
+            // not the one learned as it rose. This input was measured from
+            // the onset before, so a note can start only from the next.
+            const rose = !self.note_active and self.risen(level);
+            const rise_onset = rose and !self.rise_prev;
+            if (rise_onset) {
+                self.onset_at = self.rise_quiet_at;
+                self.onset_count += 1;
+                self.floor_paused = true;
+                self.floor_db = @min(self.floor_db, std.mem.min(f64, &self.rise_min));
+            }
+            self.rise_prev = rose;
             // Every analysis sees a new onset, pitched or not.
             const fresh_onset = self.onsetFresh(now);
 
@@ -874,9 +922,10 @@ pub fn AnalyserWith(comptime options: Options) type {
                     // resume without a new onset.
                     self.note_may_resume = !pitched and loud;
                 }
-            } else if (pitched and loud and self.sounding()) {
-                const resuming = self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
-                if (resuming or ((!options.onset_gate or fresh_onset) and !self.mainsLike(m.?.hz, now, self.sinceOnset()))) {
+            } else if (pitched and self.sounding()) {
+                const resuming = loud and self.note_may_resume and now - self.note_end < resume_s and self.onset_count == self.note_onset_count;
+                const at_onset = loud and !rise_onset and (!options.onset_gate or fresh_onset);
+                if (resuming or (at_onset and !self.mainsLike(m.?.hz, now, self.sinceOnset()))) {
                     if (!resuming) self.note_start = now;
                     self.note_active = true;
                     self.note_onset_count = self.onset_count;
@@ -896,6 +945,10 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn saveGate(self: *Self) void {
             self.gate_before = .{
+                .rise_prev = self.rise_prev,
+                .floor_db = self.floor_db,
+                .onset_at = self.onset_at,
+                .onset_count = self.onset_count,
                 .note_active = self.note_active,
                 .note_onset_count = self.note_onset_count,
                 .note_start = self.note_start,
@@ -907,6 +960,10 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         fn restoreGate(self: *Self) void {
             const g = self.gate_before;
+            self.rise_prev = g.rise_prev;
+            self.floor_db = g.floor_db;
+            self.onset_at = g.onset_at;
+            self.onset_count = g.onset_count;
             self.note_active = g.note_active;
             self.note_onset_count = g.note_onset_count;
             self.note_start = g.note_start;
@@ -958,6 +1015,35 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.onset_seen_at = now;
             }
             return now - self.onset_seen_at <= onset_life_s;
+        }
+
+        /// Keeps `level` among the lowest of its span of time, counting only
+        /// windows full of input and wholly after the last onset (a rise
+        /// since an onset is that onset's): an onset starts the lowest
+        /// afresh.
+        fn noteLevel(self: *Self, t: f64, level: f64) void {
+            if (self.onset_count != self.rise_onset) {
+                self.rise_onset = self.onset_count;
+                @memset(&self.rise_min, std.math.inf(f64));
+            }
+            if (self.kept_count < self.window) return;
+            if (self.onset_count > 0 and (self.fine_count - self.onset_at) * self.fine_decimation < self.window) return;
+            const span: u64 = @intFromFloat(@floor(t / (slow_onset_s / @as(f64, @floatFromInt(rise_buckets)))));
+            if (span > self.rise_last) {
+                const fresh = @min(span - self.rise_last, rise_buckets);
+                for (0..fresh) |k| self.rise_min[@intCast((span - k) % rise_buckets)] = std.math.inf(f64);
+                self.rise_last = span;
+            }
+            const i: usize = @intCast(span % rise_buckets);
+            self.rise_min[i] = @min(self.rise_min[i], level);
+            if (level <= std.mem.min(f64, &self.rise_min) + rise_quiet_db) self.rise_quiet_at = self.fine_count;
+        }
+
+        /// Whether `level` stands `slow_onset_db` over the lowest of the last
+        /// `slow_onset_s`.
+        fn risen(self: *const Self, level: f64) bool {
+            const margin = options.slow_onset_db orelse return false;
+            return level - std.mem.min(f64, &self.rise_min) >= margin;
         }
 
         /// How many of the window's samples came after the block the last
@@ -1295,6 +1381,10 @@ pub fn AnalyserWith(comptime options: Options) type {
 
 /// The gate's state that one decision changes.
 const GateState = struct {
+    rise_prev: bool,
+    floor_db: f64,
+    onset_at: u64,
+    onset_count: u64,
     note_active: bool,
     note_onset_count: u64,
     note_start: f64,
@@ -2031,9 +2121,47 @@ test "a pluck on a mains harmonic, 34 cents sharp of G2, shows within half a sec
     try testing.expect(first.? <= 0.5);
 }
 
-test "an onset that shows no note expires, so a swell over hum long after a click never shows" {
-    const a = try bareAnalyser(48000);
+test "a string swelling in over hum shows within 0.2 s of standing 12 dB over the hum" {
+    const a = try newAnalyser(48000);
     defer testing.allocator.destroy(a);
+    const buf = try generate(48000 * 4);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(48000 * 4);
+    defer testing.allocator.destroy(other);
+    // Hum throughout; A2 swelling in at 60 dB a second from 1 s.
+    signals.mains(buf, 48000, 50, .hum, -50);
+    @memset(other, 0);
+    signals.pluckedString(other[48000..], 48000, .{ .f0 = 110, .inharmonicity = 6.5e-5, .t60_s = 20 });
+    for (other[48000..], 0..) |*v, i| {
+        const t = @as(f64, @floatFromInt(i)) / 48000;
+        v.* *= @floatCast(@min(1, std.math.pow(f64, 10, 3 * (t - 1))));
+    }
+    signals.mix(buf, other);
+    signals.addNoise(buf, 3e-5, 8);
+    // When the level over the analyser's window first stands 12 dB over
+    // the hum's.
+    const w: usize = @intFromFloat(@round(window_seconds * 48000));
+    const hum_rms = signals.rms(buf[48000 - w .. 48000]);
+    var crossed: usize = 48000;
+    while (signals.rms(buf[crossed - w .. crossed]) < 4 * hum_rms) crossed += 48;
+    const tick: usize = 1600;
+    var pos: usize = 0;
+    var first: ?usize = null;
+    while (pos + tick <= buf.len) : (pos += tick) {
+        a.push(buf[pos .. pos + tick]);
+        const r = a.analyse(.{});
+        if (r.freq_hz == 0) continue;
+        try testing.expectEqual(@as(i32, 45), r.note);
+        if (first == null) first = pos + tick;
+    }
+    errdefer std.debug.print("crossed {d:.3} s, shown {any}\n", .{ @as(f64, @floatFromInt(crossed)) / 48000, first });
+    try testing.expect(first.? <= crossed + 9600);
+}
+
+test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
+    const a = try testing.allocator.create(AnalyserWith(.{ .slow_onset_db = null }));
+    defer testing.allocator.destroy(a);
+    try a.init(48000);
     const buf = try generate(48000 * 4);
     defer testing.allocator.destroy(buf);
     const other = try generate(48000 * 4);
