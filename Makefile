@@ -189,7 +189,7 @@ container-check: container-image ## Run `make check` in the check image, on a co
 
 ##@ Housekeeping
 
-docker-clean: ## Remove stopped harness containers, harness images other than pinned/oldest REAPER, superseded image builds
+docker-clean: ## Remove stopped harness containers and day-old harness images for unpinned REAPER releases
 	scripts/docker-clean.sh
 
 clean: ## Delete build output (reamo/, zig-out, caches) and node_modules

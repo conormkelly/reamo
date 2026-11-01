@@ -15,8 +15,6 @@
 # @playwright/test 1.64.1 drives. Move it with @playwright/test in
 # frontend/package-lock.json, or the E2E tests look for a browser it lacks.
 FROM mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea AS tools
-# Later stages inherit it; make docker-clean finds superseded builds by it.
-LABEL reamo.image=v1-check
 
 # make 4.3-4.1build2 is Ubuntu 24.04's release-pocket build, which never changes.
 RUN apt-get update && apt-get install -y --no-install-recommends make=4.3-4.1build2 \

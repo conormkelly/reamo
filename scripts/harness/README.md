@@ -30,9 +30,10 @@ Debian, REAPER 7.83, xvfb/GTK/ALSA, python3, gdb). The Debian base is pinned
 by digest in the `Dockerfile`.
 
 `make docker-clean` removes what runs leave behind: stopped harness
-containers, harness images for REAPER releases other than the pinned and
-oldest ones, and superseded image builds. It never touches volumes or other
-projects' images.
+containers, and harness images over a day old for REAPER releases other
+than the pinned and oldest ones. It refuses to run during a harness run,
+and never touches volumes, the shared build cache or images without the
+harness label.
 
 ## The WebSocket integration suite
 
