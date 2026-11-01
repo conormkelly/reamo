@@ -9,6 +9,9 @@
 #   /fixtures  the repo's test-fixtures (projects a startup.lua can open)
 #   /lic       optional reaper-license.rk (suppresses the evaluation nag)
 #
+# A scenario's folder can hold `capabilities` (run.sh) and `no-extension`
+# (REAPER starts without REAmo).
+#
 # Exit status: 0 only if the scenario's test.py passed AND REAPER is still
 # alive afterwards. A crash is a failure even when the test script "passed".
 # 77: the scenario skipped itself (this REAPER lacks what it checks).
@@ -44,7 +47,11 @@ mkdir -p "$HOME_DIR/UserPlugins" "$HOME_DIR/Scripts" "$HOME_DIR/reaper_www_root"
 # The installer copies stock JSFX into the resource folder; portable mode doesn't.
 cp -a "$HOME_DIR/InstallData/Effects" "$HOME_DIR/Effects"
 cp -a /effects/. "$HOME_DIR/Effects/"
-cp /ext/reaper_reamo.so "$HOME_DIR/UserPlugins/reaper_reamo.so"
+# A scenario with a `no-extension` file runs REAPER without REAmo: a
+# control to measure REAmo against.
+NO_EXT=0
+[ -f "$SDIR/no-extension" ] && NO_EXT=1
+[ "$NO_EXT" = 1 ] || cp /ext/reaper_reamo.so "$HOME_DIR/UserPlugins/reaper_reamo.so"
 cp -a /reamo "$HOME_DIR/reaper_www_root/reamo"
 # Writable copy: REAPER writes peak files beside media, as in a real project dir.
 cp -a /fixtures /tmp/fixtures
@@ -81,10 +88,11 @@ else
     "$HOME_DIR/reaper" -nosplash >/tmp/reaper.out 2>&1 &
 fi
 
-# Ready = the fixture has run and the extension's server accepts connections.
+# Ready = the fixture has run and the extension's server accepts connections
+# (without REAmo, the fixture alone).
 ok=0
 for _ in $(seq 1 120); do
-    if [ -f "$READY" ] && (exec 3<>/dev/tcp/127.0.0.1/9224) 2>/dev/null; then ok=1; break; fi
+    if [ -f "$READY" ] && { [ "$NO_EXT" = 1 ] || (exec 3<>/dev/tcp/127.0.0.1/9224) 2>/dev/null; }; then ok=1; break; fi
     sleep 0.25
 done
 [ -f /tmp/harness_lua.log ] && sed 's/^/[lua] /' /tmp/harness_lua.log

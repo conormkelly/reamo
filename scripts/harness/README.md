@@ -361,8 +361,11 @@ missing media, so REAPER's load dialogs come up) and `empty-unsaved`
 make soak                          # 3 minutes: crashes, hangs, refusals, undo points, gross growth
 SOAK_MINUTES=60 make soak          # an hour: also the RSS slope and CPU drift
 SOAK_MINUTES=480 make soak         # a working day
-SOAK_MINUTES=60 SOAK_SEED=7 scripts/harness/run.sh long-session-stays-healthy
+SOAK_MINUTES=60 SOAK_SEED=7 scripts/harness/run.sh long-session-stays-healthy   # without the control
 ```
+
+`make soak` runs the soak and its control side by side, each in its own
+container.
 
 `long-session-stays-healthy` opens the band session (`corpus/band-session.lua`)
 and plays it on repeat:
@@ -374,6 +377,19 @@ and plays it on repeat:
   states), send read-only commands, pings and clock syncs, then drop the
   socket, close it, or go quiet first, and connect again;
 - page loads (`GET /` and an asset) come in alongside.
+
+**The control**, `long-session-baseline`: the same session on repeat for
+the same time, sampled the same way, on a REAPER without REAmo (its
+`no-extension` file) and with no phones.
+
+- Checks: crashes, the ReaScript call (a main-thread stall within 25 s),
+  the transport, undo history, and the same limits on its own numbers.
+- Can't check: the WebSocket probe, REAmo's memory stats, refusals.
+- The soak waits up to 120 s after its end for the control's summary, and
+  reports both runs and the difference. Run alone, it reports no baseline.
+- The difference is REAmo plus what REAmo has REAPER do (API calls, peak
+  reads, the audio hook), not REAmo's code alone.
+- The limits judge the soak's own numbers, not the difference.
 
 **The tuner is left out by default.** Opening and closing it leaves undo
 points in REAPER (RV1-165), so a run with it fails. `SOAK_OPS=+tuner` puts
@@ -436,10 +452,13 @@ backtraces in `reaper.out`.
   group, CPU %. REAPER names its threads (`reaper/audio_dm`,
   `reaper/mediaafx`, ...); the main thread is `main`; REAmo's threads
   (HTTP/WebSocket server, audio stream) have no name and show as
-  `unnamed`.
+  `unnamed`. The control runs none.
 - `soak-summary.json`: settings, seed, metrics, limits, refusals,
-  problems, RSS growth by mapping (`[heap]`, anonymous, libraries), and
-  CPU by thread group and the busiest threads.
+  problems, RSS growth by mapping (`[heap]`, anonymous, libraries), CPU by
+  thread group and the busiest threads, and `baseline`: the control's
+  numbers beside the soak's.
+
+`out/long-session-baseline/` keeps the control's, without `baseline`.
 
 ### Where the limits come from
 

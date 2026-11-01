@@ -34,6 +34,12 @@ series goes to out/<scenario>/soak-series.csv and soak-threads.csv as it
 is taken (so a crash leaves it), and the verdict with its numbers to
 soak-summary.json, which every run writes, failed or not.
 
+long-session-baseline runs this script as the control: REAPER without
+REAmo, the same session, no phones; only the ReaScript probe. When run.sh
+runs both (make soak), the soak waits up to BASELINE_WAIT_SECS after its
+end for the control's summary and reports both runs' numbers and the
+difference. The limits judge the soak's own numbers, not the difference.
+
 Settings (env, all optional): SOAK_MINUTES (3, at least 2),
 SOAK_WARMUP_MINUTES (a third of the run, 1 to 20), SOAK_PHONES (5),
 SOAK_SAMPLE_SECS (5), SOAK_SEED (random, printed, and kept in replay.env
@@ -138,6 +144,18 @@ SLOT_RELEASE_SECS = 5.0
 
 OUT = os.environ.get("HARNESS_OUT", "/tmp")
 CLK_TCK = os.sysconf("SC_CLK_TCK")
+
+# The control (soak/long-session-baseline, whose `no-extension` file has
+# boot.sh start REAPER without REAmo) runs this script too: the same
+# session on repeat, no phones.
+BASELINE = "long-session-baseline"
+CONTROL = os.environ.get("HARNESS_SCENARIO") == BASELINE
+# The control's out dir, and how long after this run ends to wait for its
+# summary when run.sh started it in the same run.
+BASELINE_SUMMARY = os.path.join(os.path.dirname(OUT), BASELINE, "soak-summary.json")
+BASELINE_WAIT_SECS = 120.0
+RUN_ID = os.environ.get("HARNESS_RUN_ID", "")
+WITH_BASELINE = not CONTROL and BASELINE in os.environ.get("HARNESS_RUN_SCENARIOS", "").split()
 
 # Toggle states the web UI watches: play, repeat, metronome, count-in.
 TOGGLES = [1007, 1068, 40364, 41745]
@@ -624,8 +642,9 @@ def try_mapping_rss(pid):
 
 
 def mapping_growth(before, after):
+    """MB grown by mapping, largest change first, changes under 0.1 MB left out."""
     grown = {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)}
-    return {k: round(v, 2) for k, v in sorted(grown.items(), key=lambda kv: -abs(kv[1]))[:8] if abs(v) >= 0.1}
+    return {k: round(v, 2) for k, v in sorted(grown.items(), key=lambda kv: -abs(kv[1])) if abs(v) >= 0.1}
 
 
 def thread_ticks(pid):
@@ -651,9 +670,9 @@ def thread_ticks(pid):
 def thread_group(pid, tid, name):
     """REAPER names its own threads ("reaper/audio_dm", "reaper/mediaafx",
     ...). The main thread (tid = pid) and threads nobody named carry the
-    process's name, "reaper". REAPER on its own runs none of the latter,
-    so they are REAmo's (its HTTP and WebSocket server threads and the
-    audio stream's network thread)."""
+    process's name, "reaper"; without REAmo, REAPER runs none of the
+    latter, so they are REAmo's (its HTTP and WebSocket server threads and
+    the audio stream's network thread)."""
     if tid == pid:
         return "main"
     return "unnamed" if name == "reaper" else name
@@ -778,13 +797,14 @@ def verdict(m, totals):
         broken.append(f"threads grew by {m['thread_growth']:g} (limit {L['THREAD_GROWTH']:g})")
     if m["fd_growth"] > L["FD_GROWTH"]:
         broken.append(f"open files grew by {m['fd_growth']:g} (limit {L['FD_GROWTH']:g})")
-    commands = totals.get("commands", 0)
-    refused_pct = 100 * totals.get("cmd_refused", 0) / commands if commands else 0.0
-    m["refused_pct"] = refused_pct
-    if refused_pct > L["REFUSAL_PCT"]:
-        broken.append(f"{refused_pct:.2f} % of commands refused (limit {L['REFUSAL_PCT']:g} %)")
-    if not totals.get("connects") and PHONES:
-        broken.append("no phone connected")
+    if not CONTROL:
+        commands = totals.get("commands", 0)
+        refused_pct = 100 * totals.get("cmd_refused", 0) / commands if commands else 0.0
+        m["refused_pct"] = refused_pct
+        if refused_pct > L["REFUSAL_PCT"]:
+            broken.append(f"{refused_pct:.2f} % of commands refused (limit {L['REFUSAL_PCT']:g} %)")
+        if not totals.get("connects") and PHONES:
+            broken.append("no phone connected")
     m["slope_checked"] = slope_checked()
     if m["slope_checked"]:
         if m["rss_slope_mb_per_hour"] > L["RSS_SLOPE_MB_PER_HOUR"]:
@@ -813,10 +833,11 @@ class Run:
 def soak(run):
     print("dialogs:", open_project("/tmp/corpus/band-session/band-session.RPP"), flush=True)
     time.sleep(1.5)  # the extension's GUID cache settles after a project load
-    world = World()
-    run.ops = phone_ops(world)
-    print(f"session: {len(world.guids)} tracks, {len(world.fx)} FX, {world.length:.1f} s; "
-          f"assets {world.assets}; {len(run.ops)} ops", flush=True)
+    if not CONTROL:
+        world = World()
+        run.ops = phone_ops(world)
+        print(f"session: {len(world.guids)} tracks, {len(world.fx)} FX, {world.length:.1f} s; "
+              f"assets {world.assets}; {len(run.ops)} ops", flush=True)
     reaper("""
       reaper.GetSet_LoopTimeRange(true, true, 0, reaper.GetProjectLength(0), false)
       reaper.GetSetRepeat(1)
@@ -829,9 +850,15 @@ def soak(run):
     run.pid = pid = reaper_pid()
     if not pid:
         raise RuntimeError("no REAPER process")
-    run.threads = [threading.Thread(target=desk, args=(world,), name="desk", daemon=True)]
-    run.threads += [threading.Thread(target=phone, args=(n, world, run.ops), name=f"phone {n}", daemon=True)
-                    for n in range(PHONES)]
+    loaded = "reaper_reamo.so" in (try_mapping_rss(pid) or {})
+    if loaded == CONTROL:
+        stats.problem(f"REAmo is {'loaded' if loaded else 'not loaded'} in REAPER, "
+                      f"and this is {'the control' if CONTROL else 'the soak'}")
+        return
+    if not CONTROL:
+        run.threads = [threading.Thread(target=desk, args=(world,), name="desk", daemon=True)]
+        run.threads += [threading.Thread(target=phone, args=(n, world, run.ops), name=f"phone {n}",
+                                         daemon=True) for n in range(PHONES)]
     for t in run.threads:
         t.start()
 
@@ -927,11 +954,12 @@ def finish(run):
             before, after = run.undo_before, project_changes()
             why = "; ".join(opted_in(run.ops))
             why = f"; expected: {why}" if why else ""
+            who = "the run" if CONTROL else "the phones"
             if after["undo"] != before["undo"]:
-                stats.problems.append(f"the phones left undo points in REAPER: the last is now "
+                stats.problems.append(f"{who} left undo points in REAPER: the last is now "
                                       f"{after['undo']!r} (was {before['undo']!r}){why}")
             elif after["changes"] != before["changes"]:
-                stats.problems.append(f"the phones changed the project: REAPER counted "
+                stats.problems.append(f"{who} changed the project: REAPER counted "
                                       f"{after['changes'] - before['changes']} state changes{why}")
         except (TimeoutError, ReaperError) as e:
             stats.problems.append(f"couldn't read REAPER's undo history after the run: {e}")
@@ -942,20 +970,110 @@ def finish(run):
         metrics["rss_growth_mb_by_mapping"] = mapping_growth(run.maps_warm, run.maps_end)
     metrics.update(analyse_threads(run))
     metrics["threads_by_group_at_start"] = run.thread_groups
-    with open(os.path.join(OUT, "soak-summary.json"), "w") as f:
-        json.dump({"config": {"minutes": MINUTES, "warmup_minutes": WARMUP_MINUTES, "phones": PHONES,
-                              "sample_secs": SAMPLE_SECS, "seed": SEED, "cpus": os.cpu_count(),
-                              "ops": os.environ.get("SOAK_OPS", ""), "opted_in": opted_in(run.ops)},
-                   "limits": LIMITS, "metrics": metrics, "totals": stats.total,
-                   "refusals": stats.refusals, "extension_memory": stats.get_memory(),
-                   "problems": stats.problems, "limits_broken": broken}, f, indent=2)
+    summary = {"role": "control" if CONTROL else "soak", "run_id": RUN_ID,
+               "config": {"minutes": MINUTES, "warmup_minutes": WARMUP_MINUTES,
+                          "phones": 0 if CONTROL else PHONES, "sample_secs": SAMPLE_SECS, "seed": SEED,
+                          "cpus": os.cpu_count(), "ops": os.environ.get("SOAK_OPS", ""),
+                          "opted_in": opted_in(run.ops)},
+               "limits": LIMITS, "metrics": metrics, "totals": stats.total,
+               "refusals": stats.refusals, "extension_memory": stats.get_memory(),
+               "problems": stats.problems, "limits_broken": broken}
+    if not CONTROL:
+        summary["baseline"] = against_baseline(metrics)
+    # Written whole or not at all: the soak reads the control's while it runs.
+    path = os.path.join(OUT, "soak-summary.json")
+    with open(path + ".tmp", "w") as f:
+        json.dump(summary, f, indent=2)
+    os.replace(path + ".tmp", path)
     print(json.dumps({"metrics": metrics, "totals": stats.total}, indent=2))
     print("refusals:", json.dumps(stats.refusals, indent=2, sort_keys=True))
+    if not CONTROL:
+        print_baseline(summary["baseline"])
     return stats.problems + broken
 
 
+# What the soak compares with the control.
+COMPARED = ["rss_mb_post_warmup_start", "rss_growth_mb", "rss_slope_mb_per_hour", "rss_anon_slope_mb_per_hour",
+            "cpu_pct_mean", "cpu_drift_points", "main_cpu_pct_mean", "thread_growth", "fd_growth"]
+
+
+def read_baseline():
+    """The control's summary from this run, waiting up to BASELINE_WAIT_SECS
+    for it, or a reason there is none."""
+    if not WITH_BASELINE:
+        return None, f"not in this run (make soak runs {BASELINE} beside it)"
+    deadline = time.monotonic() + BASELINE_WAIT_SECS
+    while True:
+        try:
+            with open(BASELINE_SUMMARY) as f:
+                b = json.load(f)
+            if b.get("run_id") == RUN_ID:
+                return b, None
+        except (OSError, ValueError):
+            pass
+        if time.monotonic() > deadline:
+            return None, f"{BASELINE} wrote no summary within {BASELINE_WAIT_SECS:.0f} s of this run's end"
+        time.sleep(1)
+
+
+def against_baseline(m):
+    """This run's numbers beside the control's, and the difference: what
+    the phones and REAmo add to REAPER alone. Reported, not judged: the
+    limits apply to this run's own numbers."""
+    b, why = read_baseline()
+    if b is None:
+        return {"status": why}
+    bm = b["metrics"]
+
+    def pair(x, y):
+        out = {"soak": x, "baseline": y}
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            out["difference"] = round(x - y, 3)
+        return out
+
+    mine, theirs = m.get("rss_growth_mb_by_mapping"), bm.get("rss_growth_mb_by_mapping")
+    by_mapping = {}
+    if mine is not None and theirs is not None:
+        by_mapping = {k: pair(mine.get(k, 0.0), theirs.get(k, 0.0))
+                      for k in sorted(set(mine) | set(theirs),
+                                      key=lambda k: -abs(mine.get(k, 0.0) - theirs.get(k, 0.0)))}
+    groups_m, groups_b = m.get("cpu_pct_by_thread_group", {}), bm.get("cpu_pct_by_thread_group", {})
+    return {
+        "status": "compared" if not b["problems"] and not b["limits_broken"]
+        else "the control failed: its numbers may not be a fair baseline",
+        "problems": b["problems"] + b["limits_broken"],
+        "metrics": {k: pair(m.get(k), bm.get(k)) for k in COMPARED if k in m or k in bm},
+        "rss_growth_mb_by_mapping": by_mapping,
+        "cpu_pct_by_thread_group": {g: {"soak": groups_m.get(g), "baseline": groups_b.get(g)}
+                                    for g in sorted(set(groups_m) | set(groups_b))},
+        "threads_by_group_at_start": pair(m.get("threads_by_group_at_start"), bm.get("threads_by_group_at_start")),
+    }
+
+
+def print_baseline(cmp):
+    print(f"against the control (REAPER without REAmo): {cmp['status']}")
+    if "metrics" not in cmp:
+        return
+    for p in cmp["problems"]:
+        print(f"  control: {p}")
+    print(f"  {'':28} {'soak':>10} {'control':>10} {'difference':>10}")
+
+    def num(v):
+        return f"{v:10.2f}" if isinstance(v, (int, float)) else f"{'-':>10}"
+
+    for k, v in cmp["metrics"].items():
+        print(f"  {k:28} {num(v['soak'])} {num(v['baseline'])} {num(v.get('difference'))}")
+    for k, v in list(cmp["rss_growth_mb_by_mapping"].items())[:6]:
+        print(f"  {'MB grown, ' + k:28} {num(v['soak'])} {num(v['baseline'])} {num(v.get('difference'))}")
+    for g, v in cmp["cpu_pct_by_thread_group"].items():
+        s_, b_ = v["soak"] or {}, v["baseline"] or {}
+        print(f"  {'CPU %, ' + g:28} {num(s_.get('mean'))} {num(b_.get('mean'))}   "
+              f"drift {num(s_.get('drift_points')).strip()} / {num(b_.get('drift_points')).strip()}")
+
+
 def main():
-    print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {PHONES} phones + the desk, "
+    load = "REAPER without REAmo, no phones (the control)" if CONTROL else f"{PHONES} phones + the desk"
+    print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {load}, "
           f"sample every {SAMPLE_SECS:g} s, seed {SEED}, ops {os.environ.get('SOAK_OPS') or 'default'}, "
           f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
     run = Run()
