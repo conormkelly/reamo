@@ -77,8 +77,13 @@ A failed run is also copied to `out/failures/<when>-<os>-reaper<version>-<scenar
 which later runs leave alone, so a failure that doesn't come back can still
 be read. Its `replay.txt` has the command that runs it again and the code it
 ran: the commit, any uncommitted changes (in `worktree.diff`) and untracked
-files. The run ends by listing where each failure was kept. Delete
-`out/failures/` when you're done with them.
+files. The command sets the `TOUR_ONLY` and `SOAK_*` settings the run had,
+and any a scenario chose itself and wrote to `$HARNESS_OUT/replay.env` as
+`NAME=value` lines (a soak's random seed). The run ends by listing where
+each failure was kept. Delete `out/failures/` when you're done with them.
+
+Ctrl-C (or a TERM to `run.sh`) removes the run's containers, and leaves
+another run's alone.
 
 ## Running on Windows
 
@@ -378,18 +383,26 @@ check, naming RV1-165.
 It fails if:
 
 - REAPER exits;
-- a command goes unanswered for 10 s (the steady phone's probe every 2 s,
-  so within 12 s), or a ReaScript call does (one every 10 s, so within 20 s);
+- a command goes unanswered for 10 s: the steady phone's probe runs every
+  2 s, so a stall shows within about 12 s;
+- a ReaScript call goes unanswered for 10 s: one runs at the first sample
+  10 s after the last, so a stall seen only there shows within 25 s
+  (10 + `SOAK_SAMPLE_SECS` + 10);
 - the transport stops;
-- the server closes or refuses a phone's connection;
-- a command is refused, other than `audio/startStream` with
-  `STREAM_FAILED` (four listeners at most: the phones keep to three, but a
-  phone that just left can hold its slot a moment longer);
-- REAPER's undo history changed: the phones make no edits;
+- the server closes or refuses a phone's connection, or a phone can't send
+  its close frame;
+- a command is refused, except `audio/startStream` with `STREAM_FAILED`
+  while the listener slots are full by the phones' own count (four on the
+  server; the phones keep to three, and count a slot given back in the last
+  5 s as still held);
+- REAPER's undo history or its project state change count moved: the
+  phones make no edits;
+- a phone's thread is still running 15 s after the run ends;
 - after warm-up (`SOAK_WARMUP_MINUTES`: a third of the run, 1 to 20
   minutes), a limit below is broken.
 
-A run under 2 minutes is refused. A failed run still writes its summary.
+A setting that doesn't parse, and a run under 2 minutes, fail with a
+message. Every run writes its summary, failed or not.
 
 | Limit (`SOAK_<NAME>` overrides) | Default | Checked |
 |---|---|---|
@@ -399,11 +412,18 @@ A run under 2 minutes is refused. A failed run still writes its summary.
 | `RSS_SLOPE_MB_PER_HOUR`: least-squares slope of RSS | 6 | when warm-up is at least `SLOPE_MIN_WARMUP_MINUTES` (20) and at least `SLOPE_MIN_MINUTES` (30) follow it: runs of 60 minutes or more by default |
 | `CPU_DRIFT_POINTS`: mean CPU of the last third of that span minus the first, in points of one core | 3 | likewise |
 
-`SOAK_OPS` picks the phones' ops, in space-separated words: `+word` adds
-the opt-in ops (the tuner) whose name contains it, `-word` drops ops whose
-name contains it, and plain words keep only the ops whose name contains
-one of them (`SOAK_OPS=peaks`, `SOAK_OPS=-audio`, `SOAK_OPS=+tuner`).
-`SOAK_SEED` repeats a run's choices. For a crash, `HARNESS_GDB=1` puts
+`SOAK_OPS` picks the phones' ops, in space-separated words matched against
+op names:
+
+- none: every op but the opt-in ones (the tuner);
+- `+word`: the opt-in ops matching it as well (`+tuner`: every op and the tuner);
+- `word`: only the ops matching a plain word, plus any `+word` ones
+  (`peaks +tuner`: the peaks ops and the tuner);
+- `-word`: never the ops matching it, whatever else matched (`-audio`).
+
+`SOAK_SEED` seeds the phones' choices; timing still makes two runs differ.
+An unset seed is random, and a failure's replay line carries the one used
+(the scenario writes it to `replay.env`). For a crash, `HARNESS_GDB=1` puts
 backtraces in `reaper.out`.
 
 `out/long-session-stays-healthy/` keeps:

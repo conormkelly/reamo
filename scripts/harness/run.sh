@@ -153,6 +153,24 @@ done
 soak_env=()
 for v in $(compgen -e | grep '^SOAK_' || true); do soak_env+=(-e "$v"); done
 
+# Ctrl-C (or TERM) removes this run's containers, and only this run's: a
+# parallel run's have another reamo.harness.run label. The scenarios run in
+# the background, which ignores SIGINT, so their containers would otherwise
+# run on. --init gives each container a PID 1 that passes signals on and
+# reaps orphans, such as the REAPER that restart_reaper() starts.
+RUN_ID="$$-$(date +%s)"
+interrupted() {
+    trap - INT TERM
+    echo >&2
+    echo "interrupted: removing this run's containers" >&2
+    local ids
+    ids="$(docker ps -aq --filter label=reamo.harness=v1 --filter "label=reamo.harness.run=$RUN_ID")"
+    # Unquoted: one container id per word.
+    [ -z "$ids" ] || docker rm -f $ids >/dev/null
+    exit 130
+}
+trap interrupted INT TERM
+
 # Runs are keyed by position, so a scenario named twice (to chase a flake)
 # runs twice rather than sharing one container name and status file.
 run_one() {
@@ -164,7 +182,8 @@ run_one() {
     if [ -f "$HERE/$dir/capabilities" ]; then
         while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/$dir/capabilities"
     fi
-    docker run --rm --name "reamo-v1-harness-$s-$$-$i" --network none --label reamo.harness=v1 \
+    docker run --rm --init --name "reamo-v1-harness-$s-$$-$i" --network none \
+        --label reamo.harness=v1 --label reamo.harness.run="$RUN_ID" \
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/reamo:/reamo:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \

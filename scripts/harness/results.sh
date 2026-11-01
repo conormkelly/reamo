@@ -47,12 +47,21 @@ keep_failure() {
         fi
         echo
         echo "run it again:"
-        # A soak's length and load are in its SOAK_* settings. %q quotes
-        # each value so the line pastes back into a shell as it ran.
-        local env_prefix="" v
+        # A soak's length and load are in its SOAK_* settings, and a
+        # scenario can record settings it chose itself (a random seed) as
+        # NAME=value lines in replay.env. %q quotes each value so the line
+        # pastes back into a shell as it ran.
+        local env_prefix="" v line
         for v in TOUR_ONLY $(compgen -e | grep '^SOAK_' || true); do
             [ -n "${!v:-}" ] && env_prefix+="$(printf '%s=%q ' "$v" "${!v}")"
         done
+        if [ -f "$src/replay.env" ]; then
+            while IFS= read -r line; do
+                v="${line%%=*}"
+                [[ "$v" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+                [ -n "${!v:-}" ] || env_prefix+="$(printf '%s=%q ' "$v" "${line#*=}")"
+            done <"$src/replay.env"
+        fi
         echo "  ${env_prefix}scripts/harness/run.sh --os $os --reaper $reaper $scenario"
     } >"$dest/replay.txt"
     [ ! -s "$OUT/tree.diff" ] || cp "$OUT/tree.diff" "$dest/worktree.diff"

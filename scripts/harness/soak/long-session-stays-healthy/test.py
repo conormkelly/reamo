@@ -24,16 +24,20 @@ made, and undo history grows by design, which would hide a leak.
 REAPER's RSS, CPU (process and main thread), threads and open files are
 sampled from /proc every SOAK_SAMPLE_SECS. Two probes tell a slow REAPER
 from a hung one, each failing after HANG_SECS without an answer: the desk
-sends a main-thread command every 2 s, and a ReaScript call runs every
-RPC_SECS (so a stall seen only by ReaScript is caught within 20 s). The
-series goes to out/<scenario>/soak-series.csv as it is taken (so a crash
-leaves it), and the verdict with its numbers to soak-summary.json, which
-every run writes, failed or not.
+sends a main-thread command every 2 s (a stall shows within about 12 s),
+and the sampler makes a ReaScript call when RPC_SECS have passed (a stall
+seen only by ReaScript shows within RPC_SECS + SOAK_SAMPLE_SECS +
+HANG_SECS, 25 s by default). The series goes to
+out/<scenario>/soak-series.csv as it is taken (so a crash leaves it), and
+the verdict with its numbers to soak-summary.json, which every run
+writes, failed or not.
 
-Settings (env, all optional): SOAK_MINUTES (3, at least 2), SOAK_WARMUP_MINUTES
-(a third of the run, 1 to 20), SOAK_PHONES (5), SOAK_SAMPLE_SECS (5),
-SOAK_SEED (random; printed, so a run can be repeated), SOAK_OPS (see
-phone_ops) and the limits below as SOAK_<NAME>.
+Settings (env, all optional): SOAK_MINUTES (3, at least 2),
+SOAK_WARMUP_MINUTES (a third of the run, 1 to 20), SOAK_PHONES (5),
+SOAK_SAMPLE_SECS (5), SOAK_SEED (random, printed, and kept in replay.env
+for a failure's replay line; it seeds the phones' choices, but timing
+still makes two runs differ), SOAK_OPS (see phone_ops) and the limits
+below as SOAK_<NAME>. A setting that doesn't parse fails the run.
 """
 import csv
 import json
@@ -55,17 +59,34 @@ from reamo_client import (HOST, PORT, Client, Closed, InvalidFrame, ReaperError,
 skip_unless_linux("samples REAPER's memory and CPU from Linux's /proc")
 
 
-def env_float(name, default):
-    return float(os.environ.get(name, default))
+# Settings that don't parse, reported as the run's failure (with its summary).
+SETTING_ERRORS = []
 
 
-MINUTES = env_float("SOAK_MINUTES", 3)
+def setting(name, default, kind=float, minimum=0):
+    """SOAK_<name> from the environment as `kind`, at least `minimum`; a
+    value that isn't is recorded in SETTING_ERRORS and the default used."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = kind(raw)
+    except ValueError:
+        SETTING_ERRORS.append(f"{name}={raw!r} is not {'an integer' if kind is int else 'a number'}")
+        return default
+    if value < minimum:
+        SETTING_ERRORS.append(f"{name}={raw!r} is below {minimum}")
+        return default
+    return value
+
+
+MINUTES = setting("SOAK_MINUTES", 3.0)
 # Under this load REAPER's heap climbs for about 20 minutes, flattening as it
 # goes, then holds: a third of the run, at most 20 minutes, is warm-up.
-WARMUP_MINUTES = env_float("SOAK_WARMUP_MINUTES", min(20.0, max(1.0, MINUTES / 3)))
-PHONES = int(os.environ.get("SOAK_PHONES", "5"))
-SAMPLE_SECS = env_float("SOAK_SAMPLE_SECS", 5)
-SEED = int(os.environ.get("SOAK_SEED", str(random.randrange(1 << 31))))
+WARMUP_MINUTES = setting("SOAK_WARMUP_MINUTES", min(20.0, max(1.0, MINUTES / 3)))
+PHONES = setting("SOAK_PHONES", 5, int)
+SAMPLE_SECS = setting("SOAK_SAMPLE_SECS", 5.0, minimum=1)
+SEED = setting("SOAK_SEED", random.randrange(1 << 31), int)
 HANG_SECS = 10.0
 RPC_SECS = 10.0
 # The shortest run that leaves samples after a minute of warm-up to judge.
@@ -78,7 +99,7 @@ LIMITS = {
     # against the start (median of the first tenth). A short run ends inside
     # the warm-up climb, whose steps reach 12 MB, so this catches gross
     # growth only; the slope below is the leak check.
-    "RSS_GROWTH_MB": env_float("SOAK_RSS_GROWTH_MB", 24),
+    "RSS_GROWTH_MB": setting("SOAK_RSS_GROWTH_MB", 24),
     # Least-squares slope of RSS after warm-up (0.06 MB/h measured over the
     # 40 minutes after a 20-minute warm-up), and the rise in mean process
     # CPU from the first third of that span to the last, in points of one
@@ -86,28 +107,32 @@ LIMITS = {
     # when warm-up is at least SLOPE_MIN_WARMUP_MINUTES and at least
     # SLOPE_MIN_MINUTES follow it: with the default warm-up, runs of 60
     # minutes or more. Before that the heap is still climbing.
-    "RSS_SLOPE_MB_PER_HOUR": env_float("SOAK_RSS_SLOPE_MB_PER_HOUR", 6),
-    "CPU_DRIFT_POINTS": env_float("SOAK_CPU_DRIFT_POINTS", 3),
-    "SLOPE_MIN_WARMUP_MINUTES": env_float("SOAK_SLOPE_MIN_WARMUP_MINUTES", 20),
-    "SLOPE_MIN_MINUTES": env_float("SOAK_SLOPE_MIN_MINUTES", 30),
+    "RSS_SLOPE_MB_PER_HOUR": setting("SOAK_RSS_SLOPE_MB_PER_HOUR", 6),
+    "CPU_DRIFT_POINTS": setting("SOAK_CPU_DRIFT_POINTS", 3),
+    "SLOPE_MIN_WARMUP_MINUTES": setting("SOAK_SLOPE_MIN_WARMUP_MINUTES", 20),
+    "SLOPE_MIN_MINUTES": setting("SOAK_SLOPE_MIN_MINUTES", 30),
     # Threads and open files after warm-up, median of the last tenth of
     # samples minus the first (measured: 1 at most; threads come and go
     # between 40 and 41): a connection that leaves one behind grows these
     # with every reconnect.
-    "THREAD_GROWTH": env_float("SOAK_THREAD_GROWTH", 3),
-    "FD_GROWTH": env_float("SOAK_FD_GROWTH", 4),
+    "THREAD_GROWTH": setting("SOAK_THREAD_GROWTH", 3),
+    "FD_GROWTH": setting("SOAK_FD_GROWTH", 4),
     # Allowed refusals (ALLOWED_REFUSALS) as a share of commands, in percent
     # (measured: 0.003).
-    "REFUSAL_PCT": env_float("SOAK_REFUSAL_PCT", 0.5),
+    "REFUSAL_PCT": setting("SOAK_REFUSAL_PCT", 0.5),
 }
 
-# Refusals a healthy run can get, and why. Any other refusal fails the run.
+# Refusals a healthy run can get. Any other refusal fails the run.
 ALLOWED_REFUSALS = {
-    # Four listeners at most. The phones keep to three, but a phone that has
-    # just left can hold its slot for a moment after its socket closes.
+    # Only while the listener slots are full by the phones' own count (see
+    # Stats.stream_slots_full); any other STREAM_FAILED fails the run.
     ("audio/startStream", "STREAM_FAILED"),
 }
+# The server takes four listeners. The phones keep to three at once, but a
+# phone that has just stopped or left can hold its slot a moment longer.
+SERVER_LISTENERS = 4
 MAX_STREAMING = 3
+SLOT_RELEASE_SECS = 5.0
 
 OUT = os.environ.get("HARNESS_OUT", "/tmp")
 CLK_TCK = os.sysconf("SC_CLK_TCK")
@@ -134,6 +159,7 @@ class Stats:
         self.hung = False
         self.memory = {}
         self.streaming = 0
+        self.released = []  # when a listener slot was last given back
         self.stop = threading.Event()
 
     def add(self, key, n=1):
@@ -171,9 +197,21 @@ class Stats:
             self.streaming += 1
             return True
 
-    def give_stream_slot(self):
+    def give_stream_slot(self, used=True):
+        """`used`: the server had the slot, and may hold it a moment longer."""
         with self.lock:
             self.streaming -= 1
+            if used:
+                self.released.append(time.monotonic())
+
+    def stream_slots_full(self):
+        """Whether a startStream refusal is expected: the other phones
+        streaming, plus slots given back within SLOT_RELEASE_SECS, fill
+        the server's listeners. The caller holds one of `streaming`."""
+        with self.lock:
+            now = time.monotonic()
+            self.released = [t for t in self.released if now - t < SLOT_RELEASE_SECS]
+            return (self.streaming - 1) + len(self.released) >= SERVER_LISTENERS
 
     def problem(self, text, hang=False):
         print(f"PROBLEM: {text}", flush=True)
@@ -201,7 +239,9 @@ def run_command(c, command, **params):
         code = (r.get("error") or {}).get("code", "?")
         stats.add("cmd_refused")
         stats.refused(command, code)
-        if (command, code) not in ALLOWED_REFUSALS:
+        allowed = (command, code) in ALLOWED_REFUSALS and (
+            command != "audio/startStream" or stats.stream_slots_full())
+        if not allowed:
             stats.problem(f"{command} refused: {r.get('error')}")
     return r, ms
 
@@ -221,15 +261,19 @@ def read_for(c, seconds):
     absorb(c)
 
 
-def close_properly(c):
-    """A close frame (1000), as a browser closing the page sends."""
+def close_properly(c, n):
+    """A close frame (1000), as a browser closing the page sends. The
+    server reads every open connection, so failing to send 8 bytes means it
+    stopped reading or dropped the connection."""
     payload = struct.pack(">H", 1000)
     mask = os.urandom(4)
     try:
         c.sock.sendall(bytes([0x88, 0x80 | len(payload)]) + mask +
                        bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
-    except OSError:
-        pass
+    except OSError as e:
+        stats.add("close_frame_failed")
+        stats.problem(f"phone {n}: couldn't send its close frame: {type(e).__name__}: {e}",
+                      hang=isinstance(e, TimeoutError))
     c.close()
 
 
@@ -309,7 +353,7 @@ class Phone:
         res, _ = run_command(self.c, "audio/startStream")
         self.streaming = bool(res.get("success"))
         if not self.streaming:
-            stats.give_stream_slot()
+            stats.give_stream_slot(used=False)
 
     def stream_stop(self):
         run_command(self.c, "audio/stopStream")
@@ -327,22 +371,30 @@ OPT_IN = {"tuner": "opening and closing the tuner leaves undo points in REAPER (
 
 # What a phone does while connected: (relative weight, name, op). Each op
 # picks its own parameters; all are reads or subscriptions. SOAK_OPS
-# narrows down what a leak or a drift follows, in space-separated words:
-# "+word" adds the OPT_IN ops whose name contains it, "-word" drops the ops
-# whose name contains it, and a plain word keeps only the ops whose name
-# contains one of the plain words ("peaks", "-audio", "+tuner").
+# narrows down what a leak or a drift follows, in space-separated words
+# matched against op names:
+#   (none)   every op but the OPT_IN ones
+#   +word    also the OPT_IN ops matching word ("+tuner": every op and the tuner)
+#   word     only the ops matching a plain word, plus the +word ones
+#            ("peaks +tuner": the peaks ops and the tuner)
+#   -word    not the ops matching word, whatever else matched ("-audio")
 def phone_ops(world):
     words = os.environ.get("SOAK_OPS", "").split()
     add = [w[1:] for w in words if w.startswith("+")]
     drop = [w[1:] for w in words if w.startswith("-")]
     keep = [w for w in words if w[:1] not in "+-"]
 
-    def opted_out(name):
-        return any(name.startswith(prefix) and not any(w in name for w in add) for prefix in OPT_IN)
+    def opt_in(name):
+        return any(name.startswith(prefix) for prefix in OPT_IN)
 
-    ops = [op for op in all_phone_ops(world)
-           if not opted_out(op[1]) and (not keep or any(w in op[1] for w in keep))
-           and not any(w in op[1] for w in drop)]
+    def wanted(name):
+        if any(w in name for w in drop):
+            return False
+        if opt_in(name):
+            return any(w in name for w in add)
+        return not keep or any(w in name for w in keep)
+
+    ops = [op for op in all_phone_ops(world) if wanted(op[1])]
     assert ops, f"SOAK_OPS={words} matches no op (opt-in ops need +: {', '.join(OPT_IN)})"
     return ops
 
@@ -432,7 +484,7 @@ def phone(n, world, ops):
                 c.close()
                 stats.add("left_dropped")
             elif leave < 0.8:
-                close_properly(c)
+                close_properly(c, n)
                 stats.add("left_closed")
             else:
                 # A phone put to sleep: the socket stays open, nothing is read.
@@ -493,9 +545,13 @@ def desk(world):
         stats.problem(f"desk lost its connection: {traceback.format_exc()}")
 
 
-def undo_top():
-    """What Edit > Undo would undo now, as REAPER names it."""
-    return reaper("return reaper.Undo_CanUndo2(0) or ''", timeout=HANG_SECS)
+def project_changes():
+    """What Edit > Undo would undo now, as REAPER names it, and REAPER's
+    count of project state changes, which also moves for a change that
+    adds no undo point or one named like the last."""
+    top, count = reaper("return reaper.Undo_CanUndo2(0) or '', reaper.GetProjectStateChangeCount(0)",
+                        timeout=HANG_SECS)
+    return {"undo": top, "changes": int(count)}
 
 
 def reaper_pid():
@@ -684,13 +740,16 @@ def soak(run):
       reaper.GetSetRepeat(1)
       reaper.OnPlayButton()
     """)
-    run.undo_before = undo_top()
+    # The baseline follows the test's own setup (the loop range, repeat, play).
+    time.sleep(0.5)
+    run.undo_before = project_changes()
 
     run.pid = pid = reaper_pid()
     if not pid:
         raise RuntimeError("no REAPER process")
-    run.threads = [threading.Thread(target=desk, args=(world,), daemon=True)]
-    run.threads += [threading.Thread(target=phone, args=(n, world, run.ops), daemon=True) for n in range(PHONES)]
+    run.threads = [threading.Thread(target=desk, args=(world,), name="desk", daemon=True)]
+    run.threads += [threading.Thread(target=phone, args=(n, world, run.ops), name=f"phone {n}", daemon=True)
+                    for n in range(PHONES)]
     for t in run.threads:
         t.start()
 
@@ -762,6 +821,9 @@ def finish(run):
     deadline = time.monotonic() + HANG_SECS + 5
     for t in run.threads:
         t.join(timeout=max(0.0, deadline - time.monotonic()))
+    stuck = [t.name for t in run.threads if t.is_alive()]
+    if stuck:
+        stats.problems.append(f"still running {HANG_SECS + 5:.0f} s after the run ended: {', '.join(stuck)}")
 
     alive = bool(run.pid) and proc_state(run.pid) not in "ZX"
     if run.pid and not alive and not any("exited" in p for p in stats.problems):
@@ -770,11 +832,15 @@ def finish(run):
     # wait out its timeout.
     if alive and not stats.hung and run.undo_before is not None:
         try:
-            undo_after = undo_top()
-            if undo_after != run.undo_before:
-                why = "; ".join(opted_in(run.ops))
-                stats.problems.append(f"the phones left undo points in REAPER: the last is now {undo_after!r} "
-                                      f"(was {run.undo_before!r})" + (f"; expected: {why}" if why else ""))
+            before, after = run.undo_before, project_changes()
+            why = "; ".join(opted_in(run.ops))
+            why = f"; expected: {why}" if why else ""
+            if after["undo"] != before["undo"]:
+                stats.problems.append(f"the phones left undo points in REAPER: the last is now "
+                                      f"{after['undo']!r} (was {before['undo']!r}){why}")
+            elif after["changes"] != before["changes"]:
+                stats.problems.append(f"the phones changed the project: REAPER counted "
+                                      f"{after['changes'] - before['changes']} state changes{why}")
         except (TimeoutError, ReaperError) as e:
             stats.problems.append(f"couldn't read REAPER's undo history after the run: {e}")
 
@@ -799,7 +865,13 @@ def main():
           f"sample every {SAMPLE_SECS:g} s, seed {SEED}, ops {os.environ.get('SOAK_OPS') or 'default'}, "
           f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
     run = Run()
-    if MINUTES < MIN_MINUTES:
+    # A failure's replay line (results.sh) sets the seed this run used.
+    with open(os.path.join(OUT, "replay.env"), "w") as f:
+        f.write(f"SOAK_SEED={SEED}\n")
+    if SETTING_ERRORS:
+        for e in SETTING_ERRORS:
+            stats.problem(f"bad setting: {e}")
+    elif MINUTES < MIN_MINUTES:
         stats.problem(f"SOAK_MINUTES={MINUTES:g}: a soak needs at least {MIN_MINUTES:g} minutes, "
                       f"to leave samples after warm-up")
     else:
