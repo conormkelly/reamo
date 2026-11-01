@@ -116,6 +116,22 @@ const targets = struct {
     const start_show_s = 0.3;
     const swell_show_s = 0.2;
     const swell_p95_cents = 0.5;
+    /// The held-out corpora's findings, on dev cases made from their
+    /// summaries. Body modes and sympathetic strings: no octave reading
+    /// (from 0.1 s) and no note's name changing once shown; sympathetic
+    /// strings also P95 <= `sympathetic_p95_cents` against f1 from 1 s.
+    /// Beating polarisations against the composite truth: median time to
+    /// stay within 1 cent <= `polar_settle_guitar_s` on guitar and
+    /// `polar_settle_bass_s` on bass, at most `polar_never_pct` of notes
+    /// never there, and the spread over stable readings at P90 <=
+    /// `polar_flicker_cents`. Fretted bass and sympathetic strings: no
+    /// signal's mean error from 1 s over `finding_bias_cents`.
+    const sympathetic_p95_cents = 0.5;
+    const polar_settle_guitar_s = 0.5;
+    const polar_settle_bass_s = 1.0;
+    const polar_never_pct = 10.0;
+    const polar_flicker_cents = 0.15;
+    const finding_bias_cents = 0.2;
     /// Never green while wrong: no reading in hum_drift flagged stable
     /// more than 0.5 cent off f1(t).
     const drift_stable_wrong = 0;
@@ -203,6 +219,21 @@ const Group = enum {
     /// weak (a bridge pickup's or a miked amp's spectrum): counted towards
     /// octave errors, not towards lock-on.
     bass_h2,
+    /// Strings through an acoustic's piezo: three body modes between 90
+    /// and 250 Hz, not harmonic, at -20 to -6 dB under the note, and a
+    /// pick click.
+    body,
+    /// A string with other open strings ringing in sympathy 15-30 dB under
+    /// it.
+    sympathetic,
+    /// Strings whose two polarisations lie 0.35-3.5 cent apart and decay
+    /// 1.2-3 times apart, the louder one at the pluck dying first in some,
+    /// judged against both together (the composite truth).
+    polar,
+    /// Bass B0 open and fretted to the 21st fret, inharmonicity 2-4e-4
+    /// open (rising as 1 / length^2), every partial gliding down from
+    /// the pluck's tension.
+    bass_fret,
     /// Hum or buzz alone.
     hum,
     /// A noise floor alone.
@@ -214,6 +245,16 @@ const Group = enum {
         return switch (g) {
             .hum, .noise, .muted, .two_notes, .hum_drift_idle, .starts, .swells => false,
             else => true,
+        };
+    }
+
+    /// The groups made from the held-out corpora's findings: judged by
+    /// their own targets, kept out of the pooled ones and the player's
+    /// table so those stay comparable.
+    fn finding(g: Group) bool {
+        return switch (g) {
+            .body, .sympathetic, .polar, .bass_fret => true,
+            else => false,
         };
     }
 };
@@ -254,6 +295,13 @@ const Case = struct {
     /// Adds low-passed noise under the first `bow_s` of the note (a bow's
     /// scrape) at -30 dB against it.
     bow_s: ?f64 = null,
+    /// Body modes under strings[0]: dB under the note's RMS over its first
+    /// 0.1 s for modes at 98, 163 and 231 Hz (t60 0.6, 0.4 and 0.3 s),
+    /// with a 1 ms pick click at the note's peak.
+    body_db: ?[3]f64 = null,
+    /// strings[1] rings in sympathy this many dB under strings[0]'s RMS
+    /// over its first 0.5 s, rising over 50 ms from the onset.
+    sympathetic_db: ?f64 = null,
     /// A pickup switch's click (5 ms of noise at peak 0.03) at this time.
     click_at_s: ?f64 = null,
     /// Render strings[0] as a Karplus-Strong pluck (t60 3 s, peak 0.9) with
@@ -322,7 +370,7 @@ fn string(s: Str, rolloff: f64) sig.StringOptions {
     return .{ .f0 = s.f0, .inharmonicity = s.b, .rolloff = rolloff, .t60_s = if (isBass(s.f0)) 8 else 6 };
 }
 
-const max_cases = 330;
+const max_cases = 480;
 var case_store: [max_cases]Case = undefined;
 var name_store: [max_cases][40]u8 = undefined;
 var case_count: usize = 0;
@@ -558,6 +606,37 @@ fn buildCases() []const Case {
         const pad: sig.StringOptions = .{ .f0 = 130.813, .inharmonicity = 0, .rolloff = 2, .t60_s = 1000, .t60_slope = 0 };
         add(.swells, "C3 pad, {s}", .{bg_name}, .{ .name = "", .group = .swells, .strings = .{ pad, null }, .envelope = .{ .linear = 1 }, .noise_db = bg_noise, .hum = bg_hum });
     }
+    // From the held-out corpora's findings.
+    for (guitar) |st| {
+        for ([_][3]f64{ .{ -20, -14, -10 }, .{ -12, -8, -6 } }) |db| {
+            add(.body, "{s} body {d}/{d}/{d} dB", .{ st.name, db[0], db[1], db[2] }, .{ .name = "", .group = .body, .strings = .{ string(st, 1), null }, .body_db = db });
+        }
+    }
+    for (0..guitar.len) |k| {
+        const other = guitar[(k + guitar.len - 1) % guitar.len];
+        for ([_]f64{ -15, -22, -30 }) |db| {
+            var o = string(other, 1);
+            o.t60_s = 10;
+            o.seed = 5;
+            add(.sympathetic, "{s} + {s} {d} dB", .{ guitar[k].name, other.name, db }, .{ .name = "", .group = .sympathetic, .strings = .{ string(guitar[k], 1), o }, .sympathetic_db = db });
+        }
+    }
+    for ([_]Str{ guitar[0], guitar[3], guitar[5], bass[0], bass[1], bass[2] }) |st| {
+        for ([_]f64{ 0.35, 1, 3.5 }) |c| {
+            for ([_][2]f64{ .{ 0.8, 1.0 / 1.2 }, .{ 0.5, 1.0 / 3.0 }, .{ 0.6, 3 } }) |pg| {
+                var o = string(st, 1);
+                o.polarisation = .{ .cents = c, .gain = pg[0], .t60_ratio = pg[1] };
+                add(.polar, "{s} pol {d} c {d}x{d:.2}", .{ st.name, c, pg[0], pg[1] }, .{ .name = "", .group = .polar, .strings = .{ o, null } });
+            }
+        }
+    }
+    for ([_]f64{ 2e-4, 3e-4, 4e-4 }) |b| {
+        for ([_]f64{ 0, 5, 7, 12, 21 }) |fret| {
+            var o: sig.StringOptions = .{ .f0 = 30.8677 * std.math.pow(f64, 2, fret / 12), .inharmonicity = b * std.math.pow(f64, 2, 2 * fret / 12), .t60_s = 8 };
+            o.pitch = .{ .glide = .{ .start_cents = 5, .tau_s = 0.6 } };
+            add(.bass_fret, "B0 fret {d} B{e}", .{ fret, b }, .{ .name = "", .group = .bass_fret, .strings = .{ o, null } });
+        }
+    }
     // Steady sounds that start abruptly, to keep out.
     for ([_]f64{ 50, 60 }) |hz| add(.hum_drift_idle, "{d} Hz hum switching on", .{hz}, .{ .name = "", .group = .hum_drift_idle, .hum = .{ .hz = hz, .kind = .hum, .db = -40, .change = .{ .on_s = 1.0 } } });
     return case_store[0..case_count];
@@ -576,7 +655,7 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
     const onset = onsetSample(sr);
     for (c.strings, 0..) |maybe, si| {
         const s = maybe orelse continue;
-        if (si == 1 and c.second_at_s != null) continue;
+        if (si == 1 and (c.second_at_s != null or c.sympathetic_db != null)) continue;
         const body = tmp[0 .. n - onset];
         if (c.ks_seed) |seed_ks| sig.pluck(body, sr, s.f0, .{ .amp = 0.9, .t60_s = 3, .seed = seed_ks }) else sig.pluckedString(body, sr, s);
         if (si == 0) if (c.envelope) |e| {
@@ -593,6 +672,38 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
         sig.pluckedString(body, sr, c.strings[1].?);
         sig.scale(body, before * std.math.pow(f64, 10, c.second_db / 20) / sig.rms(body[0..tenth]));
         sig.mix(out[at..], body);
+    }
+    if (c.sympathetic_db) |db| {
+        const half: usize = @intFromFloat(0.5 * sr);
+        const level = sig.rms(out[onset .. onset + half]) * std.math.pow(f64, 10, db / 20);
+        const body = tmp[0 .. n - onset];
+        sig.pluckedString(body, sr, c.strings[1].?);
+        const rise: usize = @intFromFloat(0.05 * sr);
+        for (body[0..rise], 0..) |*v, i| v.* *= @floatCast(@as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(rise)));
+        sig.scale(body, level / sig.rms(body[0..half]));
+        sig.mix(out[onset..], body);
+    }
+    if (c.body_db) |dbs| {
+        const tenth: usize = @intFromFloat(0.1 * sr);
+        const level = sig.rms(out[onset .. onset + tenth]);
+        var peak: f64 = 0;
+        for (out[onset .. onset + tenth]) |v| peak = @max(peak, @abs(v));
+        const modes = [_][2]f64{ .{ 98, 0.6 }, .{ 163, 0.4 }, .{ 231, 0.3 } };
+        var rng = sig.MinStd.init(seed + 31);
+        for (modes, dbs) |mode, db| {
+            // A decaying sinusoid's RMS over its first 0.1 s is about its
+            // amplitude over sqrt 2.
+            const amp = level * std.math.pow(f64, 10, db / 20) * std.math.sqrt2;
+            const phase = std.math.pi * (rng.next() + 1);
+            const decay = @log(1000.0) / mode[1];
+            for (out[onset..], 0..) |*v, i| {
+                const t = @as(f64, @floatFromInt(i)) / sr;
+                if (decay * t > 14) break;
+                v.* += @floatCast(amp * @exp(-decay * t) * @sin(2 * std.math.pi * mode[0] * t + phase));
+            }
+        }
+        const click: usize = @intFromFloat(0.001 * sr);
+        for (out[onset .. onset + click]) |*v| v.* += @floatCast(peak * rng.next());
     }
     if (c.bow_s) |bow| {
         const len: usize = @intFromFloat(bow * sr);
@@ -801,6 +912,20 @@ const GroupStats = struct {
     flag_sum_ms: f64 = 0,
     flag_n: usize = 0,
     flag_never: usize = 0,
+    /// Finding groups: notes, and those whose note name changed after it
+    /// first showed; per note, the time until every reading to the last
+    /// one shown is within 1 cent of the composite truth (guitar and bass
+    /// apart, infinite if never) and the spread of the error against it
+    /// over readings flagged stable; the worst signed mean error from 1 s
+    /// of any one signal, and which.
+    finding_notes: usize = 0,
+    name_changed: usize = 0,
+    comp_settle_guitar: std.ArrayList(f64) = .empty,
+    comp_settle_bass: std.ArrayList(f64) = .empty,
+    comp_flicker: std.ArrayList(f64) = .empty,
+    worst_bias: f64 = 0,
+    worst_bias_case: [48]u8 = undefined,
+    worst_bias_len: usize = 0,
     /// Starts and swells: notes, those whose note never showed in time,
     /// and the times it took (s).
     start_notes: usize = 0,
@@ -880,8 +1005,65 @@ fn measureStart(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs:
     }
 }
 
+fn measureFinding(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []const Display) !void {
+    const s = c.strings[0].?;
+    st.finding_notes += 1;
+    var first: ?i32 = null;
+    var changed = false;
+    var settle: ?f64 = null;
+    var last_shown: usize = 0;
+    for (rs, 0..) |r, i| {
+        if (r.hz != null) last_shown = i;
+    }
+    var sum: f64 = 0;
+    var sum2: f64 = 0;
+    var stable_n: f64 = 0;
+    var bias_sum: f64 = 0;
+    var bias_n: f64 = 0;
+    for (rs, 0..) |r, i| {
+        const t = readTime(i, sr);
+        if (t <= 0) continue;
+        if (r.note) |n| {
+            if (first) |f| {
+                if (n != f) changed = true;
+            } else first = n;
+        }
+        if (t >= 1) if (r.hz) |hz| {
+            bias_sum += sig.cents(hz, s.firstPartialHz(t));
+            bias_n += 1;
+        };
+        if (c.group != .polar or i > last_shown) continue;
+        const e: ?f64 = if (r.hz) |hz| sig.cents(hz, s.compositeFirstPartialHz(t)) else null;
+        if (e != null and @abs(e.?) <= 1) {
+            if (settle == null) settle = t;
+        } else settle = null;
+        if (r.stable) if (e) |v| {
+            sum += v;
+            sum2 += v * v;
+            stable_n += 1;
+        };
+    }
+    if (changed) st.name_changed += 1;
+    if (c.group == .polar) {
+        try (if (isBass(s.f0)) &st.comp_settle_bass else &st.comp_settle_guitar).append(alloc, settle orelse std.math.inf(f64));
+        if (stable_n >= 3) {
+            const m = sum / stable_n;
+            try st.comp_flicker.append(alloc, @sqrt(@max(0, sum2 / stable_n - m * m)));
+        }
+    }
+    const bias = if (bias_n > 0) bias_sum / bias_n else std.math.inf(f64);
+    if (@abs(bias) > @abs(st.worst_bias) or st.worst_bias_len == 0) {
+        var name_buf: [48]u8 = undefined;
+        const name = label(&name_buf, c, sr);
+        st.worst_bias = bias;
+        st.worst_bias_len = @min(name.len, st.worst_bias_case.len);
+        @memcpy(st.worst_bias_case[0..st.worst_bias_len], name[0..st.worst_bias_len]);
+    }
+}
+
 fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []const Display) !void {
     if (c.group == .starts or c.group == .swells) return measureStart(alloc, st, c, sr, rs);
+    if (c.group.finding()) try measureFinding(alloc, st, c, sr, rs);
     var name_buf: [48]u8 = undefined;
     const name = label(&name_buf, c, sr);
     st.reads += rs.len;
@@ -1158,7 +1340,7 @@ fn measurePlayer(alloc: std.mem.Allocator, pl: *Player, c: Case, sr: f64, rs: []
             pl.idle_s += @as(f64, @floatFromInt(rs.len)) / 30;
             return;
         },
-        .two_notes, .ramp, .starts, .swells => return,
+        .two_notes, .ramp, .starts, .swells, .body, .sympathetic, .polar, .bass_fret => return,
         else => {},
     }
     const s = c.strings[0].?;
@@ -1315,6 +1497,7 @@ pub fn main() !void {
     try printTicks(w, cands[0..nc], results);
     try printHumFit(w, cands[0..nc], results);
     try printStarts(w, cands[0..nc], results);
+    try printFindings(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -1384,7 +1567,7 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         var lock_worst: f64 = 0;
         var lock_never: usize = 0;
         for (groups) |grp| {
-            if (!grp.pitched()) continue;
+            if (!grp.pitched() or grp.finding()) continue;
             const st = g[@intFromEnum(grp)];
             octave += st.octave;
             // Lock-on keeps the signals its baseline was measured on.
@@ -1403,7 +1586,7 @@ fn printTargets(w: anytype, cands: []const Candidate, results: []Results) !void 
         const hum = g[@intFromEnum(Group.hum_target)];
         var single_flagged: usize = 0;
         for (groups) |grp| {
-            if (grp.pitched()) single_flagged += g[@intFromEnum(grp)].multiple;
+            if (grp.pitched() and !grp.finding()) single_flagged += g[@intFromEnum(grp)].multiple;
         }
         const hum_p = p95Shown(alloc, hum);
         const hum_cover = 100 * @as(f64, @floatFromInt(hum.span_shown)) / @as(f64, @floatFromInt(@max(hum.span_reads, 1)));
@@ -1512,7 +1695,7 @@ fn printPlayer(w: anytype, cands: []const Candidate, results: []Results) !void {
         var shown: usize = 0;
         var reads: usize = 0;
         for (groups) |grp| {
-            if (!grp.pitched() or grp == .ramp) continue;
+            if (!grp.pitched() or grp == .ramp or grp.finding()) continue;
             shown += r.group[@intFromEnum(grp)].span_shown;
             reads += r.group[@intFromEnum(grp)].span_reads;
         }
@@ -1567,6 +1750,37 @@ fn quantiles(alloc: std.mem.Allocator, values: []const f64) !Quantiles {
         .never = never,
         .worst = if (finite > 0) copy[finite - 1] else std.math.inf(f64),
     };
+}
+
+fn printFindings(w: anytype, cands: []const Candidate, results: []Results) !void {
+    const alloc = std.heap.page_allocator;
+    try w.print(
+        \\
+        \\## Held-out findings, on dev cases (targets: no octave reading or note-name change with body modes or sympathetic strings; sympathetic P95 <= {d} c; polarisations against both together: median to within 1 c <= {d} s guitar, {d} s bass, never <= {d}%, stable spread P90 <= {d} c; no signal's bias over {d} c on fretted bass or sympathetic strings)
+        \\
+        \\| candidate | body: octave reads, notes renamed (of) | sympathetic: octave reads, notes renamed (of), P95 (c), worst bias (c) | polar: to within 1 c guitar / bass median (s), never | polar stable spread median / P90 / worst (c) | fretted bass worst bias (c) | verdict |
+        \\|---|---|---|---|---|---|---|
+        \\
+    , .{ targets.sympathetic_p95_cents, targets.polar_settle_guitar_s, targets.polar_settle_bass_s, targets.polar_never_pct, targets.polar_flicker_cents, targets.finding_bias_cents });
+    for (cands, results) |c, *r| {
+        const body = r.group[@intFromEnum(Group.body)];
+        const sym = r.group[@intFromEnum(Group.sympathetic)];
+        const pol = r.group[@intFromEnum(Group.polar)];
+        const fret = r.group[@intFromEnum(Group.bass_fret)];
+        const sym_p = p95(alloc, sym, false);
+        const qg = try quantiles(alloc, pol.comp_settle_guitar.items);
+        const qb = try quantiles(alloc, pol.comp_settle_bass.items);
+        var never: usize = 0;
+        for (pol.comp_settle_guitar.items) |v| never += @intFromBool(!std.math.isFinite(v));
+        for (pol.comp_settle_bass.items) |v| never += @intFromBool(!std.math.isFinite(v));
+        const never_pct = 100 * @as(f64, @floatFromInt(never)) / @as(f64, @floatFromInt(@max(pol.finding_notes, 1)));
+        const flick = try alloc.dupe(f64, pol.comp_flicker.items);
+        defer alloc.free(flick);
+        const qf = try quantiles(alloc, flick);
+        const flick_p90 = percentile(flick, 0.9);
+        const ok = body.octave == 0 and body.name_changed == 0 and sym.octave == 0 and sym.name_changed == 0 and sym_p <= targets.sympathetic_p95_cents and @abs(sym.worst_bias) <= targets.finding_bias_cents and qg.median <= targets.polar_settle_guitar_s and qb.median <= targets.polar_settle_bass_s and never_pct <= targets.polar_never_pct and flick_p90 <= targets.polar_flicker_cents and @abs(fret.worst_bias) <= targets.finding_bias_cents;
+        try w.print("| {s} | {d}, {d} ({d}) | {d}, {d} ({d}), {d:.3}, {d:.3} {s} | {d:.2} / {d:.2}, {d:.1}% | {d:.3} / {d:.3} / {d:.3} | {d:.3} {s} | {s} |\n", .{ c.name, body.octave, body.name_changed, body.finding_notes, sym.octave, sym.name_changed, sym.finding_notes, sym_p, sym.worst_bias, sym.worst_bias_case[0..sym.worst_bias_len], qg.median, qb.median, never_pct, qf.median, flick_p90, qf.worst, fret.worst_bias, fret.worst_bias_case[0..fret.worst_bias_len], verdict(ok) });
+    }
 }
 
 fn printStarts(w: anytype, cands: []const Candidate, results: []Results) !void {
