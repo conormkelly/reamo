@@ -52,6 +52,8 @@
 //!   glide's nu_inf), and to the first reading flagged stable.
 //! - CPU: push() per second of input and the mean analyse() time on a
 //!   sustained string, read at 30 Hz, as one core's share.
+//! - Per-tick cost (1/30 s pushed, then one reading) while no onset has
+//!   been heard and after one, the least of three runs per tick.
 const std = @import("std");
 const builtin = @import("builtin");
 const sig = @import("signals.zig");
@@ -102,6 +104,12 @@ const targets = struct {
     /// under it): a flagged reading that shows nothing must not be a free
     /// way round the subharmonic target.
     const single_flagged = 0;
+    /// Per 30 Hz tick (1/30 s pushed, then one reading), at 48 and 96 kHz:
+    /// the mean while no onset has been heard (a tuner opened over a note
+    /// already ringing, or over hum) at most this many times the mean after
+    /// one, and every tick in either state under `tick_worst_us`.
+    const tick_idle_ratio = 2.0;
+    const tick_worst_us = 1000.0;
     /// One core's share at 30 Hz, at 48 and 96 kHz.
     const cpu_percent = 1.0;
 };
@@ -699,6 +707,58 @@ fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []co
 
 const Cpu = struct { push_ns_per_s: f64 = 0, analyse_mean_ns: f64 = 0, analyse_max_ns: f64 = 0 };
 
+const Ticks = struct { idle_mean_us: f64 = 0, idle_worst_us: f64 = 0, played_mean_us: f64 = 0, played_worst_us: f64 = 0 };
+
+/// Per-tick cost over a session: hum at -60 dBFS throughout, a 110 Hz
+/// string ringing from the start (no onset) for 3 s, then hum alone, then
+/// a pluck at 4 s, to 7 s. Each tick's cost is its least over three runs
+/// of the session, so a preempted tick doesn't count; ticks before 4 s are
+/// the no-onset state, ticks from 4.1 s the played one.
+fn measureTicks(c: Candidate, sr: f64, buf: []f32, tmp: []f32) !Ticks {
+    const n: usize = @intFromFloat(7 * sr);
+    const s = buf[0..n];
+    sig.mains(s, sr, 50, .hum, -60);
+    const pluck_at: usize = @intFromFloat(4 * sr);
+    sig.pluckedString(tmp[0..@intFromFloat(3 * sr)], sr, .{ .f0 = 110, .inharmonicity = 6.5e-5 });
+    sig.mix(s, tmp[0..@intFromFloat(3 * sr)]);
+    sig.pluckedString(tmp[0 .. n - pluck_at], sr, .{ .f0 = 82.4069, .inharmonicity = 1.1e-4, .seed = 5 });
+    sig.mix(s[pluck_at..], tmp[0 .. n - pluck_at]);
+    sig.addNoise(s, 3e-5, 21);
+    const tick: usize = @intFromFloat(@round(sr / 30));
+    const count = n / tick;
+    var best: [256]u64 = [_]u64{std.math.maxInt(u64)} ** 256;
+    for (0..3) |_| {
+        c.reset(sr);
+        var timer = try std.time.Timer.start();
+        for (0..@min(count, best.len)) |k| {
+            timer.reset();
+            var p = k * tick;
+            while (p < (k + 1) * tick) : (p += 256) c.push(s[p..@min((k + 1) * tick, p + 256)]);
+            std.mem.doNotOptimizeAway(c.read());
+            best[k] = @min(best[k], timer.read());
+        }
+    }
+    var out: Ticks = .{};
+    var idle_n: f64 = 0;
+    var played_n: f64 = 0;
+    for (best[0..@min(count, best.len)], 0..) |ns, k| {
+        const t = @as(f64, @floatFromInt((k + 1) * tick)) / sr;
+        const us = @as(f64, @floatFromInt(ns)) / 1000;
+        if (t < 4) {
+            out.idle_mean_us += us;
+            out.idle_worst_us = @max(out.idle_worst_us, us);
+            idle_n += 1;
+        } else if (t >= 4.1) {
+            out.played_mean_us += us;
+            out.played_worst_us = @max(out.played_worst_us, us);
+            played_n += 1;
+        }
+    }
+    out.idle_mean_us /= idle_n;
+    out.played_mean_us /= played_n;
+    return out;
+}
+
 fn measureCpu(c: Candidate, sr: f64, buf: []f32, tmp: []f32) !Cpu {
     const s = render(.{ .name = "", .group = .stiff, .strings = .{ string(guitar[0], 1), null } }, sr, 1, buf, tmp);
     const tick: usize = @intFromFloat(@round(sr / 30.0));
@@ -739,6 +799,7 @@ fn coreShare(cpu: Cpu) f64 {
 const Results = struct {
     group: [groups.len]GroupStats = [_]GroupStats{.{}} ** groups.len,
     cpu: [rates.len]Cpu = [_]Cpu{.{}} ** rates.len,
+    ticks: [rates.len]Ticks = [_]Ticks{.{}} ** rates.len,
 };
 
 pub fn main() !void {
@@ -781,7 +842,8 @@ pub fn main() !void {
     defer allocator.free(results);
     for (results) |*r| r.* = .{};
 
-    const len: usize = @intFromFloat((lead_s + sustain_s) * 96000 + 1);
+    // The signals, or the 7 s tick-cost session.
+    const len: usize = @intFromFloat(@max(lead_s + sustain_s, 7) * 96000 + 1);
     const buf = try allocator.alloc(f32, len);
     defer allocator.free(buf);
     const tmp = try allocator.alloc(f32, len);
@@ -807,13 +869,17 @@ pub fn main() !void {
         return;
     }
     for (cands[0..nc], results) |cand, *r| {
-        for (rates, 0..) |sr, ri| r.cpu[ri] = try measureCpu(cand, sr, buf, tmp);
+        for (rates, 0..) |sr, ri| {
+            r.cpu[ri] = try measureCpu(cand, sr, buf, tmp);
+            r.ticks[ri] = try measureTicks(cand, sr, buf, tmp);
+        }
     }
 
     try w.print("\n{d} signals at {d} rates. Candidates:\n\n", .{ cases.len, rates.len });
     for (cands[0..nc]) |c| try w.print("- {s}: {s}\n", .{ c.name, c.note });
     try printTargets(w, cands[0..nc], results);
     try printPooledApart(w, cands[0..nc], results);
+    try printTicks(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -972,6 +1038,28 @@ fn printPooledApart(w: anytype, cands: []const Candidate, results: []Results) !v
             p95(alloc, ks, false),
             ks.octave,
         });
+    }
+}
+
+fn printTicks(w: anytype, cands: []const Candidate, results: []Results) !void {
+    try w.print(
+        \\
+        \\## Per-tick cost (target: no-onset mean <= {d}x the played mean, every tick < {d:.0} us)
+        \\
+        \\| candidate | 48k no onset mean / worst (us) | 48k played mean / worst (us) | 96k no onset mean / worst (us) | 96k played mean / worst (us) | verdict |
+        \\|---|---|---|---|---|---|
+        \\
+    , .{ targets.tick_idle_ratio, targets.tick_worst_us });
+    for (cands, results) |c, *r| {
+        var ok = true;
+        for ([_]usize{ 1, 3 }) |ri| {
+            const t = r.ticks[ri];
+            if (t.idle_mean_us > targets.tick_idle_ratio * t.played_mean_us) ok = false;
+            if (@max(t.idle_worst_us, t.played_worst_us) >= targets.tick_worst_us) ok = false;
+        }
+        const a = r.ticks[1];
+        const b = r.ticks[3];
+        try w.print("| {s} | {d:.0} / {d:.0} | {d:.0} / {d:.0} | {d:.0} / {d:.0} | {d:.0} / {d:.0} | {s} |\n", .{ c.name, a.idle_mean_us, a.idle_worst_us, a.played_mean_us, a.played_worst_us, b.idle_mean_us, b.idle_worst_us, b.played_mean_us, b.played_worst_us, verdict(ok) });
     }
 }
 
