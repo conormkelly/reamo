@@ -164,10 +164,10 @@ tuner-targets: zig-version ## Tuner pitch analyser against its accuracy targets 
 	cd extension && "$(ZIG)" build tuner-targets -Doptimize=ReleaseFast
 
 tuner-wav: zig-version ## Tuner pitch analyser over a WAV file: make tuner-wav WAV=take.wav [ARGS="--out frames.csv --notes notes.csv"]
-	cd extension && "$(ZIG)" build tuner-wav -Doptimize=ReleaseFast -- "$(WAV)" $(ARGS)
+	cd extension && "$(ZIG)" build tuner-wav -Doptimize=ReleaseFast -- "$(abspath $(WAV))" $(ARGS)
 
 tuner-mdb: zig-version ## Tuner pitch analyser on MDB-bass-synth stems: make tuner-mdb MDB=<dataset dir> [ARGS="--tracks name --out dir"]
-	cd extension && "$(ZIG)" build tuner-mdb -Doptimize=ReleaseFast -- "$(MDB)" $(ARGS)
+	cd extension && "$(ZIG)" build tuner-mdb -Doptimize=ReleaseFast -- "$(abspath $(MDB))" $(ARGS)
 
 zig-version: ## Fail unless ZIG (default: the zig on PATH) is Zig 0.15.x
 	@v="$$("$(ZIG)" version 2>/dev/null)"; case "$$v" in 0.15.*) ;; \
