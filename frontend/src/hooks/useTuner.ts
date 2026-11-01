@@ -23,10 +23,15 @@ import { useCallback } from 'react';
 import { useReaperStore } from '../store';
 import { useReaper } from './useReaper';
 import { tuner } from '../core/WebSocketCommands';
+import { savedSettingsToSend } from '../views/tuner/tunerStorage';
 
 export interface UseTunerReturn {
-  /** Subscribe to tuner on a track. Inserts JSFX if first subscriber. */
-  subscribe: (trackGuid: string) => void;
+  /**
+   * Subscribe to tuner on a track (inserts JSFX if first subscriber) or the
+   * master. Once REAPER confirms, sends the settings saved on this phone
+   * that differ from the tuner's.
+   */
+  subscribe: (trackGuid: string) => Promise<void>;
   /** Unsubscribe from tuner. Removes JSFX if last subscriber. */
   unsubscribe: () => void;
   /** Whether currently subscribed to a track's tuner */
@@ -56,7 +61,7 @@ export interface UseTunerReturn {
  * Provides subscribe/unsubscribe functions and current tuner state.
  */
 export function useTuner(): UseTunerReturn {
-  const { sendCommand } = useReaper();
+  const { sendCommand, sendCommandAsync } = useReaper();
 
   // Store state
   const subscribedGuid = useReaperStore((s) => s.tunerSubscribedGuid);
@@ -76,16 +81,36 @@ export function useTuner(): UseTunerReturn {
   const setTunerReferenceHz = useReaperStore((s) => s.setTunerReferenceHz);
   const setTunerThresholdDb = useReaperStore((s) => s.setTunerThresholdDb);
 
-  // Subscribe to tuner on a track
+  // Subscribe to tuner on a track, then apply the settings saved on this
+  // phone: before REAPER confirms, a setParam would be refused (the tuner
+  // isn't open), and the first event would put the tuner's own back.
   const subscribe = useCallback(
-    (trackGuid: string) => {
+    async (trackGuid: string) => {
       // 1. Set store state first (prepares to receive events)
       setTunerSubscription(trackGuid);
 
       // 2. Send subscribe command
-      sendCommand(tuner.subscribe(trackGuid));
+      let response: { success?: boolean; payload?: { reference?: number; threshold?: number } };
+      try {
+        response = (await sendCommandAsync(tuner.subscribe(trackGuid))) as typeof response;
+      } catch {
+        return; // not connected, or no answer: the page re-subscribes on reconnect
+      }
+      if (!response?.success || useReaperStore.getState().tunerSubscribedGuid !== trackGuid) return;
+      const reported = response.payload;
+      if (typeof reported?.reference !== 'number' || typeof reported?.threshold !== 'number') return;
+
+      // 3. The saved settings that differ from the tuner's
+      for (const [param, value] of savedSettingsToSend({
+        referenceHz: reported.reference,
+        thresholdDb: reported.threshold,
+      })) {
+        if (param === 'reference') setTunerReferenceHz(value);
+        else setTunerThresholdDb(value);
+        sendCommand(tuner.setParam(trackGuid, param, value));
+      }
     },
-    [sendCommand, setTunerSubscription]
+    [sendCommand, sendCommandAsync, setTunerSubscription, setTunerReferenceHz, setTunerThresholdDb]
   );
 
   // Unsubscribe from tuner

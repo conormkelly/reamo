@@ -21,7 +21,6 @@ import { EMPTY_SKELETON } from '../../store/stableRefs';
 import { TunerMeter } from './TunerMeter';
 import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
-import { savedSettingsToSend } from './tunerStorage';
 
 // Hysteresis threshold: only switch notes when within this many cents of the new note
 // This prevents flickering at the ±50 cent boundary between adjacent notes
@@ -120,19 +119,6 @@ export function TunerView(): ReactElement {
   const selectedTrack = trackList.find((t) => t.g === selectedTrackGuid);
   const trackName = selectedTrack?.n || 'Select Track';
 
-  // Apply the settings the user saved on this phone, on mount. Unsaved
-  // ones are left to the tuner's own defaults (tunerStorage.ts).
-  useEffect(() => {
-    if (!selectedTrackGuid) return;
-
-    for (const [param, value] of savedSettingsToSend({ referenceHz, thresholdDb })) {
-      if (param === 'reference') setReferenceHz(value, selectedTrackGuid);
-      else setThresholdDb(value, selectedTrackGuid);
-    }
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Auto-select track on mount (prefer saved track, then armed track, then first track)
   useEffect(() => {
     if (trackList.length === 0) return;
@@ -153,7 +139,7 @@ export function TunerView(): ReactElement {
   useEffect(() => {
     if (!selectedTrackGuid) return;
 
-    subscribe(selectedTrackGuid);
+    void subscribe(selectedTrackGuid);
 
     return () => {
       unsubscribe();
