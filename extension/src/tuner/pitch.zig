@@ -305,10 +305,12 @@ pub fn AnalyserWith(comptime options: Options) type {
 
         /// Analysed samples kept in all.
         kept_count: u64,
-        /// The octave hold: log2 of the frequency it holds to (NaN for
-        /// none), the onset it was set after, the jump waiting for
-        /// agreement and how many analyses in a row have made it, and the
-        /// last analysis's input and factor.
+        /// The octave hold: whether it holds a frequency (or only has one
+        /// waiting for a second analysis to agree), log2 of it, the onset
+        /// it was set after, the jump waiting for agreement and how many
+        /// analyses in a row have made it, and the last analysis's input
+        /// and factor.
+        hold_set: bool,
         hold_log2: f64,
         hold_onset: u64,
         hold_pending: f64,
@@ -338,10 +340,9 @@ pub fn AnalyserWith(comptime options: Options) type {
         last_clarity: f64,
 
         /// The gate: the input it last decided at and its decision, the
-        /// learned floor (dBFS, NaN before any input) and when it was last
-        /// moved, whether a note is showing, the onset that started it and
-        /// when, when it stopped and whether it may resume, and the window
-        /// levels of recent analyses.
+        /// learned floor (dBFS, NaN before any input), whether a note is
+        /// showing, the onset that started it and when, when it stopped and
+        /// whether it may resume, and the window levels of recent analyses.
         gate_at: u64,
         gate_open: bool,
         floor_db: f64,
@@ -397,7 +398,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.onset_at = 0;
             self.segment_len = 0;
             self.kept_count = 0;
-            self.hold_log2 = std.math.nan(f64);
+            self.hold_set = false;
+            self.hold_log2 = 0;
             self.hold_onset = 0;
             self.hold_pending = 1;
             self.hold_count = 0;
@@ -543,6 +545,7 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `f`, unless it is 2, 3 or 4 times (or a half, third or quarter
         /// of) the frequency held since the onset, in which case the held
         /// one, until `octave_hold` analyses in a row have made the jump.
+        /// The hold takes hold once two analyses after the onset agree.
         fn holdOctave(self: *Self, f: f64) f64 {
             if (options.octave_hold == 0) return f;
             // Without new input, the same decision as last time.
@@ -550,14 +553,23 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.hold_at = self.kept_count;
             self.hold_factor = 1;
             const lf = @log2(f);
-            if (self.onset_at != self.hold_onset or std.math.isNan(self.hold_log2)) {
+            const quarter_tone = 1.0 / 24.0;
+            if (self.onset_at != self.hold_onset) {
                 self.hold_onset = self.onset_at;
+                self.hold_set = false;
                 self.hold_log2 = lf;
                 self.hold_count = 0;
                 return f;
             }
+            // The hold anchors once two analyses in a row agree: the first
+            // after an onset is the least sure (over a ringing note it can be
+            // the two notes' common subharmonic).
+            if (!self.hold_set) {
+                self.hold_set = @abs(lf - self.hold_log2) <= quarter_tone;
+                self.hold_log2 = lf;
+                return f;
+            }
             const jumps = [_]f64{ 2, 3, 4, 0.5, 1.0 / 3.0, 0.25 };
-            const quarter_tone = 1.0 / 24.0;
             for (jumps) |j| {
                 if (@abs(lf - self.hold_log2 - @log2(j)) > quarter_tone) continue;
                 if (j == self.hold_pending) self.hold_count += 1 else {
@@ -1064,6 +1076,42 @@ test "after an onset, a jump of the pitch by an octave is held until three analy
     try testing.expectEqual(@as(i32, 40), held_notes[jump]);
     try testing.expectEqual(@as(i32, 40), held_notes[jump + 1]);
     for (held_notes[jump + 2 ..]) |n| try testing.expectEqual(@as(i32, 52), n);
+}
+
+test "a new note over a ringing one is not held back when the first reading after its onset is their common subharmonic" {
+    // E4 drops to -12 dB as B3 is plucked; 33 ms on, YIN reads their common
+    // subharmonic (82.3 Hz, a 4:3 pair's), then B3. B3 is 3 times the
+    // first reading, but nothing should hold it back for that.
+    const a = try testing.allocator.create(Analyser);
+    defer testing.allocator.destroy(a);
+    try a.init(44100);
+    const buf = try generate(44100 * 2);
+    defer testing.allocator.destroy(buf);
+    const other = try generate(44100 * 2);
+    defer testing.allocator.destroy(other);
+    const lead = 4410;
+    const change = lead + 22050;
+    @memset(buf[0..lead], 0);
+    signals.pluck(buf[lead..], 44100, 329.628, .{ .t60_s = 3, .seed = 502 });
+    for (buf[change..]) |*v| v.* *= 0.25;
+    signals.pluck(other[0 .. buf.len - change], 44100, 246.942, .{ .t60_s = 3, .seed = 602 });
+    signals.mix(buf[change..], other[0 .. buf.len - change]);
+    // Readings every 1470 samples from the end of the lead; reading 14
+    // ends at the change.
+    var locked_at: ?usize = null;
+    var k: usize = 0;
+    a.push(buf[0..lead]);
+    while (lead + (k + 1) * 1470 <= buf.len) : (k += 1) {
+        a.push(buf[lead + k * 1470 .. lead + (k + 1) * 1470]);
+        const r = a.analyse(.{});
+        if (lead + (k + 1) * 1470 <= change) continue;
+        const ok = r.freq_hz > 0 and @abs(centsOff(r, 246.942)) <= 5;
+        if (ok) {
+            if (locked_at == null) locked_at = k;
+        } else locked_at = null;
+    }
+    // Locked from the second reading after the change, 67 ms on.
+    try testing.expect(locked_at.? <= 16);
 }
 
 test "a pitch jump that isn't an octave, a twelfth or two octaves is not held" {
