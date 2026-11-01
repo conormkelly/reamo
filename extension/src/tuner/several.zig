@@ -69,6 +69,9 @@ pub fn blackmanHarris(i: usize, n: usize) f64 {
 
 pub const Judgement = struct {
     verdict: Verdict,
+    /// With `one`, the candidate that explains the peaks: the string's
+    /// fundamental, to a fraction of a bin.
+    fundamental_hz: ?f64 = null,
     spectrum: Spectrum,
     /// The least power counted as a partial.
     present_min: f64,
@@ -87,10 +90,10 @@ pub const Judgement = struct {
 /// frequencies mean nothing, and the verdict is unknown.
 pub fn judge(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *Scratch) Judgement {
     const v = verdictOf(sp, min_hz, max_hz, spacing_hz, scratch);
-    return .{ .verdict = v.verdict, .spectrum = sp, .present_min = v.present_min };
+    return .{ .verdict = v.verdict, .fundamental_hz = v.fundamental_hz, .spectrum = sp, .present_min = v.present_min };
 }
 
-const Inner = struct { verdict: Verdict, present_min: f64 = std.math.inf(f64) };
+const Inner = struct { verdict: Verdict, present_min: f64 = std.math.inf(f64), fundamental_hz: ?f64 = null };
 
 fn verdictOf(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *Scratch) Inner {
     if (spacing_hz < resolution * 4 / sp.length_s) return .{ .verdict = .unknown };
@@ -132,7 +135,7 @@ fn verdictOf(sp: Spectrum, min_hz: f64, max_hz: f64, spacing_hz: f64, scratch: *
             unresolved = true;
             continue;
         }
-        if (complete(sp, peaks, c, present_min)) return .{ .verdict = .one, .present_min = present_min };
+        if (complete(sp, peaks, c, present_min)) return .{ .verdict = .one, .present_min = present_min, .fundamental_hz = c };
     }
     return .{ .verdict = if (unresolved) .unknown else .several, .present_min = present_min };
 }
@@ -278,6 +281,20 @@ test "one string is never several, bright, mellow or with its fundamental 20 dB 
                 }
             }
         }
+    }
+}
+
+test "names the fundamental of one string, its fundamental 20 dB down or missing" {
+    const fx = try fixture();
+    defer testing.allocator.destroy(fx);
+    for ([_]f64{ 1, 0.05 }) |gain| {
+        fx.string(.{ .f0 = 110, .inharmonicity = 6.5e-5, .fundamental_gain = gain, .max_hz = 5000 });
+        for (fx.x[0..seg_len], fx.s32[0..seg_len], 0..) |*d, v, i| d.* = v * blackmanHarris(i, seg_len);
+        @memset(fx.x[seg_len..], 0);
+        fx.fft.powerSpectrum(&fx.x, fft_n, &fx.work, &fx.power);
+        const sp: Spectrum = .{ .power = &fx.power, .bin_hz = rate / fft_n, .length_s = seg_len / rate };
+        const j = judge(sp, 25, 2000, 2000, &fx.scratch);
+        try testing.expectApproxEqRel(@as(f64, 110), j.fundamental_hz.?, 0.01);
     }
 }
 

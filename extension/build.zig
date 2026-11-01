@@ -143,6 +143,7 @@ pub fn build(b: *std.Build) void {
         "src/tuner/pitch.zig", // with first_partial.zig's, several.zig's and hum.zig's tests, which it imports
         "src/tuner/wav.zig",
         "src/tuner/truth.zig",
+        "src/tuner/take.zig",
         // protocol.zig, state/, subscription/ modules have ../ imports — tested via main.zig test block
     };
 
