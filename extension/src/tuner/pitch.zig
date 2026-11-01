@@ -404,6 +404,10 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// whether it may resume, and the window levels of recent analyses.
         gate_at: u64,
         gate_open: bool,
+        /// The settings the gate last decided with, and its state before it
+        /// decided on the current input.
+        gate_settings: Settings,
+        gate_before: GateState,
         floor_db: f64,
         /// Floor learning stops at an onset until the gate has decided on it.
         floor_paused: bool,
@@ -486,6 +490,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.onset_count = 0;
             self.gate_at = std.math.maxInt(u64);
             self.gate_open = false;
+            self.gate_settings = .{};
             self.floor_db = std.math.nan(f64);
             self.floor_paused = false;
             self.floor_countdown = 0;
@@ -743,16 +748,24 @@ pub fn AnalyserWith(comptime options: Options) type {
         }
 
         /// `m` if a note may show: over the learned floor, started at an
-        /// onset, still sounding, and not mains hum. Decides only with
-        /// new input.
+        /// onset, still sounding, and not mains hum. Decides once per input,
+        /// and again for the same input if the settings change, from the
+        /// state it decided from.
         fn gate(self: *Self, m: ?Measured, level: f64, settings: Settings) ?Measured {
-            if (self.kept_count == self.gate_at) return if (self.gate_open) m else null;
-            self.gate_at = self.kept_count;
+            if (self.kept_count == self.gate_at) {
+                if (sameGateSettings(settings, self.gate_settings)) return if (self.gate_open) m else null;
+                self.restoreGate();
+            } else {
+                self.saveGate();
+                self.gate_at = self.kept_count;
+                const t = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
+                self.level_t[self.level_pos] = t;
+                self.level_v[self.level_pos] = level;
+                self.level_pos = (self.level_pos + 1) % level_history_len;
+                self.level_used = @min(self.level_used + 1, level_history_len);
+            }
+            self.gate_settings = settings;
             const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
-            self.level_t[self.level_pos] = now;
-            self.level_v[self.level_pos] = level;
-            self.level_pos = (self.level_pos + 1) % level_history_len;
-            self.level_used = @min(self.level_used + 1, level_history_len);
             // Every analysis sees a new onset, pitched or not.
             const fresh_onset = self.onsetFresh(now);
 
@@ -785,6 +798,27 @@ pub fn AnalyserWith(comptime options: Options) type {
                 if (self.note_onset_count == self.onset_count or since_onset >= onset_floor_hold_s) self.floor_paused = false;
             }
             return if (self.note_active) m else null;
+        }
+
+        fn saveGate(self: *Self) void {
+            self.gate_before = .{
+                .note_active = self.note_active,
+                .note_onset_count = self.note_onset_count,
+                .note_start = self.note_start,
+                .note_end = self.note_end,
+                .note_may_resume = self.note_may_resume,
+                .floor_paused = self.floor_paused,
+            };
+        }
+
+        fn restoreGate(self: *Self) void {
+            const g = self.gate_before;
+            self.note_active = g.note_active;
+            self.note_onset_count = g.note_onset_count;
+            self.note_start = g.note_start;
+            self.note_end = g.note_end;
+            self.note_may_resume = g.note_may_resume;
+            self.floor_paused = g.floor_paused;
         }
 
         /// Every `hum_hop_s` of idle input (`hum_relearn_s` once two have
@@ -875,13 +909,16 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// only with new input: analysing again without any shows the same.
         fn track(self: *Self, m: ?Measured) ?Shown {
             const now = @as(f64, @floatFromInt(self.kept_count)) / self.analysis_rate;
-            const fresh = self.kept_count != self.track_at;
+            const new_input = self.kept_count != self.track_at;
             self.track_at = self.kept_count;
             const got = m orelse {
-                if (fresh) self.track_voiced = false;
+                if (new_input) self.track_voiced = false;
                 return null;
             };
             const x = 1200 * @log2(got.hz);
+            // A pitch for input last seen with none (the settings changed
+            // in between) starts the note too.
+            const fresh = new_input or !self.track_voiced;
             if (fresh) {
                 // An onset, a gap with no pitch, or a jump of over a
                 // semitone starts the note afresh.
@@ -1049,6 +1086,27 @@ pub fn AnalyserWith(comptime options: Options) type {
             return period + std.math.clamp((s0 - s2) / (2 * curvature), -1, 1);
         }
     };
+}
+
+/// The gate's state that one decision changes.
+const GateState = struct {
+    note_active: bool,
+    note_onset_count: u64,
+    note_start: f64,
+    note_end: f64,
+    note_may_resume: bool,
+    floor_paused: bool,
+};
+
+/// Whether two settings gate alike (the reference pitch doesn't gate).
+fn sameGateSettings(a: Settings, b: Settings) bool {
+    if (a.silence_db != b.silence_db) return false;
+    if ((a.range == null) != (b.range == null)) return false;
+    if (a.range) |ra| {
+        const rb = b.range.?;
+        return std.meta.eql(ra, rb);
+    }
+    return true;
 }
 
 /// The one-euro filter's smoothing factor for a step of `dt` seconds at
@@ -1785,6 +1843,23 @@ test "the reading does not depend on how the input is split into pushes" {
         pos = end;
     }
     try testing.expectEqual(whole.analyse(.{}), pieces.analyse(.{}));
+}
+
+test "a change of silence threshold or range takes effect at once, without new input" {
+    const a = try newAnalyser(48000);
+    defer testing.allocator.destroy(a);
+    const buf = try generate(24000);
+    defer testing.allocator.destroy(buf);
+    // 220 Hz at about -43 dBFS RMS.
+    signals.sine(buf, 48000, 220, 0.01, 0);
+    a.push(buf);
+    // Too quiet for -30 first: nothing; then -90 shows it with no new input.
+    try testing.expectEqual(@as(f64, 0), a.analyse(.{ .silence_db = -30 }).freq_hz);
+    try testing.expectApproxEqAbs(@as(f64, 0), centsOff(a.analyse(.{ .silence_db = -90 }), 220), 0.05);
+    try testing.expectEqual(@as(f64, 0), a.analyse(.{ .silence_db = -30 }).freq_hz);
+    try testing.expectApproxEqAbs(@as(f64, 0), centsOff(a.analyse(.{ .silence_db = -90 }), 220), 0.05);
+    try testing.expectEqual(@as(f64, 0), a.analyse(.{ .range = .{ .low_hz = 400, .high_hz = 800 } }).freq_hz);
+    try testing.expectApproxEqAbs(@as(f64, 0), centsOff(a.analyse(.{}), 220), 0.05);
 }
 
 test "analysing twice without new input gives the same reading" {
