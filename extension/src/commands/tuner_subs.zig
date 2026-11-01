@@ -120,7 +120,8 @@ pub fn handleUnsubscribe(api: anytype, _: protocol.CommandMessage, response: *mo
 ///
 /// Parameters:
 /// - param: "reference" (A4 Hz, 400-480) or "threshold" (silence dB, -90 to -30);
-///   values outside are held to the range
+///   values outside are held to the range, on a track tuner and the master
+///   alike, so what other phones are told matches what the tuner uses
 /// - value: float value for the parameter
 ///
 /// Response:

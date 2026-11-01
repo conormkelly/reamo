@@ -53,7 +53,15 @@ with Client() as a:
         print(f"setParam {param}={value}: {r.get('error') or 'ok'}",
               reaper("local t = reaper.GetTrack(0, 0); return (reaper.TrackFX_GetParam(t, 0x1000000, 4)), "
                      "(reaper.TrackFX_GetParam(t, 0x1000000, 6))"))
-    r = a.command("tuner/setParam", trackGuid=gtr, param="reference", value=441.0)
+    # Out-of-range values are held to the tuner's range, in the JSFX and in
+    # what another phone opening the tuner is told.
+    with Client() as c:
+        rc = c.command("tuner/subscribe", trackGuid=bass)
+        assert rc["success"], rc
+        held = (rc["payload"]["reference"], rc["payload"]["threshold"])
+        print("a third phone opening Bass is told:", held)
+        assert held == (400.0, -30.0), f"setParam 300 Hz / 20 dB should be held to 400 / -30, got {held}"
+        r = a.command("tuner/setParam", trackGuid=gtr, param="reference", value=441.0)
     assert not r["success"], f"setParam on a track with no tuner succeeded: {r}"
 
     assert a.command("tuner/subscribe", trackGuid=gtr)["success"]  # A switches track

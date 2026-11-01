@@ -515,12 +515,13 @@ pub const TunerSubscriptions = struct {
         guid_cache: anytype,
         api: anytype,
     ) !void {
+        const held = heldToRange(param, value) orelse return error.InvalidParam;
         if (isMaster(track_guid)) {
             if (!self.master.isOpen()) return error.NotSubscribed;
             switch (param) {
-                .reference => self.master.setReference(value),
-                .threshold => self.master.setSilenceDb(value),
-                else => return error.InvalidParam,
+                .reference => self.master.setReference(held),
+                .threshold => self.master.setSilenceDb(held),
+                else => unreachable, // heldToRange takes only these two
             }
             return;
         }
@@ -549,17 +550,30 @@ pub const TunerSubscriptions = struct {
 
         switch (param) {
             .reference => {
-                tuner.reference_hz = value;
+                tuner.reference_hz = @floatCast(held);
                 // JSFX slider5: 400-480 Hz range → normalize to 0-1
-                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.reference), (@as(f64, value) - 400.0) / 80.0);
+                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.reference), (held - 400.0) / 80.0);
             },
             .threshold => {
-                tuner.silence_threshold = value;
+                tuner.silence_threshold = @floatCast(held);
                 // JSFX slider11: -90 to -30 dB range → normalize to 0-1
-                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.threshold), (@as(f64, value) + 90.0) / 60.0);
+                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.threshold), (held + 90.0) / 60.0);
             },
-            else => return error.InvalidParam,
+            else => unreachable, // heldToRange takes only these two
         }
+    }
+
+    /// A setParam value held to the tuner's range, the same for both kinds
+    /// of tuner (the JSFX's sliders span exactly these): A4 400-480 Hz, the
+    /// silence threshold -90 to -30 dB. Null for a parameter phones can't
+    /// set, or a value that isn't a finite number.
+    pub fn heldToRange(param: TunerParam, value: f64) ?f64 {
+        if (!std.math.isFinite(value)) return null;
+        return switch (param) {
+            .reference => std.math.clamp(value, master_tuner.reference_min_hz, master_tuner.reference_max_hz),
+            .threshold => std.math.clamp(value, master_tuner.silence_min_db, master_tuner.silence_max_db),
+            else => null,
+        };
     }
 
     /// Check if there are any active subscriptions.
@@ -873,4 +887,27 @@ test "a phone subscribing again to the track it is on keeps the JSFX instead of 
     try std.testing.expectEqual(@as(usize, 0), api.getCallCount(.trackFxDelete));
     try std.testing.expectEqual(@as(u8, 1), subs.getTrackTuner("{T1}").?.ref_count);
     subs.removeAllClients(&api);
+}
+
+test "setParam values are held to the tuner's range, for track tuners and the master alike" {
+    const H = TunerSubscriptions.heldToRange;
+    try std.testing.expectEqual(@as(?f64, 400), H(.reference, 300));
+    try std.testing.expectEqual(@as(?f64, 480), H(.reference, 1e9));
+    try std.testing.expectEqual(@as(?f64, 442), H(.reference, 442));
+    try std.testing.expectEqual(@as(?f64, -30), H(.threshold, 20));
+    try std.testing.expectEqual(@as(?f64, -90), H(.threshold, -120));
+    try std.testing.expectEqual(@as(?f64, null), H(.reference, std.math.nan(f64)));
+    try std.testing.expectEqual(@as(?f64, null), H(.threshold, std.math.inf(f64)));
+    try std.testing.expectEqual(@as(?f64, null), H(.yin_threshold, 0.1));
+}
+
+test "setParam on the master holds an out-of-range value and refuses a non-finite one" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1);
+    try rig.subs.setParam(MASTER_GUID, .reference, 300, &rig.cache, &rig.api);
+    try std.testing.expectEqual(@as(f64, 400), rig.subs.master.snapshot().settings.reference_hz);
+    try std.testing.expectError(error.InvalidParam, rig.subs.setParam(MASTER_GUID, .threshold, std.math.nan(f32), &rig.cache, &rig.api));
+    try std.testing.expectEqual(@as(f64, -90), rig.subs.master.snapshot().settings.silence_db);
 }
