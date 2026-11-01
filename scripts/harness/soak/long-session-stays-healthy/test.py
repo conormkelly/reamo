@@ -155,12 +155,52 @@ SLOT_RELEASE_SECS = 5.0
 OUT = os.environ.get("HARNESS_OUT", "/tmp")
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 
-# The control's out dir, and how long after this run ends to wait for its
-# summary when run.sh started it in the same run.
-BASELINE_SUMMARY = os.path.join(os.path.dirname(OUT), BASELINE, "soak-summary.json")
-BASELINE_WAIT_SECS = 120.0
+# The soak and its control find each other through marker files in their
+# out dirs under the shared out/, matched by run.sh's run id: an older
+# run's files are never read. A scenario named twice in a run gets
+# out/<scenario>.<i>, so each looks in every out dir of the other's name.
+SOAK = "long-session-stays-healthy"
+OUT_ROOT = os.path.dirname(OUT)
 RUN_ID = os.environ.get("HARNESS_RUN_ID", "")
-WITH_BASELINE = not CONTROL and BASELINE in os.environ.get("HARNESS_RUN_SCENARIOS", "").split()
+RUN_SCENARIOS = os.environ.get("HARNESS_RUN_SCENARIOS", "").split()
+WITH_BASELINE = not CONTROL and BASELINE in RUN_SCENARIOS
+WITH_SOAK = CONTROL and SOAK in RUN_SCENARIOS
+CONTROL_STARTED = "control-started.json"  # the control writes it as it starts
+SOAK_DONE = "soak-done.json"  # the soak writes it as it ends: the control then stops
+# How long after its end the soak waits for the control's summary.
+BASELINE_WAIT_SECS = 120.0
+
+
+
+def write_json(path, data):
+    """Written whole or not at all: the other container reads it."""
+    with open(path + ".tmp", "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(path + ".tmp", path)
+
+
+def mark(name, **extra):
+    write_json(os.path.join(OUT, name), {"run_id": RUN_ID, "time": time.time(), **extra})
+
+
+def this_run(scenario, name):
+    """[(out dir name, contents)] of the file `name` in each out dir of
+    `scenario` that this run wrote, in out dir order."""
+    try:
+        dirs = sorted(d for d in os.listdir(OUT_ROOT) if re.fullmatch(re.escape(scenario) + r"(\.\d+)?", d))
+    except OSError:
+        return []
+    found = []
+    for d in dirs:
+        try:
+            with open(os.path.join(OUT_ROOT, d, name)) as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if data.get("run_id") == RUN_ID:
+            found.append((d, data))
+    return found
+
 
 # Toggle states the web UI watches: play, repeat, metronome, count-in.
 TOGGLES = [1007, 1068, 40364, 41745]
@@ -837,6 +877,8 @@ class Run:
         self.ops = []
         self.thread_rows = []  # (t_s, [((tid, name, group), CPU %), ...]) per sample
         self.thread_groups = {}  # {group: threads} at the start of sampling
+        self.started = time.time()
+        self.stopped_early = None  # why the control stopped before SOAK_MINUTES
 
 
 def soak(run):
@@ -894,6 +936,10 @@ def soak(run):
         playing, rpc_ms = 1, 0.0
         next_rpc = start + RPC_SECS
         while not stats.stop.wait(max(0.0, prev_t + SAMPLE_SECS - time.monotonic())):
+            if WITH_SOAK and this_run(SOAK, SOAK_DONE):
+                run.stopped_early = f"the soak ended {(time.monotonic() - start) / 60:.1f} min in"
+                print(f"control: {run.stopped_early}, so it stops too", flush=True)
+                return
             now = time.monotonic()
             try:
                 cur = proc_sample(pid)
@@ -953,6 +999,8 @@ def soak(run):
 def finish(run):
     """Stop the phones, check what can still be checked, write the summary
     and return the failures."""
+    if not CONTROL:
+        mark(SOAK_DONE)  # the control stops when it sees this
     if run.pid:
         run.maps_end = try_mapping_rss(run.pid)
     stats.stop.set()
@@ -997,19 +1045,31 @@ def finish(run):
                                                  "opted_in": opted_in(run.ops)})},
                "limits": LIMITS, "metrics": metrics, "totals": stats.total,
                "refusals": stats.refusals, "extension_memory": stats.get_memory(),
-               "problems": stats.problems, "limits_broken": broken}
-    if not CONTROL:
-        summary["baseline"] = against_baseline(metrics)
-    # Written whole or not at all: the soak reads the control's while it runs.
+               "problems": stats.problems, "limits_broken": broken,
+               "started": run.started, "ended": time.time()}
+    if CONTROL:
+        summary["stopped_early"] = run.stopped_early
     path = os.path.join(OUT, "soak-summary.json")
-    with open(path + ".tmp", "w") as f:
-        json.dump(summary, f, indent=2)
-    os.replace(path + ".tmp", path)
+    failed = stats.problems + broken
+    if not CONTROL:
+        # The summary is written before any wait for the control, so a
+        # crash during the wait still leaves it.
+        summary["baseline"] = {"status": "waiting for the control" if WITH_BASELINE and not failed
+                               else "not compared"}
+        write_json(path, summary)
+        summary["baseline"] = against_baseline(metrics, run, failed)
+        if WITH_BASELINE:
+            # A failure's replay line (results.sh) runs the control too, and
+            # the control's out dirs from this run are kept with the failure.
+            with open(os.path.join(OUT, "replay-with"), "w") as f:
+                f.write("".join(f"{BASELINE} {d}\n" for d, _ in this_run(BASELINE, CONTROL_STARTED))
+                        or f"{BASELINE}\n")
+    write_json(path, summary)
     print(json.dumps({"metrics": metrics, "totals": stats.total}, indent=2))
     print("refusals:", json.dumps(stats.refusals, indent=2, sort_keys=True))
     if not CONTROL:
         print_baseline(summary["baseline"])
-    return stats.problems + broken
+    return failed
 
 
 # What the soak compares with the control.
@@ -1017,32 +1077,45 @@ COMPARED = ["rss_mb_post_warmup_start", "rss_growth_mb", "rss_slope_mb_per_hour"
             "cpu_pct_mean", "cpu_drift_points", "main_cpu_pct_mean", "thread_growth", "fd_growth"]
 
 
-def read_baseline():
-    """The control's summary from this run, waiting up to BASELINE_WAIT_SECS
-    for it, or a reason there is none."""
+def read_baseline(run):
+    """(out dir, summary) of the control that ran beside this soak,
+    waiting up to BASELINE_WAIT_SECS for its summary, or (None, why there
+    is none). With more than one, the first that overlapped this soak."""
     if not WITH_BASELINE:
         return None, f"not in this run (make soak runs {BASELINE} beside it)"
+    started = [d for d, _ in this_run(BASELINE, CONTROL_STARTED)]
+    if not started:
+        return None, (f"{BASELINE} hadn't started by the end of this soak: run.sh starts scenarios in the "
+                      f"order named, HARNESS_JOBS at a time, so it runs alongside only if named first or "
+                      f"with HARNESS_JOBS of 2 or more (make soak does both)")
     deadline = time.monotonic() + BASELINE_WAIT_SECS
     while True:
-        try:
-            with open(BASELINE_SUMMARY) as f:
-                b = json.load(f)
-            if b.get("run_id") == RUN_ID:
-                return b, None
-        except (OSError, ValueError):
-            pass
-        if time.monotonic() > deadline:
-            return None, f"{BASELINE} wrote no summary within {BASELINE_WAIT_SECS:.0f} s of this run's end"
+        done = this_run(BASELINE, "soak-summary.json")
+        if len(done) == len(started) or time.monotonic() > deadline:
+            break
         time.sleep(1)
+    if not done:
+        return None, f"{BASELINE} wrote no summary within {BASELINE_WAIT_SECS:.0f} s of this soak's end"
+    beside = [(d, b) for d, b in done if b.get("ended", 0) > run.started]
+    if not beside:
+        return None, (f"{BASELINE} ended before this soak started, so it ran before it, not beside it "
+                      f"(HARNESS_JOBS=1?)")
+    return beside, None
 
 
-def against_baseline(m):
+def against_baseline(m, run, failed):
     """This run's numbers beside the control's, and the difference: what
     the phones and REAmo add to REAPER alone. Reported, not judged: the
-    limits apply to this run's own numbers."""
-    b, why = read_baseline()
-    if b is None:
+    limits apply to this run's own numbers. A soak that failed isn't
+    compared: its numbers stop wherever it failed."""
+    if failed:
+        return {"status": "not compared: this soak failed"}
+    beside, why = read_baseline(run)
+    if beside is None:
         return {"status": why}
+    out_dir, b = beside[0]
+    if len(beside) > 1:
+        print(f"against {out_dir}, the first of {', '.join(d for d, _ in beside)}", flush=True)
     bm = b["metrics"]
 
     def pair(x, y):
@@ -1058,9 +1131,13 @@ def against_baseline(m):
                       for k in sorted(set(mine) | set(theirs),
                                       key=lambda k: -abs(mine.get(k, 0.0) - theirs.get(k, 0.0)))}
     groups_m, groups_b = m.get("cpu_pct_by_thread_group", {}), bm.get("cpu_pct_by_thread_group", {})
+    status = (f"compared with {out_dir}" if not b["problems"] and not b["limits_broken"]
+              else f"compared with {out_dir}, but it reported problems: its numbers may not be a fair baseline")
+    if b.get("stopped_early"):
+        status += f"; it stopped early ({b['stopped_early']})"
     return {
-        "status": "compared" if not b["problems"] and not b["limits_broken"]
-        else "compared, but the control reported problems: its numbers may not be a fair baseline",
+        "status": status,
+        "control_out_dirs": [d for d, _ in beside],
         "problems": b["problems"] + b["limits_broken"],
         "metrics": {k: pair(m.get(k), bm.get(k)) for k in COMPARED if k in m or k in bm},
         "rss_growth_mb_by_mapping": by_mapping,
@@ -1097,6 +1174,8 @@ def main():
     print(f"soak: {MINUTES:g} min, warm-up {WARMUP_MINUTES:g} min, {load}, sample every {SAMPLE_SECS:g} s, "
           f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
     run = Run()
+    if CONTROL:
+        mark(CONTROL_STARTED)
     if not CONTROL:
         # A failure's replay line (results.sh) sets the seed this run used.
         with open(os.path.join(OUT, "replay.env"), "w") as f:

@@ -219,14 +219,21 @@ done
 wait
 print_ready
 
+out_name() {
+    local i="$1" s="${scenarios[$1]}"
+    [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] && echo "$s" || echo "$s.$i"
+}
+# Every scenario's output first: a failure can keep another scenario's
+# out dir with its own (replay-with, in results.sh).
+for i in "${!scenarios[@]}"; do
+    keep_output "$ARTIFACTS/$(out_name "$i")" "$OUT/run-$i.log"
+done
 pass=0
 failed=()
 skipped=()
 for i in "${!scenarios[@]}"; do
     s="${scenarios[$i]}"
-    out="$s"
-    [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
-    keep_output "$ARTIFACTS/$out" "$OUT/run-$i.log"
+    out="$(out_name "$i")"
     case "$(cat "$OUT/run-$i.status")" in
         0) pass=$((pass + 1)) ;;
         77) skipped+=("$s") ;;

@@ -176,7 +176,9 @@ harness-image: ## Build the harness image for REAPER_VERSION (pinned, oldest, la
 	scripts/harness/run.sh --image-only
 
 soak: ## Soak test on headless REAPER beside a REAPER-only control; SOAK_MINUTES=60 for longer (default 3)
-	scripts/harness/run.sh long-session-baseline long-session-stays-healthy
+	@# At least two jobs, so the control runs alongside the soak, not before it.
+	jobs=$${HARNESS_JOBS:-4}; [ "$$jobs" -ge 2 ] 2>/dev/null || jobs=2; \
+	HARNESS_JOBS=$$jobs scripts/harness/run.sh long-session-baseline long-session-stays-healthy
 
 release-check: ## Release gate: every scenario on the oldest supported REAPER, then the pinned newest
 	scripts/harness/run.sh --reaper oldest

@@ -8,6 +8,11 @@
 #                              leave alone, with replay.txt (how to run it
 #                              again, and the code it ran) and, if the
 #                              working tree had changes, worktree.diff
+#
+# A scenario that needs another one beside it (the soak and its control)
+# lists it in its out dir's replay-with, one "<scenario> [<out dir>]" per
+# line: the replay line runs it too, first, and each out dir named is kept
+# in the failure's copy under its own name.
 
 kept_failures=()
 
@@ -62,7 +67,17 @@ keep_failure() {
                 [ -n "${!v:-}" ] || env_prefix+="$(printf '%s=%q ' "$v" "${line#*=}")"
             done <"$src/replay.env"
         fi
-        echo "  ${env_prefix}scripts/harness/run.sh --os $os --reaper $reaper $scenario"
+        local with=() name dir
+        if [ -f "$src/replay-with" ]; then
+            while read -r name dir; do
+                [ -n "$name" ] || continue
+                printf '%s\n' "${with[@]+"${with[@]}"}" | grep -qxF "$name" || with+=("$name")
+                if [ -n "$dir" ] && [ -d "$ARTIFACTS/$dir" ]; then
+                    cp -R "$ARTIFACTS/$dir" "$dest/$dir"
+                fi
+            done <"$src/replay-with"
+        fi
+        echo "  ${env_prefix}scripts/harness/run.sh --os $os --reaper $reaper ${with[*]:+${with[*]} }$scenario"
     } >"$dest/replay.txt"
     [ ! -s "$OUT/tree.diff" ] || cp "$OUT/tree.diff" "$dest/worktree.diff"
     kept_failures+=("$dest")

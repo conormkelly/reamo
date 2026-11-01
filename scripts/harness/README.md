@@ -364,8 +364,8 @@ SOAK_MINUTES=480 make soak         # a working day
 SOAK_MINUTES=60 SOAK_SEED=7 scripts/harness/run.sh long-session-stays-healthy   # without the control
 ```
 
-`make soak` runs the soak and its control side by side, each in its own
-container.
+`make soak` runs the soak and its control at the same time, each in its
+own container (with at least two jobs, whatever `HARNESS_JOBS` says).
 
 `long-session-stays-healthy` opens the band session (`corpus/band-session.lua`)
 and plays it on repeat:
@@ -389,8 +389,16 @@ the same time, sampled the same way, on a REAPER without REAmo (its
 - No WebSocket probe, REAmo memory stats or refusals: those need REAmo.
 - It doesn't read or record the phones' settings (`SOAK_PHONES`,
   `SOAK_SEED`, `SOAK_OPS`, `SOAK_REFUSAL_PCT`).
-- The soak waits up to 120 s after its end for the control's summary, and
-  reports both runs and the difference. Run alone, it reports no baseline.
+- They pair up by run id. When the soak ends (passed, failed or crashed)
+  it writes `soak-done.json`; the control stops at its next sample and
+  writes its summary. The soak waits up to 120 s for it, then reports
+  both runs and the difference, against the first control if named
+  twice. A failed soak isn't compared.
+- No comparison, and the summary says why, if the soak runs alone, or
+  the control didn't run alongside it (`run.sh` with the control named
+  second and `HARNESS_JOBS=1`, or the control finished first).
+- A failed soak's replay line runs both, and its kept copy holds the
+  control's out dir too.
 - The difference is REAmo plus what REAmo has REAPER do (API calls, peak
   reads, the audio hook), not REAmo's code alone.
 - The limits judge the soak's own numbers, not the difference.
