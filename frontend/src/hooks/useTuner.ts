@@ -23,7 +23,12 @@ import { useCallback } from 'react';
 import { useReaperStore } from '../store';
 import { useReaper } from './useReaper';
 import { tuner } from '../core/WebSocketCommands';
-import { savedSettingsToSend } from '../views/tuner/tunerStorage';
+import {
+  savedSettingsToSend,
+  saveReferenceHz,
+  saveThresholdDb,
+  tunerKind,
+} from '../views/tuner/tunerStorage';
 
 export interface UseTunerReturn {
   /**
@@ -101,7 +106,7 @@ export function useTuner(): UseTunerReturn {
       if (typeof reported?.reference !== 'number' || typeof reported?.threshold !== 'number') return;
 
       // 3. The saved settings that differ from the tuner's
-      for (const [param, value] of savedSettingsToSend({
+      for (const [param, value] of savedSettingsToSend(tunerKind(trackGuid), {
         referenceHz: reported.reference,
         thresholdDb: reported.threshold,
       })) {
@@ -132,11 +137,7 @@ export function useTuner(): UseTunerReturn {
       sendCommand(tuner.setParam(trackGuid, 'reference', hz));
 
       // Persist to localStorage
-      try {
-        localStorage.setItem('tuner-reference', String(hz));
-      } catch {
-        // Ignore quota exceeded errors
-      }
+      saveReferenceHz(hz);
     },
     [sendCommand, setTunerReferenceHz]
   );
@@ -150,12 +151,8 @@ export function useTuner(): UseTunerReturn {
       // Send command to backend
       sendCommand(tuner.setParam(trackGuid, 'threshold', db));
 
-      // Persist to localStorage
-      try {
-        localStorage.setItem('tuner-threshold', String(db));
-      } catch {
-        // Ignore quota exceeded errors
-      }
+      // Persist to localStorage, per kind of tuner (tunerStorage.ts)
+      saveThresholdDb(tunerKind(trackGuid), db);
     },
     [sendCommand, setTunerThresholdDb]
   );

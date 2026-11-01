@@ -1,5 +1,6 @@
 /**
- * useTuner: saved settings reach the tuner only once it is open.
+ * useTuner: saved settings reach the tuner only once it is open, and the
+ * master's threshold is kept apart from the tracks'.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -91,5 +92,31 @@ describe('useTuner', () => {
     });
     await respond({ success: true, payload: { reference: 440, threshold: -60 } });
     expect(setParams()).toEqual([]);
+  });
+
+  it("never applies a track tuner's saved threshold to the master", async () => {
+    // Saved by a page that could tune only tracks, chosen or not.
+    localStorage.setItem('tuner-threshold', '-60');
+    const respond = pendingSubscribe();
+    const { result } = renderHook(() => useTuner());
+    act(() => {
+      void result.current.subscribe('master');
+    });
+    await respond({ success: true, payload: { reference: 440, threshold: -90 } });
+    expect(setParams()).toEqual([]);
+  });
+
+  it('saves a threshold set on the master under its own key', () => {
+    const { result } = renderHook(() => useTuner());
+    act(() => {
+      result.current.setThresholdDb(-70, 'master');
+    });
+    expect(localStorage.getItem('tuner-threshold-master')).toBe('-70');
+    expect(localStorage.getItem('tuner-threshold')).toBeNull();
+    act(() => {
+      result.current.setThresholdDb(-50, TRACK);
+    });
+    expect(localStorage.getItem('tuner-threshold')).toBe('-50');
+    expect(localStorage.getItem('tuner-threshold-master')).toBe('-70');
   });
 });
