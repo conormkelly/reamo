@@ -145,7 +145,7 @@ pub const MasterTuner = struct {
 
     /// A phone opens the master tuner. The first allocates the analyser,
     /// takes the audio hook and starts the worker; settings start from the
-    /// analyser's defaults, as a fresh JSFX's did. `registrar` is anything
+    /// analyser's defaults. `registrar` is anything
     /// with REAPER's registerAudioHook and unregisterAudioHook. Main thread.
     pub fn open(self: *MasterTuner, allocator: Allocator, hook: *audio_hook.Hook, registrar: anytype) OpenError!void {
         if (self.subscribers > 0) {
@@ -156,9 +156,8 @@ pub const MasterTuner = struct {
         errdefer allocator.destroy(analysis);
         if (!hook.acquire(registrar, .tuner)) return error.AudioHookFailed;
         errdefer hook.release(registrar, .tuner);
-        // From the hook's next block: nothing older belongs to this tuner.
-        // The worker, the ring's consumer from now on, isn't running yet.
-        hook.tuner_ring.discard();
+        // acquire left the ring empty, and the worker, its consumer from now
+        // on, starts here.
         self.* = .{ .analysis = analysis, .subscribers = 1, .tick_ns = self.tick_ns };
         self.worker = std.Thread.spawn(.{}, run, .{ self, analysis, &hook.tuner_ring }) catch |err| {
             logging.err("tuner: couldn't start the master tuner's thread: {s}", .{@errorName(err)});
