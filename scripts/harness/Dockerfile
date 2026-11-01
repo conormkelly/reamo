@@ -24,14 +24,20 @@ FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b203
 # HARNESS:
 #   python3      the scenario client (stdlib only)
 #   procps       pgrep, to tell whether REAPER survived a scenario
-#   gdb          backtraces when REAPER crashes (HARNESS_GDB=1)
+#   gdb          backtraces when REAPER crashes (HARNESS_GDB=1); attaching
+#                to REAPER to set its SIGPIPE disposition
+#                (clients-dropping-mid-write-survive-default-sigpipe)
 #   imagemagick  screenshots of REAPER's display (`import -window root`)
 #   xdotool      list REAPER's windows (is a modal open?) and press keys in them
 #   iproute2     give a scenario network adapters (with NET_ADMIN, see README)
+#   jackd2       a JACK server on its dummy backend, so REAPER has audio inputs
+#                a scenario can feed (`jack-inputs`, jack_feeder.py; README).
+#                Its install asks whether to enable realtime scheduling, hence
+#                DEBIAN_FRONTEND=noninteractive (the default, no, is wanted)
 # DOWNLOAD (image build only):
 #   ca-certificates curl xz-utils
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb xauth libgtk-3-0 libasound2 \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        xvfb xauth libgtk-3-0 libasound2 jackd2 \
         python3 procps gdb imagemagick xdotool iproute2 \
         ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/*

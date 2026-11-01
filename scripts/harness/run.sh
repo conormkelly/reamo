@@ -8,6 +8,7 @@
 #   scripts/harness/run.sh --reaper latest         # reaper.fm's current release
 #   scripts/harness/run.sh --reaper 6.0 --image-only   # just build that image
 #   scripts/harness/run.sh --os windows smoke      # on a Windows PC, over ssh
+#   SOAK_MINUTES=30 scripts/harness/run.sh long-session-stays-healthy   # a soak
 #
 # --reaper takes a release as reaper.fm numbers it, or one of: pinned (the
 # default, the newest release we have checked), oldest, latest (looked up on
@@ -19,11 +20,20 @@
 #   REAPER_LICENSE  licence file (default: scripts/harness/reaper-license.rk)
 #   REAPER_VERSION  as --reaper, which overrides it
 #   HARNESS_GDB=1   run REAPER under gdb; a crash prints all thread backtraces
+#   HARNESS_AUDIO=jack  run every scenario on JACK with fed inputs, not the
+#                   dummy device: exploratory, not a release check (README,
+#                   "Audio inputs through JACK")
 #   HARNESS_IMAGE   image name (default: reamo-v1-harness), tagged reaper-<version>
 #   HARNESS_JOBS    scenarios to run at once (default: 4); output is still
 #                   printed one scenario at a time, in order
 #   TOUR_ONLY       tour scenarios run only the ops whose name contains one of
 #                   these space-separated words
+#   SOAK_*          passed into the container, for the soak scenarios (README,
+#                   "Soak tests")
+#
+# Each container also gets HARNESS_RUN_ID, the same for every scenario of a
+# run, HARNESS_RUN_SCENARIOS, the run's scenario names, and HARNESS_RUN_JOBS,
+# HARNESS_JOBS as the run took it: the soak and its control pair up by them.
 #
 # Each scenario gets a fresh REAPER in its own --rm container with no network
 # and no published ports, so it can run beside a desktop REAPER (or another
@@ -135,25 +145,58 @@ else
 fi
 
 JOBS="${HARNESS_JOBS:-4}"
+# soak/ holds scenarios that run for minutes to hours. A full run takes only
+# scenarios/, so these run only when named.
+scenario_dir() {
+    local d
+    for d in scenarios soak; do
+        [ -f "$HERE/$d/$1/test.py" ] && { echo "$d/$1"; return 0; }
+    done
+    return 1
+}
 for s in "${scenarios[@]}"; do
-    [ -f "$HERE/scenarios/$s/test.py" ] || { echo "error: no scenario '$s'" >&2; exit 1; }
+    scenario_dir "$s" >/dev/null || { echo "error: no scenario '$s'" >&2; exit 1; }
 done
+soak_env=()
+for v in $(compgen -e | grep '^SOAK_' || true); do soak_env+=(-e "$v"); done
+
+# Ctrl-C (or TERM) removes this run's containers, and only this run's: a
+# parallel run's have another reamo.harness.run label. The scenarios run in
+# the background, which ignores SIGINT, so their containers would otherwise
+# run on. --init gives each container a PID 1 that passes signals on and
+# reaps orphans, such as the REAPER that restart_reaper() starts.
+RUN_ID="$$-$(date +%s)"
+interrupted() {
+    trap - INT TERM
+    echo >&2
+    echo "interrupted: removing this run's containers" >&2
+    local ids
+    ids="$(docker ps -aq --filter label=reamo.harness=v1 --filter "label=reamo.harness.run=$RUN_ID")"
+    # Unquoted: one container id per word.
+    [ -z "$ids" ] || docker rm -f $ids >/dev/null
+    exit 130
+}
+trap interrupted INT TERM
 
 # Runs are keyed by position, so a scenario named twice (to chase a flake)
 # runs twice rather than sharing one container name and status file.
 run_one() {
-    local i="$1" s="$2" out="$2"
+    local i="$1" s="$2" out="$2" dir
+    dir="$(scenario_dir "$s")"
     [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
     # Linux capabilities the scenario needs, one per line in its `capabilities`.
     local caps=()
-    if [ -f "$HERE/scenarios/$s/capabilities" ]; then
-        while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/scenarios/$s/capabilities"
+    if [ -f "$HERE/$dir/capabilities" ]; then
+        while read -r cap; do [ -z "$cap" ] || caps+=(--cap-add "$cap"); done <"$HERE/$dir/capabilities"
     fi
-    docker run --rm --name "reamo-v1-harness-$s-$$-$i" --network none --label reamo.harness=v1 \
+    docker run --rm --init --name "reamo-v1-harness-$s-$$-$i" --network none \
+        --label reamo.harness=v1 --label reamo.harness.run="$RUN_ID" \
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/reamo:/reamo:ro" \
         -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
-        ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
+        ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_AUDIO="${HARNESS_AUDIO:-dummy}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
+        -e HARNESS_SCENARIO_DIR="/harness/$dir" ${soak_env[@]+"${soak_env[@]}"} \
+        -e HARNESS_RUN_ID="$RUN_ID" -e HARNESS_RUN_SCENARIOS="${scenarios[*]}" -e HARNESS_RUN_JOBS="$JOBS" \
         "$IMAGE" bash /harness/boot.sh "$s" >"$OUT/run-$i.log" 2>&1 && rc=0 || rc=$?
     echo "$rc" >"$OUT/run-$i.status"
 }
@@ -179,14 +222,21 @@ done
 wait
 print_ready
 
+out_name() {
+    local i="$1" s="${scenarios[$1]}"
+    [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] && echo "$s" || echo "$s.$i"
+}
+# Every scenario's output first: a failure can keep another scenario's
+# out dir with its own (replay-with, in results.sh).
+for i in "${!scenarios[@]}"; do
+    keep_output "$ARTIFACTS/$(out_name "$i")" "$OUT/run-$i.log"
+done
 pass=0
 failed=()
 skipped=()
 for i in "${!scenarios[@]}"; do
     s="${scenarios[$i]}"
-    out="$s"
-    [ "$(printf '%s\n' "${scenarios[@]}" | grep -cxF "$s")" -eq 1 ] || out="$s.$i"
-    keep_output "$ARTIFACTS/$out" "$OUT/run-$i.log"
+    out="$(out_name "$i")"
     case "$(cat "$OUT/run-$i.status")" in
         0) pass=$((pass + 1)) ;;
         77) skipped+=("$s") ;;
