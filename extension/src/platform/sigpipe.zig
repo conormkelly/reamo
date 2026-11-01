@@ -118,20 +118,17 @@ fn writeToClosedPeer() !void {
     return error.WriteSucceeded;
 }
 
-const ChildOutcome = union(enum) { exited: u8, signaled: u32 };
+const test_child = @import("test_child.zig");
+const ChildOutcome = test_child.Outcome;
 
 /// Run `body` in a forked child starting from SIGPIPE = SIG_DFL.
-/// The child exits 0 if `body` returns without error, 1 otherwise.
 fn runInChild(comptime body: fn () anyerror!void) !ChildOutcome {
-    const pid = try posix.fork();
-    if (pid == 0) {
-        setHandler(posix.SIG.DFL);
-        body() catch posix.exit(1);
-        posix.exit(0);
-    }
-    const status = posix.waitpid(pid, 0).status;
-    if (posix.W.IFSIGNALED(status)) return .{ .signaled = posix.W.TERMSIG(status) };
-    return .{ .exited = posix.W.EXITSTATUS(status) };
+    return test_child.run(struct {
+        fn run() anyerror!void {
+            setHandler(posix.SIG.DFL);
+            return body();
+        }
+    }.run);
 }
 
 test "a write to a closed peer kills the process when SIGPIPE is at its default action" {
