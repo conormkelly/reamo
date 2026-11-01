@@ -109,6 +109,13 @@ const targets = struct {
     /// at least the analyser's at registration (`drift_coverage_pct`).
     const drift_p95_cents = 0.5;
     const drift_coverage_pct = baseline.drift_coverage_pct;
+    /// Starts: every note in `starts` shows its note name within this of
+    /// its pluck. Swells: every note in `swells` within `swell_show_s` of
+    /// its level standing 12 dB over the floor, and from 0.5 s after that
+    /// P95 <= `swell_p95_cents` against f1.
+    const start_show_s = 0.3;
+    const swell_show_s = 0.2;
+    const swell_p95_cents = 0.5;
     /// Never green while wrong: no reading in hum_drift flagged stable
     /// more than 0.5 cent off f1(t).
     const drift_stable_wrong = 0;
@@ -184,6 +191,14 @@ const Group = enum {
     hum_drift,
     /// Such hum alone.
     hum_drift_idle,
+    /// Notes that clearly start but have no plain attack after silence: a
+    /// soft re-pluck over a ringing string, compressed attacks, a palm-
+    /// muted pluck that then rings, fingerstyle; each must show its note
+    /// within `start_show_s`.
+    starts,
+    /// Swells, e-bow, bowed and pad attacks: each must show within
+    /// `swell_show_s` of its level reaching 12 dB over the floor.
+    swells,
     /// Bass tones with partial 2 12 or 17 dB over partial 1 and partial 3
     /// weak (a bridge pickup's or a miked amp's spectrum): counted towards
     /// octave errors, not towards lock-on.
@@ -197,7 +212,7 @@ const Group = enum {
 
     fn pitched(g: Group) bool {
         return switch (g) {
-            .hum, .noise, .muted, .two_notes, .hum_drift_idle => false,
+            .hum, .noise, .muted, .two_notes, .hum_drift_idle, .starts, .swells => false,
             else => true,
         };
     }
@@ -215,6 +230,8 @@ const Hum = struct {
     relative: bool = false,
 };
 
+const Background = enum { bare, noise, hum };
+
 const Case = struct {
     name: []const u8,
     group: Group,
@@ -226,6 +243,17 @@ const Case = struct {
     rumble_db: ?f64 = null,
     /// f0 of a muted string struck four times.
     muted_hz: ?f64 = null,
+    /// Shapes strings[0]'s level over time after its onset.
+    envelope: ?Envelope = null,
+    /// Plays strings[1] from this many seconds after the onset, not with
+    /// strings[0] (a second pluck), at `second_db` against strings[0]'s RMS
+    /// over the 0.1 s before it; strings[0] is halved from then on (the
+    /// re-plucked string damped, or the hand resting on the ringing one).
+    second_at_s: ?f64 = null,
+    second_db: f64 = 0,
+    /// Adds low-passed noise under the first `bow_s` of the note (a bow's
+    /// scrape) at -30 dB against it.
+    bow_s: ?f64 = null,
     /// A pickup switch's click (5 ms of noise at peak 0.03) at this time.
     click_at_s: ?f64 = null,
     /// Render strings[0] as a Karplus-Strong pluck (t60 3 s, peak 0.9) with
@@ -234,6 +262,24 @@ const Case = struct {
 };
 
 const Str = struct { name: []const u8, f0: f64, b: f64 };
+
+/// A level envelope over a note, t seconds after its onset.
+const Envelope = union(enum) {
+    /// Rising linearly in amplitude from 0 over this many seconds.
+    linear: f64,
+    /// Rising from -60 dB, linearly in dB, over this many seconds.
+    exponential: f64,
+    /// A palm mute lifted: from 1 down to a tenth with a 30 ms time constant.
+    palm,
+
+    fn gain(e: Envelope, t: f64) f64 {
+        return switch (e) {
+            .linear => |d| @min(1, t / d),
+            .exponential => |d| std.math.pow(f64, 10, @min(0, -60 + 60 * t / d) / 20),
+            .palm => 0.1 + 0.9 * @exp(-t / 0.03),
+        };
+    }
+};
 
 /// The TU Munich electric-guitar B values (the research's table).
 const guitar = [_]Str{
@@ -276,7 +322,7 @@ fn string(s: Str, rolloff: f64) sig.StringOptions {
     return .{ .f0 = s.f0, .inharmonicity = s.b, .rolloff = rolloff, .t60_s = if (isBass(s.f0)) 8 else 6 };
 }
 
-const max_cases = 280;
+const max_cases = 330;
 var case_store: [max_cases]Case = undefined;
 var name_store: [max_cases][40]u8 = undefined;
 var case_count: usize = 0;
@@ -445,6 +491,75 @@ fn buildCases() []const Case {
             add(.bass_h2, "{s} h2 +{d} dB", .{ hs.name, g[0] }, .{ .name = "", .group = .bass_h2, .strings = .{ o, null } });
         }
     }
+    // Starts that must show.
+    const e2 = string(guitar[0], 1);
+    const a1 = string(bass[2], 1);
+    for ([_]f64{ -3, -6, -10 }) |db| {
+        var sharp = e2;
+        sharp.f0 *= std.math.pow(f64, 2, 8.0 / 1200.0);
+        sharp.seed = 3;
+        add(.starts, "E2 re-pluck {d} dB", .{db}, .{ .name = "", .group = .starts, .strings = .{ e2, sharp }, .second_at_s = 1, .second_db = db });
+        var sharp_a = a1;
+        sharp_a.f0 *= std.math.pow(f64, 2, 8.0 / 1200.0);
+        sharp_a.seed = 3;
+        add(.starts, "A1 re-pluck {d} dB", .{db}, .{ .name = "", .group = .starts, .strings = .{ a1, sharp_a }, .second_at_s = 1, .second_db = db });
+    }
+    for ([_]f64{ -6, -10 }) |db| {
+        var a2 = string(guitar[1], 1);
+        a2.seed = 3;
+        add(.starts, "E2 then A2 {d} dB", .{db}, .{ .name = "", .group = .starts, .strings = .{ e2, a2 }, .second_at_s = 1, .second_db = db });
+    }
+    {
+        var e1 = string(bass[1], 1);
+        e1.seed = 1;
+        var a1b = a1;
+        a1b.seed = 3;
+        add(.starts, "E1 then A1 -6 dB", .{}, .{ .name = "", .group = .starts, .strings = .{ e1, a1b }, .second_at_s = 1, .second_db = -6 });
+    }
+    for ([_]Str{ guitar[0], bass[2] }) |st| {
+        for ([_][2]f64{ .{ 4, 0.02 }, .{ 10, 0.03 } }) |cmp| {
+            var o = string(st, 1);
+            o.t60_s *= cmp[0];
+            o.peak = 0.1;
+            add(.starts, "{s} compressed {d}:1", .{ st.name, cmp[0] }, .{ .name = "", .group = .starts, .strings = .{ o, null }, .envelope = .{ .linear = cmp[1] } });
+        }
+    }
+    for ([_]Str{ guitar[0], guitar[1] }) |st| {
+        add(.starts, "{s} sustainer attack", .{st.name}, .{ .name = "", .group = .starts, .strings = .{ string(st, 1), null }, .envelope = .{ .linear = 0.2 } });
+        add(.starts, "{s} palm then ring", .{st.name}, .{ .name = "", .group = .starts, .strings = .{ string(st, 1), null }, .envelope = .palm });
+    }
+    for ([_]Str{ guitar[5], guitar[4], guitar[3] }) |st| {
+        var o = string(st, 2);
+        o.peak = 0.02;
+        add(.starts, "{s} fingerstyle", .{st.name}, .{ .name = "", .group = .starts, .strings = .{ o, null }, .envelope = .{ .linear = 0.008 } });
+    }
+    // Swells, held notes and slow attacks, over the bare floor, over white
+    // noise at -70 dBFS and over 50 Hz hum at -50 dBFS.
+    for ([_]Background{ .bare, .noise, .hum }) |bg| {
+        const bg_noise: ?f64 = if (bg == .noise) -70 else null;
+        const bg_hum: ?Hum = if (bg == .hum) .{ .hz = 50, .kind = .hum, .db = -50 } else null;
+        const bg_name = @tagName(bg);
+        for ([_]f64{ 0.3, 1, 2 }) |d| {
+            var o = string(guitar[1], 1);
+            o.t60_s = 30;
+            add(.swells, "A2 linear swell {d} s, {s}", .{ d, bg_name }, .{ .name = "", .group = .swells, .strings = .{ o, null }, .envelope = .{ .linear = d }, .noise_db = bg_noise, .hum = bg_hum });
+            add(.swells, "A2 exp swell {d} s, {s}", .{ d, bg_name }, .{ .name = "", .group = .swells, .strings = .{ o, null }, .envelope = .{ .exponential = d }, .noise_db = bg_noise, .hum = bg_hum });
+        }
+        var o = string(guitar[0], 1);
+        o.t60_s = 30;
+        add(.swells, "E2 volume pedal, {s}", .{bg_name}, .{ .name = "", .group = .swells, .strings = .{ o, null }, .envelope = .{ .exponential = 1.5 }, .noise_db = bg_noise, .hum = bg_hum });
+        var ebow: sig.StringOptions = .{ .f0 = 164.814, .inharmonicity = 4.5e-5, .rolloff = 1.5, .t60_s = 1000 };
+        ebow.t60_slope = 0;
+        add(.swells, "E3 e-bow, {s}", .{bg_name}, .{ .name = "", .group = .swells, .strings = .{ ebow, null }, .envelope = .{ .exponential = 1.5 }, .noise_db = bg_noise, .hum = bg_hum });
+        var bowed = string(bass[2], 1);
+        bowed.t60_s = 1000;
+        bowed.t60_slope = 0;
+        add(.swells, "A1 bowed, {s}", .{bg_name}, .{ .name = "", .group = .swells, .strings = .{ bowed, null }, .envelope = .{ .linear = 0.4 }, .bow_s = 0.4, .noise_db = bg_noise, .hum = bg_hum });
+        const pad: sig.StringOptions = .{ .f0 = 130.813, .inharmonicity = 0, .rolloff = 2, .t60_s = 1000, .t60_slope = 0 };
+        add(.swells, "C3 pad, {s}", .{bg_name}, .{ .name = "", .group = .swells, .strings = .{ pad, null }, .envelope = .{ .linear = 1 }, .noise_db = bg_noise, .hum = bg_hum });
+    }
+    // Steady sounds that start abruptly, to keep out.
+    for ([_]f64{ 50, 60 }) |hz| add(.hum_drift_idle, "{d} Hz hum switching on", .{hz}, .{ .name = "", .group = .hum_drift_idle, .hum = .{ .hz = hz, .kind = .hum, .db = -40, .change = .{ .on_s = 1.0 } } });
     return case_store[0..case_count];
 }
 
@@ -459,11 +574,38 @@ fn render(c: Case, sr: f64, seed: u64, buf: []f32, tmp: []f32) []f32 {
     const out = buf[0..n];
     @memset(out, 0);
     const onset = onsetSample(sr);
-    for (c.strings) |maybe| {
+    for (c.strings, 0..) |maybe, si| {
         const s = maybe orelse continue;
+        if (si == 1 and c.second_at_s != null) continue;
         const body = tmp[0 .. n - onset];
         if (c.ks_seed) |seed_ks| sig.pluck(body, sr, s.f0, .{ .amp = 0.9, .t60_s = 3, .seed = seed_ks }) else sig.pluckedString(body, sr, s);
+        if (si == 0) if (c.envelope) |e| {
+            for (body, 0..) |*v, i| v.* *= @floatCast(e.gain(@as(f64, @floatFromInt(i)) / sr));
+        };
         sig.mix(out[onset..], body);
+    }
+    if (c.second_at_s) |at_s| {
+        const at = onset + @as(usize, @intFromFloat(at_s * sr));
+        const tenth: usize = @intFromFloat(0.1 * sr);
+        const before = sig.rms(out[at - tenth .. at]);
+        for (out[at..]) |*v| v.* *= 0.5;
+        const body = tmp[0 .. n - at];
+        sig.pluckedString(body, sr, c.strings[1].?);
+        sig.scale(body, before * std.math.pow(f64, 10, c.second_db / 20) / sig.rms(body[0..tenth]));
+        sig.mix(out[at..], body);
+    }
+    if (c.bow_s) |bow| {
+        const len: usize = @intFromFloat(bow * sr);
+        const level = sig.rms(out[onset .. onset + len]) * std.math.pow(f64, 10, -30.0 / 20.0);
+        @memset(tmp[0..len], 0);
+        sig.addNoise(tmp[0..len], 1, seed + 29);
+        var lp: f32 = 0;
+        for (tmp[0..len]) |*v| {
+            lp = 0.9 * lp + 0.1 * v.*;
+            v.* = lp;
+        }
+        sig.scale(tmp[0..len], level / @max(sig.rms(tmp[0..len]), 1e-12));
+        sig.mix(out[onset .. onset + len], tmp[0..len]);
     }
     if (c.hum) |h| {
         var db = h.db;
@@ -659,6 +801,13 @@ const GroupStats = struct {
     flag_sum_ms: f64 = 0,
     flag_n: usize = 0,
     flag_never: usize = 0,
+    /// Starts and swells: notes, those whose note never showed in time,
+    /// and the times it took (s).
+    start_notes: usize = 0,
+    start_missed: usize = 0,
+    show_s: std.ArrayList(f64) = .empty,
+    /// "name rate: time" for each miss, `; `-separated.
+    missed: std.ArrayList(u8) = .empty,
     /// Readings flagged stable, and of them those more than 0.5 cent off
     /// f1(t), from t = 0.1 s.
     stable_reads: usize = 0,
@@ -681,7 +830,58 @@ fn percentile(values: []f64, p: f64) f64 {
     return values[@min(idx, values.len - 1)];
 }
 
+/// For a swell, seconds from its onset until the input's level over a
+/// window of 92.9 ms first stands 12 dB over the floor, the level over the
+/// same length of input before the onset.
+var case_cross_s: f64 = 0;
+
+fn levelCrossing(s: []const f32, sr: f64) f64 {
+    const onset = onsetSample(sr);
+    const w: usize = @intFromFloat(4096.0 / 44100.0 * sr);
+    const threshold = sig.rms(s[onset - w .. onset]) * std.math.pow(f64, 10, 12.0 / 20.0);
+    var energy: f64 = 0;
+    for (s[onset .. onset + w]) |v| energy += @as(f64, v) * v;
+    var i = onset + w;
+    while (i < s.len) : (i += 1) {
+        if (@sqrt(energy / @as(f64, @floatFromInt(w))) >= threshold) return @as(f64, @floatFromInt(i - onset)) / sr;
+        energy += @as(f64, s[i]) * s[i] - @as(f64, s[i - w]) * s[i - w];
+    }
+    return std.math.inf(f64);
+}
+
+fn measureStart(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []const Display) !void {
+    const s = if (c.second_at_s != null) c.strings[1].? else c.strings[0].?;
+    const start = if (c.group == .swells) case_cross_s else (c.second_at_s orelse 0);
+    const limit: f64 = if (c.group == .swells) targets.swell_show_s else targets.start_show_s;
+    st.start_notes += 1;
+    var shown: ?f64 = null;
+    for (rs, 0..) |r, i| {
+        const t = readTime(i, sr);
+        if (t < start) continue;
+        const since_pluck = t - (c.second_at_s orelse 0);
+        const truth = s.firstPartialHz(@max(since_pluck, 0));
+        if (shown == null) {
+            if (r.note) |n| if (n == noteOf(truth)) {
+                shown = t - start;
+            };
+        } else if (t - start - shown.? >= 0.5 and t >= 1) {
+            st.span_reads += 1;
+            if (r.hz) |hz| {
+                st.span_shown += 1;
+                try st.errors.append(alloc, @abs(sig.cents(hz, truth)));
+            } else try st.errors.append(alloc, std.math.inf(f64));
+        }
+    }
+    const v = shown orelse std.math.inf(f64);
+    try st.show_s.append(alloc, v);
+    if (v > limit) {
+        st.start_missed += 1;
+        try st.missed.writer(alloc).print("{s} {d:.0}k: {d:.3}; ", .{ c.name, sr / 1000, v });
+    }
+}
+
 fn measure(alloc: std.mem.Allocator, st: *GroupStats, c: Case, sr: f64, rs: []const Display) !void {
+    if (c.group == .starts or c.group == .swells) return measureStart(alloc, st, c, sr, rs);
     var name_buf: [48]u8 = undefined;
     const name = label(&name_buf, c, sr);
     st.reads += rs.len;
@@ -958,7 +1158,7 @@ fn measurePlayer(alloc: std.mem.Allocator, pl: *Player, c: Case, sr: f64, rs: []
             pl.idle_s += @as(f64, @floatFromInt(rs.len)) / 30;
             return;
         },
-        .two_notes, .ramp => return,
+        .two_notes, .ramp, .starts, .swells => return,
         else => {},
     }
     const s = c.strings[0].?;
@@ -1084,6 +1284,7 @@ pub fn main() !void {
         if (case_filter) |f| if (std.mem.indexOf(u8, c.name, f) == null) continue;
         for (rates, 0..) |sr, ri| {
             const s = render(c, sr, 1 + ci * 7 + ri, buf, tmp);
+            if (c.group == .swells) case_cross_s = levelCrossing(s, sr);
             for (cands[0..nc], results) |cand, *r| {
                 const rs = run(cand, sr, s);
                 if (case_filter != null) try trace(w, cand, c, sr, rs);
@@ -1110,6 +1311,7 @@ pub fn main() !void {
     try printPooledApart(w, cands[0..nc], results);
     try printTicks(w, cands[0..nc], results);
     try printHumFit(w, cands[0..nc], results);
+    try printStarts(w, cands[0..nc], results);
     for (cands[0..nc], results) |c, *r| try printDetail(w, c, r);
     try w.flush();
 }
@@ -1323,13 +1525,10 @@ fn printPlayer(w: anytype, cands: []const Candidate, results: []Results) !void {
         }
         const notes: f64 = @floatFromInt(@max(pl.notes, 1));
         try w.print("| {s} | {d:.2} / {d:.2}, {d:.1}% | {d:.2} / {d:.2}, {d:.1}% | {d:.3} / {d:.3} | {d:.2} / {d:.0} | {d:.2} | {d:.1}% | {d:.1}% | {d:.3} {s} |\n", .{
-            c.name,                                       a.median,                          a.p90, a.never,
-            b.median,                                     b.p90,                             b.never, f.median,
-            f.worst,                                      change_sum / notes,                change_worst,
-            @as(f64, @floatFromInt(pl.false_events)) / @max(pl.idle_s / 60, 1e-9),
-            100 * @as(f64, @floatFromInt(pl.notes_with_octave)) / notes,
-            100 * @as(f64, @floatFromInt(shown)) / @as(f64, @floatFromInt(@max(reads, 1))),
-            worst_bias,                                   worst_key,
+            c.name,                                                      a.median,                                                                       a.p90,        a.never,
+            b.median,                                                    b.p90,                                                                          b.never,      f.median,
+            f.worst,                                                     change_sum / notes,                                                             change_worst, @as(f64, @floatFromInt(pl.false_events)) / @max(pl.idle_s / 60, 1e-9),
+            100 * @as(f64, @floatFromInt(pl.notes_with_octave)) / notes, 100 * @as(f64, @floatFromInt(shown)) / @as(f64, @floatFromInt(@max(reads, 1))), worst_bias,   worst_key,
         });
     }
     try w.print("\nSigned bias per string from 1 s (cents; one-string signals, every rate and spectrum):\n\n", .{});
@@ -1365,6 +1564,31 @@ fn quantiles(alloc: std.mem.Allocator, values: []const f64) !Quantiles {
         .never = never,
         .worst = if (finite > 0) copy[finite - 1] else std.math.inf(f64),
     };
+}
+
+fn printStarts(w: anytype, cands: []const Candidate, results: []Results) !void {
+    const alloc = std.heap.page_allocator;
+    try w.print(
+        \\
+        \\## Starts and swells (targets: none missed, starts within {d} s, swells within {d} s of 12 dB over the floor and P95 <= {d} c from 0.5 s on)
+        \\
+        \\| candidate | starts missed, of | time to show starts: median / worst (s) | swells missed, of | time to show swells: median / worst (s) | swells P95 (c), shown | verdict |
+        \\|---|---|---|---|---|---|---|
+        \\
+    , .{ targets.start_show_s, targets.swell_show_s, targets.swell_p95_cents });
+    for (cands, results) |c, *r| {
+        const a = r.group[@intFromEnum(Group.starts)];
+        const b = r.group[@intFromEnum(Group.swells)];
+        const qa = try quantiles(alloc, a.show_s.items);
+        const qb = try quantiles(alloc, b.show_s.items);
+        const p = p95(alloc, b, false);
+        const cover = 100 * @as(f64, @floatFromInt(b.span_shown)) / @as(f64, @floatFromInt(@max(b.span_reads, 1)));
+        const ok = a.start_missed == 0 and b.start_missed == 0 and p <= targets.swell_p95_cents;
+        try w.print("| {s} | {d} of {d} | {d:.3} / {d:.3} | {d} of {d} | {d:.3} / {d:.3} | {d:.3}, {d:.1}% | {s} |\n", .{ c.name, a.start_missed, a.start_notes, qa.median, qa.worst, b.start_missed, b.start_notes, qb.median, qb.worst, p, cover, verdict(ok) });
+    }
+    for (cands, results) |c, *r| {
+        try w.print("\n{s}: starts missed: {s}\n{s}: swells missed: {s}\n", .{ c.name, r.group[@intFromEnum(Group.starts)].missed.items, c.name, r.group[@intFromEnum(Group.swells)].missed.items });
+    }
 }
 
 fn printHumFit(w: anytype, cands: []const Candidate, results: []Results) !void {
