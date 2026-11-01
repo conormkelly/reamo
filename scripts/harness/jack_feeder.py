@@ -148,7 +148,11 @@ class Feeder:
 
     def close(self):
         """Stop the child: it closes its JACK client when its stdin closes.
-        A child that doesn't exit within 5 s is killed."""
+        A child that doesn't exit within 5 s is killed. Raises FeederError
+        if the child exited non-zero (a crash in libjack, say) or had to be
+        killed: a feeder that died may have fed nothing, whatever the test
+        saw."""
+        killed = False
         if self._proc.poll() is None:
             try:
                 self._proc.stdin.close()
@@ -157,9 +161,14 @@ class Feeder:
             try:
                 self._proc.wait(5)
             except subprocess.TimeoutExpired:
+                killed = True
                 self._proc.kill()
                 self._proc.wait()
         self._proc.stdout.close()
+        if killed:
+            raise FeederError("feeder child didn't exit within 5 s of its stdin closing, and was killed")
+        if self._proc.returncode != 0:
+            raise FeederError(f"feeder child exited with status {self._proc.returncode}")
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +375,8 @@ class _Child:
         jack = self.jack
         while not self.stop.is_set():
             for i, (ours, target) in enumerate(zip(self.names, self.targets)):
+                if self.stop.is_set():
+                    return
                 if not jack.jack_port_by_name(self.client, target):
                     self.connected[i] = False
                     continue
@@ -437,8 +448,12 @@ class _Child:
         return {"freq": loop.freq}
 
     def close(self):
+        # The reconnecting thread calls into libjack: it must be out of
+        # those calls before the client goes, or they run on a closed
+        # client (libjack errors, and SIGSEGV or SIGABRT in the child).
         self.stop.set()
         self.wake.set()
+        self.reconnector.join()
         if not self.gone:
             self.jack.jack_deactivate(self.client)
             self.jack.jack_client_close(self.client)
