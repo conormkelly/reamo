@@ -8,7 +8,7 @@
 /// over registration. Its post callback copies hardware output channels 0/1
 /// into each holding user's lock-free single-producer/single-consumer ring:
 /// interleaved i16 for the stream's network thread, mono f32, (L + R) / 2,
-/// for the tuner's main-thread analysis.
+/// for the master tuner's analysis thread.
 ///
 /// acquire and release run on the main thread only; the audio thread reads
 /// which users hold the hook from one atomic.
@@ -60,8 +60,8 @@ pub const Hook = struct {
         }
         // The audio thread writes this user's ring from its next callback.
         // Anything left in it from an earlier hold is stale: drop it, as its
-        // consumer may (the stream's thread hasn't started; the tuner reads
-        // only on the main thread).
+        // consumer may, since that consumer hasn't started (the stream's
+        // network thread, the master tuner's analysis thread).
         self.users.store(held | bit, .release);
         switch (user) {
             .stream => self.stream_ring.discard(),

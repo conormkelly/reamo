@@ -1,8 +1,11 @@
 /// Tuner Subscriptions - Per-client subscription for chromatic tuner functionality.
 ///
-/// Key difference from other subscriptions: **per-track reference counting** for JSFX lifecycle.
-/// Multiple clients can subscribe to the same track's tuner, sharing a single JSFX instance.
-/// JSFX is inserted on first subscriber, removed when last subscriber leaves.
+/// Two sources, both shared by every client tuning them:
+/// - a track: **per-track reference counting** for a PitchDetect JSFX in the
+///   track's input FX, inserted on the first subscriber, removed when the
+///   last leaves;
+/// - the master ("master"): REAmo's native analyser on the audio hook's
+///   post-master output (master_tuner.zig), which puts nothing in REAPER.
 ///
 /// Usage:
 ///   var subs = TunerSubscriptions.init(allocator);
@@ -14,6 +17,8 @@ const std = @import("std");
 const logging = @import("../core/logging.zig");
 const constants = @import("../core/constants.zig");
 const project = @import("../state/project.zig");
+const audio_hook = @import("../audio/audio_hook.zig");
+const master_tuner = @import("master_tuner.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -113,7 +118,17 @@ pub const SubscribeError = error{
     TrackNotFound,
     FxInsertFailed,
     TooManyTuners,
+    OutOfMemory,
+    AudioHookFailed,
+    ThreadFailed,
 };
+
+/// The GUID clients tune the master by.
+pub const MASTER_GUID = "master";
+
+pub fn isMaster(track_guid: []const u8) bool {
+    return std.mem.eql(u8, track_guid, MASTER_GUID);
+}
 
 pub const TunerSubscriptions = struct {
     allocator: Allocator,
@@ -142,6 +157,11 @@ pub const TunerSubscriptions = struct {
     /// Next available slot
     next_slot: usize,
 
+    /// The master's tuner, shared by every client tuning the master.
+    master: master_tuner.MasterTuner = .{},
+    /// The audio hook the master tuner reads.
+    hook: *audio_hook.Hook,
+
     pub fn init(allocator: Allocator) TunerSubscriptions {
         var subs = TunerSubscriptions{
             .allocator = allocator,
@@ -154,6 +174,7 @@ pub const TunerSubscriptions = struct {
             .free_slots = undefined,
             .free_count = 0,
             .next_slot = 0,
+            .hook = audio_hook.instance(),
         };
 
         // Initialize all client slots
@@ -253,6 +274,8 @@ pub const TunerSubscriptions = struct {
             self.unsubscribeInternal(client_id, slot, api);
         }
 
+        if (isMaster(track_guid)) return self.subscribeMaster(slot, api);
+
         // Resolve track GUID to track pointer
         const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
 
@@ -299,17 +322,7 @@ pub const TunerSubscriptions = struct {
         // Increment ref count
         tuner.?.ref_count += 1;
 
-        // Store client subscription
-        client.active = true;
-        const client_guid_len: u8 = @intCast(@min(track_guid.len, GUID_LEN));
-        @memcpy(client.track_guid[0..client_guid_len], track_guid[0..client_guid_len]);
-        client.track_guid_len = client_guid_len;
-        client.consecutive_failures = 0;
-
-        // Force broadcast on new subscription
-        self.force_broadcast_clients[slot] = true;
-        self.prev_hash[slot] = 0;
-
+        self.activate(slot, track_guid);
         logging.debug("tuner: client {d} subscribed to track {s} (ref_count={d})", .{ client_id, track_guid, tuner.?.ref_count });
 
         var result = SubscribeResult{
@@ -322,15 +335,41 @@ pub const TunerSubscriptions = struct {
         return result;
     }
 
-    /// The track a tuner is on: "master" (whose Input FX are REAPER's
-    /// monitoring chain, shared by every tab), or the track the JSFX went
-    /// into, checked against the tab it went into, which needn't be the tab
-    /// shown now. null once the track or its tab is gone. Found by pointer,
-    /// not GUID: REAPER 6.0's GetTrackGUID gives nothing for a track in a
-    /// background tab. A stale pointer reused by another track is harmless:
-    /// the JSFX is deleted only where its own FX GUID is found.
+    /// Record a client's subscription and have its first poll broadcast.
+    fn activate(self: *TunerSubscriptions, slot: usize, track_guid: []const u8) void {
+        const client = &self.clients[slot];
+        client.active = true;
+        const len: u8 = @intCast(@min(track_guid.len, GUID_LEN));
+        @memcpy(client.track_guid[0..len], track_guid[0..len]);
+        client.track_guid_len = len;
+        client.consecutive_failures = 0;
+        self.force_broadcast_clients[slot] = true;
+        self.prev_hash[slot] = 0;
+    }
+
+    /// Subscribe a client to the master's tuner, opening it for the first.
+    fn subscribeMaster(self: *TunerSubscriptions, slot: usize, api: anytype) SubscribeError!SubscribeResult {
+        try self.master.open(self.allocator, self.hook, api);
+        if (self.master.subscribers == 1) logging.info("tuner: master tuner opened on the audio hook", .{});
+        self.activate(slot, MASTER_GUID);
+        const settings = self.master.snapshot().settings;
+        var result = SubscribeResult{
+            .track_guid = MASTER_GUID,
+            .fx_guid = "",
+            .reference_hz = @floatCast(settings.reference_hz),
+            .threshold_db = @floatCast(settings.silence_db),
+        };
+        if (api.masterTrack()) |master| result.track_name_len = api.getTrackNameStr(master, &result.track_name_buf).len;
+        return result;
+    }
+
+    /// The track a track tuner's JSFX went into, checked against the tab it
+    /// went into, which needn't be the tab shown now. null once the track or
+    /// its tab is gone. Found by pointer, not GUID: REAPER 6.0's
+    /// GetTrackGUID gives nothing for a track in a background tab. A stale
+    /// pointer reused by another track is harmless: the JSFX is deleted only
+    /// where its own FX GUID is found.
     fn findTrack(api: anytype, tuner: *const TrackTuner) ?*anyopaque {
-        if (std.mem.eql(u8, tuner.getTrackGuid(), "master")) return api.masterTrack();
         const track = tuner.track orelse return null;
         if (tuner.project != null and !api.validateProjectPtr(tuner.project)) return null;
         if (!api.validateTrackPtrIn(tuner.project, track)) return null;
@@ -344,8 +383,10 @@ pub const TunerSubscriptions = struct {
 
         const track_guid = client.getTrackGuid() orelse return;
 
-        // Find the track tuner
-        if (self.findTrackTuner(track_guid)) |tuner| {
+        if (isMaster(track_guid)) {
+            self.master.close(self.allocator, self.hook, api);
+            if (!self.master.isOpen()) logging.info("tuner: master tuner closed (last subscriber)", .{});
+        } else if (self.findTrackTuner(track_guid)) |tuner| {
             tuner.ref_count -= 1;
 
             if (tuner.ref_count == 0) {
@@ -423,7 +464,8 @@ pub const TunerSubscriptions = struct {
         logging.debug("tuner: client {d} removed", .{client_id});
     }
 
-    /// Remove all clients and clean up all JSFXs (called on shutdown).
+    /// Remove all clients, cleaning up all JSFXs and closing the master
+    /// tuner (called on shutdown).
     pub fn removeAllClients(self: *TunerSubscriptions, api: anytype) void {
         // Collect all client IDs first (can't iterate and modify)
         var client_ids: [MAX_CLIENTS]usize = undefined;
@@ -453,6 +495,15 @@ pub const TunerSubscriptions = struct {
         guid_cache: anytype,
         api: anytype,
     ) !void {
+        if (isMaster(track_guid)) {
+            if (!self.master.isOpen()) return error.NotSubscribed;
+            switch (param) {
+                .reference => self.master.setReference(value),
+                .threshold => self.master.setSilenceDb(value),
+                else => return error.InvalidParam,
+            }
+            return;
+        }
         const tuner = self.findTrackTuner(track_guid) orelse return error.NotSubscribed;
         const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
 
@@ -616,4 +667,148 @@ test "ClientSubscription clear" {
     try std.testing.expect(!client.active);
     try std.testing.expectEqual(@as(u8, 0), client.track_guid_len);
     try std.testing.expectEqual(@as(u8, 0), client.consecutive_failures);
+}
+
+// -----------------------------------------------------------------------------
+// The master tuner's lifecycle through the subscriptions
+// -----------------------------------------------------------------------------
+
+const MockBackend = @import("../reaper/mock/mod.zig").MockBackend;
+
+/// A GUID cache that knows no track: the master path never asks it.
+const NoTracks = struct {
+    fn resolve(_: *const NoTracks, _: anytype, _: []const u8) ?*anyopaque {
+        return null;
+    }
+};
+
+const MasterRig = struct {
+    subs: TunerSubscriptions,
+    hook: *audio_hook.Hook,
+    api: MockBackend = .{},
+    cache: NoTracks = .{},
+
+    fn init(self: *MasterRig) !void {
+        self.hook = try std.testing.allocator.create(audio_hook.Hook);
+        self.hook.* = .{};
+        self.subs = TunerSubscriptions.init(std.testing.allocator);
+        self.subs.hook = self.hook;
+        self.api = .{};
+        self.api.tracks[0].setName("MASTER");
+    }
+
+    fn deinit(self: *MasterRig) void {
+        self.subs.removeAllClients(&self.api);
+        self.subs.deinit();
+        std.testing.allocator.destroy(self.hook);
+    }
+
+    fn sub(self: *MasterRig, client: usize) !SubscribeResult {
+        return self.subs.subscribe(client, MASTER_GUID, &self.cache, &self.api);
+    }
+};
+
+test "the master tuner opens on the audio hook, with no plugin, and closes with its last phone" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    const r = try rig.sub(1);
+    try std.testing.expectEqualStrings("master", r.track_guid);
+    try std.testing.expectEqualStrings("", r.fx_guid);
+    try std.testing.expectEqualStrings("MASTER", r.trackName());
+    try std.testing.expectEqual(@as(f32, 440), r.reference_hz);
+    try std.testing.expectEqual(@as(f32, -90), r.threshold_db);
+    try std.testing.expect(rig.hook.holds(.tuner));
+    try std.testing.expectEqual(@as(usize, 0), rig.api.getCallCount(.trackFxAddByName));
+    try std.testing.expect(rig.subs.hasSubscriptions());
+
+    rig.subs.unsubscribe(1, &rig.api);
+    try std.testing.expect(!rig.subs.master.isOpen());
+    try std.testing.expect(!rig.hook.registered);
+    try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_unregisters);
+}
+
+test "reopening the master tuner takes the hook again and starts from the defaults" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    _ = try rig.sub(1);
+    try rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api);
+    rig.subs.unsubscribe(1, &rig.api);
+    const r = try rig.sub(1);
+    try std.testing.expectEqual(@as(f32, 440), r.reference_hz);
+    try std.testing.expectEqual(@as(u32, 2), rig.api.audio_hook_registers);
+    try std.testing.expect(rig.hook.registered);
+}
+
+test "two phones on the master share it; it stays open until both leave" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    _ = try rig.sub(1);
+    _ = try rig.sub(2);
+    try std.testing.expectEqual(@as(u8, 2), rig.subs.master.subscribers);
+    try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
+    try rig.subs.setParam(MASTER_GUID, .threshold, -50, &rig.cache, &rig.api);
+    try std.testing.expectEqual(@as(f64, -50), rig.subs.master.settings.silence_db);
+
+    // Phone 1 subscribing again to the master is a resubscribe, not a third phone.
+    _ = try rig.sub(1);
+    try std.testing.expectEqual(@as(u8, 2), rig.subs.master.subscribers);
+
+    rig.subs.removeClient(1, &rig.api); // phone 1's connection drops
+    try std.testing.expect(rig.subs.master.isOpen() and rig.hook.holds(.tuner));
+    try std.testing.expectEqual(@as(f64, -50), rig.subs.master.settings.silence_db);
+    rig.subs.unsubscribe(2, &rig.api);
+    try std.testing.expect(!rig.subs.master.isOpen() and !rig.hook.registered);
+}
+
+test "a phone leaving the master for a track closes the master tuner even if the track can't be tuned" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    _ = try rig.sub(1);
+    try std.testing.expectError(error.TrackNotFound, rig.subs.subscribe(1, "{NO-SUCH-TRACK}", &rig.cache, &rig.api));
+    try std.testing.expect(!rig.subs.master.isOpen() and !rig.hook.registered);
+}
+
+test "the master tuner and the stream hold one registration between them" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    try std.testing.expect(rig.hook.acquire(&rig.api, .stream)); // a phone listens
+    _ = try rig.sub(1);
+    try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
+    rig.hook.release(&rig.api, .stream); // it stops listening
+    try std.testing.expect(rig.hook.registered and rig.hook.holds(.tuner));
+    try std.testing.expect(rig.hook.acquire(&rig.api, .stream));
+    rig.subs.unsubscribe(1, &rig.api);
+    try std.testing.expect(rig.hook.registered and rig.hook.holds(.stream));
+    rig.hook.release(&rig.api, .stream);
+    try std.testing.expect(!rig.hook.registered);
+    try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
+    try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_unregisters);
+}
+
+test "a refused audio hook fails the subscribe and leaves nothing open" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+
+    rig.api.audio_hook_refuse = true;
+    try std.testing.expectError(error.AudioHookFailed, rig.sub(1));
+    try std.testing.expect(!rig.subs.master.isOpen());
+    try std.testing.expect(!rig.subs.hasSubscriptions());
+}
+
+test "setParam on the master before anyone tunes it is refused" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    try std.testing.expectError(error.NotSubscribed, rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api));
 }

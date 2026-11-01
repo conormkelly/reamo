@@ -1,6 +1,6 @@
 //! A mono f32 ring from REAPER's audio thread to one reader, for the
 //! tuner's analyser: the audio hook mixes a stereo pair to mono as
-//! (L + R) / 2 and writes it here; the main thread's tuner poll reads it.
+//! (L + R) / 2 and writes it here; the tuner's analysis thread reads it.
 //!
 //! Single producer, single consumer, lock-free, fixed size: nothing is
 //! allocated. As the stream's ring does, a block that doesn't fit is dropped
@@ -10,7 +10,7 @@
 const std = @import("std");
 
 /// Samples held: 1.36 s at 48 kHz, 0.34 s at 192 kHz, against the 33 ms
-/// between the 30 Hz poll's reads.
+/// between the analysis's 30 Hz reads.
 pub const capacity: usize = 1 << 16;
 const mask = capacity - 1;
 

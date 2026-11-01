@@ -284,7 +284,8 @@ pub fn pollTrackFxParamSubscriptions(
 
 /// Poll tuner subscriptions and broadcast pitch detection data.
 /// Per-client single-track subscriptions with auto-unsubscribe on failure.
-/// Reads JSFX slider values from Input FX chain.
+/// A track tuner reads its JSFX's slider values from the Input FX chain; the
+/// master tuner sends the latest reading its analysis thread published.
 pub fn pollTunerSubscriptions(
     ctx: *const PollingContext,
     tuner_subs: *tuner_subscriptions.TunerSubscriptions,
@@ -294,6 +295,16 @@ pub fn pollTunerSubscriptions(
     var iter = tuner_subs.activeSubscriptions();
     while (iter.next()) |entry| {
         const scratch = ctx.scratchAllocator();
+
+        if (tuner_subscriptions.isMaster(entry.track_guid)) {
+            const master = tuner_subs.master.snapshot();
+            if (tuner_generator.generateReadingEvent(scratch, entry.track_guid, master.reading, master.settings)) |json| {
+                if (tuner_subs.checkChanged(entry.slot, tuner_generator.hashTunerEvent(json))) {
+                    ctx.shared_state.sendToClient(entry.client_id, json);
+                }
+            }
+            continue;
+        }
 
         // Get the track tuner for this subscription
         const tuner = tuner_subs.getTrackTuner(entry.track_guid) orelse {

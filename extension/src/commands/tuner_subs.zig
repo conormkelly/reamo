@@ -1,8 +1,10 @@
 /// Tuner subscription command handlers.
 ///
 /// Commands:
-/// - tuner/subscribe: Subscribe to tuner on a track (inserts JSFX if first subscriber)
-/// - tuner/unsubscribe: Unsubscribe from tuner (removes JSFX if last subscriber)
+/// - tuner/subscribe: Subscribe to tuner on a track (inserts JSFX if first
+///   subscriber) or on the master (opens the native analyser if first)
+/// - tuner/unsubscribe: Unsubscribe from tuner (removes JSFX or closes the
+///   analyser if last subscriber)
 /// - tuner/setParam: Set tuner parameter (reference Hz or threshold dB)
 ///
 /// Single track per client - subscribing auto-unsubscribes from previous track.
@@ -25,6 +27,9 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 ///     "reference": 440.0,
 ///     "threshold": -60.0
 /// }}
+///
+/// With "trackGuid": "master", fxGuid is "" (no plugin is inserted) and
+/// threshold is the analyser's default, -90.
 ///
 /// After subscribing, the client receives "tuner" events at 30Hz
 /// containing pitch detection data.
@@ -56,6 +61,12 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
                 response.err("FX_INSERT_FAILED", "Failed to insert tuner JSFX (not installed?)");
             },
             error.TooManyTuners => response.err("TOO_MANY_TUNERS", "Maximum tuner track limit reached"),
+            error.OutOfMemory => response.err("OUT_OF_MEMORY", "Not enough memory for the tuner"),
+            error.ThreadFailed => response.err("THREAD_FAILED", "Couldn't start the master tuner's thread"),
+            error.AudioHookFailed => {
+                logging.warn("tuner: REAPER refused the audio hook the master tuner reads", .{});
+                response.err("AUDIO_HOOK_FAILED", "REAPER refused the audio hook the master tuner reads");
+            },
         }
         return;
     };
@@ -103,7 +114,8 @@ pub fn handleUnsubscribe(api: anytype, _: protocol.CommandMessage, response: *mo
 /// { "command": "tuner/setParam", "trackGuid": "{AAA...}", "param": "reference", "value": 442.0, "id": "1" }
 ///
 /// Parameters:
-/// - param: "reference" (A4 Hz, 400-480) or "threshold" (silence dB, -96 to 0)
+/// - param: "reference" (A4 Hz, 400-480) or "threshold" (silence dB, -90 to -30);
+///   values outside are held to the range
 /// - value: float value for the parameter
 ///
 /// Response:
