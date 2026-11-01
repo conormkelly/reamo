@@ -27,7 +27,7 @@
 //!
 //! The window is analysed only when `analyse` is called, not every hop.
 //! Nothing is allocated after `init`: the caller owns the `Analyser`
-//! (about 340 KB, so not on the stack) and calls `push` and `analyse` from
+//! (about 330 KB, so not on the stack) and calls `push` and `analyse` from
 //! one thread, not the audio thread.
 const std = @import("std");
 const fft_mod = @import("fft.zig");
@@ -107,7 +107,10 @@ pub fn AnalyserWith(comptime options: Options) type {
         write_pos: usize,
 
         fft: fft_mod.Fft(max_fft),
-        spectrum: [max_fft]fft_mod.Complex,
+        fft_work: [max_fft / 2]fft_mod.Complex,
+        /// The window, oldest sample first.
+        frame: [max_window]f64,
+        autocorr: [max_window / 2]f64,
         cum_energy: [max_window]f64,
         diff: [max_window / 2]f64,
         cmnd: [max_window / 2]f64,
@@ -185,19 +188,14 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// and its cumulative mean normalised form.
         fn difference(self: *Self) void {
             const w = self.window;
-            const n = self.fft_size;
             var sum: f64 = 0;
             for (0..w) |i| {
                 const x = self.history[(self.write_pos + i) % w];
-                self.spectrum[i] = .{ .re = x, .im = 0 };
+                self.frame[i] = x;
                 sum += x * x;
                 self.cum_energy[i] = sum;
             }
-            @memset(self.spectrum[w..n], .{ .re = 0, .im = 0 });
-            self.fft.forward(self.spectrum[0..n]);
-            for (self.spectrum[0..n]) |*c| c.* = .{ .re = c.re * c.re + c.im * c.im, .im = 0 };
-            self.fft.inverseUnscaled(self.spectrum[0..n]);
-            const scale = 1 / @as(f64, @floatFromInt(n));
+            self.fft.autocorrelate(self.frame[0..w], self.fft_size, &self.fft_work, self.autocorr[0 .. w / 2]);
 
             self.diff[0] = 0;
             self.cmnd[0] = 1;
@@ -205,7 +203,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             for (1..w / 2) |tau| {
                 const head = self.cum_energy[w - tau - 1];
                 const tail = self.cum_energy[w - 1] - self.cum_energy[tau - 1];
-                const d = @max(0, head + tail - 2 * self.spectrum[tau].re * scale);
+                const d = @max(0, head + tail - 2 * self.autocorr[tau]);
                 self.diff[tau] = d;
                 running += d;
                 self.cmnd[tau] = if (running > 0) d * @as(f64, @floatFromInt(tau)) / running else 1;
