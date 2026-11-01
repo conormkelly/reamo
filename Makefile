@@ -7,7 +7,7 @@
 
 .PHONY: help install all frontend frontend-build extension dev-extension tracy \
         frontend-dev dev dev-notests dev-cycle stop-reaper start-reaper \
-        check lint typecheck test test-frontend test-e2e test-extension zig-version \
+        check lint typecheck test test-frontend test-e2e test-extension tuner-bench zig-version \
         test-ws test-ws-harness harness harness-image release-check \
         container-image container-check clean
 
@@ -156,6 +156,9 @@ test-e2e: ## Frontend E2E tests (Playwright; starts Vite on 5173, or reuses one 
 
 test-extension: zig-version ## Extension unit tests (zig build test)
 	cd extension && "$(ZIG)" build test $(ZIG_TEST_OPTIMIZE)
+
+tuner-bench: zig-version ## Tuner pitch analyser on synthetic signals: accuracy and CPU, against the JSFX (ReleaseFast)
+	cd extension && "$(ZIG)" build tuner-bench -Doptimize=ReleaseFast
 
 zig-version: ## Fail unless ZIG (default: the zig on PATH) is Zig 0.15.x
 	@v="$$("$(ZIG)" version 2>/dev/null)"; case "$$v" in 0.15.*) ;; \

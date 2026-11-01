@@ -593,6 +593,7 @@ make test             # test-frontend + test-e2e + test-extension
 make test-frontend    # Vitest unit tests
 make test-e2e         # Playwright E2E tests (starts Vite on 5173, or reuses one already there)
 make test-extension   # Zig unit tests
+make tuner-bench      # tuner pitch analyser vs the JSFX on synthetic signals: accuracy and CPU
 make container-check  # `make check` in the pinned check container (needs only Docker)
 
 # Against a real REAPER

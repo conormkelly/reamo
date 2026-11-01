@@ -158,6 +158,23 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_tests.step);
     }
 
+    // The tuner's pitch-analyser bench: accuracy on synthetic signals and
+    // CPU cost (src/tuner/bench.zig). Run with an optimize mode for CPU
+    // figures that mean anything. `zig build test` builds it, so it can't
+    // rot unnoticed.
+    const tuner_bench = b.addExecutable(.{
+        .name = "tuner-bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tuner/bench.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_tuner_bench = b.addRunArtifact(tuner_bench);
+    if (b.args) |args| run_tuner_bench.addArgs(args);
+    b.step("tuner-bench", "Run the tuner pitch-analyser bench (-- <name> runs only matching candidates)").dependOn(&run_tuner_bench.step);
+    test_step.dependOn(&tuner_bench.step);
+
     // Main module tests - pulls in tests from all submodules via test block
     // Requires httpz, ztracy, qrcodegen, CSurf C++, and SWELL bridge
     const main_tests = b.addTest(.{

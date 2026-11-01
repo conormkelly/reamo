@@ -5,7 +5,7 @@
 //! autocorrelation, the difference function with exact energy terms, the
 //! first dip of the cumulative mean normalised difference under 0.15,
 //! parabolic interpolation on the raw difference), with three changes, each
-//! chosen by measuring it on synthetic signals:
+//! chosen by measuring it on synthetic signals (`zig build tuner-bench`):
 //!
 //! - The input passes a 2 kHz Butterworth low-pass first. Upper harmonics
 //!   narrow the difference function's dip until a parabola no longer fits
