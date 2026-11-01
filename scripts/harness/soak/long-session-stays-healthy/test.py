@@ -192,6 +192,13 @@ def mark(name, **extra):
     write_json(os.path.join(OUT, name), {"run_id": RUN_ID, "time": time.time(), **extra})
 
 
+def run_out_dirs(scenario):
+    """The out dirs run.sh gives `scenario` in this run: out/<scenario>, or
+    out/<scenario>.<i> (its place in the run) when it is named more than once."""
+    places = [i for i, s in enumerate(RUN_SCENARIOS) if s == scenario]
+    return [scenario] if len(places) == 1 else [f"{scenario}.{i}" for i in places]
+
+
 def soak_gone(run):
     """Why the control should stop now, or None while a soak of this run
     is still going. With the soak named twice, the first to end stops it."""
@@ -1098,12 +1105,6 @@ def finish(run):
                                else "not compared"}
         write_json(path, summary)
         summary["baseline"] = against_baseline(metrics, run, failed)
-        if WITH_BASELINE:
-            # A failure's replay line (results.sh) runs the control too, and
-            # the control's out dirs from this run are kept with the failure.
-            with open(os.path.join(OUT, "replay-with"), "w") as f:
-                f.write("".join(f"{BASELINE} {d}\n" for d, _ in this_run(BASELINE, CONTROL_STARTED))
-                        or f"{BASELINE}\n")
     write_json(path, summary)
     print(json.dumps({"metrics": metrics, "totals": stats.total}, indent=2))
     print("refusals:", json.dumps(stats.refusals, indent=2, sort_keys=True))
@@ -1217,6 +1218,12 @@ def main():
           f"slope and drift {'checked' if slope_checked() else 'not checked (run too short)'}", flush=True)
     run = Run()
     mark(CONTROL_STARTED if CONTROL else SOAK_ALIVE)
+    if WITH_BASELINE:
+        # A failure's replay line (results.sh) runs the control too, and the
+        # control's out dirs are kept with the failure. Written first, so a
+        # soak that fails at once keeps them as well.
+        with open(os.path.join(OUT, "replay-with"), "w") as f:
+            f.write("".join(f"{BASELINE} {d}\n" for d in run_out_dirs(BASELINE)))
     if not CONTROL:
         # A failure's replay line (results.sh) sets the seed this run used.
         with open(os.path.join(OUT, "replay.env"), "w") as f:
