@@ -22,15 +22,17 @@ history as it found it: an undo point would be an edit the user never
 made, and undo history grows by design, which would hide a leak.
 
 REAPER's RSS, CPU (process and main thread), threads and open files are
-sampled from /proc every SOAK_SAMPLE_SECS. Two probes tell a slow REAPER
-from a hung one, each failing after HANG_SECS without an answer: the desk
-sends a main-thread command every 2 s (a stall shows within about 12 s),
-and the sampler makes a ReaScript call when RPC_SECS have passed (a stall
-seen only by ReaScript shows within RPC_SECS + SOAK_SAMPLE_SECS +
-HANG_SECS, 25 s by default). The series goes to
-out/<scenario>/soak-series.csv as it is taken (so a crash leaves it), and
-the verdict with its numbers to soak-summary.json, which every run
-writes, failed or not.
+sampled from /proc every SOAK_SAMPLE_SECS, and each thread's CPU with its
+name: REAPER names its threads, REAmo's are unnamed. RSS by mapping
+(libraries, [heap], anonymous) is read at the end of warm-up and at the
+end. Two probes tell a slow REAPER from a hung one, each failing after
+HANG_SECS without an answer: the desk sends a main-thread command every
+2 s (a stall shows within about 12 s), and the sampler makes a ReaScript
+call when RPC_SECS have passed (a stall seen only by ReaScript shows
+within RPC_SECS + SOAK_SAMPLE_SECS + HANG_SECS, 25 s by default). The
+series goes to out/<scenario>/soak-series.csv and soak-threads.csv as it
+is taken (so a crash leaves it), and the verdict with its numbers to
+soak-summary.json, which every run writes, failed or not.
 
 Settings (env, all optional): SOAK_MINUTES (3, at least 2),
 SOAK_WARMUP_MINUTES (a third of the run, 1 to 20), SOAK_PHONES (5),
@@ -626,6 +628,60 @@ def mapping_growth(before, after):
     return {k: round(v, 2) for k, v in sorted(grown.items(), key=lambda kv: -abs(kv[1]))[:8] if abs(v) >= 0.1}
 
 
+def thread_ticks(pid):
+    """{tid: (name, CPU ticks)} for REAPER's threads now, or Gone once
+    REAPER has exited. A thread that exits between the listing and the read
+    is left out."""
+    out = {}
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        raise Gone from None
+    for tid in tids:
+        try:
+            stat = open(f"/proc/{pid}/task/{tid}/stat").read()
+        except OSError:
+            continue
+        name = stat[stat.index("(") + 1:stat.rindex(")")]
+        rest = stat.rsplit(")", 1)[1].split()
+        out[int(tid)] = (name, int(rest[11]) + int(rest[12]))
+    return out
+
+
+def thread_group(pid, tid, name):
+    """REAPER names its own threads ("reaper/audio_dm", "reaper/mediaafx",
+    ...). The main thread (tid = pid) and threads nobody named carry the
+    process's name, "reaper". REAPER on its own runs none of the latter,
+    so they are REAmo's (its HTTP and WebSocket server threads and the
+    audio stream's network thread)."""
+    if tid == pid:
+        return "main"
+    return "unnamed" if name == "reaper" else name
+
+
+def thread_cpu(pid, before, after, dt):
+    """[(tid, name, group, CPU %)] over dt for the threads alive at the end
+    that used CPU. A thread born in the window counts all its ticks."""
+    out = []
+    for tid, (name, ticks) in after.items():
+        used = ticks - before.get(tid, (name, 0))[1]
+        if used > 0:
+            out.append((tid, name, thread_group(pid, tid, name), round(used / CLK_TCK / dt * 100, 2)))
+    return out
+
+
+THREAD_COLUMNS = ["t_s", "tid", "name", "group", "cpu_pct"]
+
+
+def group_threads(pid, threads):
+    """{group: thread count} of a thread_ticks() result."""
+    out = {}
+    for tid, (name, _) in threads.items():
+        g = thread_group(pid, tid, name)
+        out[g] = out.get(g, 0) + 1
+    return out
+
+
 COLUMNS = ["t_s", "rss_mb", "rss_anon_mb", "hwm_mb", "threads", "fds", "cpu_pct", "main_cpu_pct",
            "ext_frames", "probe_ms_max", "rpc_ms", "cmd_ms_max", "connects", "commands", "cmd_refused",
            "events", "peaks_frames", "audio_frames", "page_loads", "closed_by_server", "playing"]
@@ -635,6 +691,30 @@ def fit_slope(xs, ys):
     mx, my = statistics.fmean(xs), statistics.fmean(ys)
     den = sum((x - mx) ** 2 for x in xs)
     return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den if den else 0.0
+
+
+def analyse_threads(run):
+    """CPU by thread group and the busiest threads, after warm-up: mean,
+    and the last third's mean minus the first's (as cpu_drift_points)."""
+    post = [(t, cpu) for t, cpu in run.thread_rows if t >= WARMUP_MINUTES * 60]
+    if len(post) < 6:
+        return {}
+    third = len(post) // 3
+
+    def series(key):
+        return [sum(pct for k, pct in cpu if key(k)) for _, cpu in post]
+
+    def summary(vals):
+        return {"mean": round(statistics.fmean(vals), 2),
+                "drift_points": round(statistics.fmean(vals[-third:]) - statistics.fmean(vals[:third]), 2)}
+
+    groups = sorted({k[2] for _, cpu in post for k, _ in cpu})
+    by_group = {g: summary(series(lambda k, g=g: k[2] == g)) for g in groups}
+    threads = {k for _, cpu in post for k, _ in cpu}
+    busiest = sorted(((k, summary(series(lambda x, k=k: x == k))) for k in threads),
+                     key=lambda kv: -kv[1]["mean"])[:6]
+    return {"cpu_pct_by_thread_group": by_group,
+            "busiest_threads": [{"tid": k[0], "name": k[1], "group": k[2], **v} for k, v in busiest]}
 
 
 def analyse(rows):
@@ -726,6 +806,8 @@ class Run:
         self.maps_end = None
         self.threads = []
         self.ops = []
+        self.thread_rows = []  # (t_s, [((tid, name, group), CPU %), ...]) per sample
+        self.thread_groups = {}  # {group: threads} at the start of sampling
 
 
 def soak(run):
@@ -753,17 +835,23 @@ def soak(run):
     for t in run.threads:
         t.start()
 
-    with open(os.path.join(OUT, "soak-series.csv"), "w", newline="") as csv_file:
+    with open(os.path.join(OUT, "soak-series.csv"), "w", newline="") as csv_file, \
+            open(os.path.join(OUT, "soak-threads.csv"), "w", newline="") as threads_file:
         writer = csv.DictWriter(csv_file, COLUMNS)
         writer.writeheader()
+        thread_writer = csv.writer(threads_file)
+        thread_writer.writerow(THREAD_COLUMNS)
         start = time.monotonic()
         prev, prev_t = proc_sample(pid), start
+        prev_threads = thread_ticks(pid)
+        run.thread_groups = group_threads(pid, prev_threads)
         playing, rpc_ms = 1, 0.0
         next_rpc = start + RPC_SECS
         while not stats.stop.wait(max(0.0, prev_t + SAMPLE_SECS - time.monotonic())):
             now = time.monotonic()
             try:
                 cur = proc_sample(pid)
+                cur_threads = thread_ticks(pid)
             except Gone:
                 stats.problem(f"REAPER exited {(now - start) / 60:.1f} min in")
                 return
@@ -785,6 +873,7 @@ def soak(run):
                 next_rpc = now + RPC_SECS
             dt = now - prev_t
             w = stats.take_window()
+            per_thread = thread_cpu(pid, prev_threads, cur_threads, dt)
             row = {
                 "t_s": round(now - start, 1),
                 "rss_mb": round(cur["rss_mb"], 2), "rss_anon_mb": round(cur["rss_anon_mb"], 2),
@@ -802,7 +891,10 @@ def soak(run):
             run.rows.append(row)
             writer.writerow(row)
             csv_file.flush()
-            prev, prev_t = cur, now
+            run.thread_rows.append((row["t_s"], [((tid, name, group), pct) for tid, name, group, pct in per_thread]))
+            thread_writer.writerows([row["t_s"], *t] for t in per_thread)
+            threads_file.flush()
+            prev, prev_t, prev_threads = cur, now, cur_threads
             if now - start >= MINUTES * 60:
                 return
             if len(run.rows) % max(1, int(60 / SAMPLE_SECS)) == 0:
@@ -848,6 +940,8 @@ def finish(run):
     broken = verdict(metrics, stats.total) if alive and not stats.problems else []
     if run.maps_warm and run.maps_end:
         metrics["rss_growth_mb_by_mapping"] = mapping_growth(run.maps_warm, run.maps_end)
+    metrics.update(analyse_threads(run))
+    metrics["threads_by_group_at_start"] = run.thread_groups
     with open(os.path.join(OUT, "soak-summary.json"), "w") as f:
         json.dump({"config": {"minutes": MINUTES, "warmup_minutes": WARMUP_MINUTES, "phones": PHONES,
                               "sample_secs": SAMPLE_SECS, "seed": SEED, "cpus": os.cpu_count(),

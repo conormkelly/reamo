@@ -432,8 +432,14 @@ backtraces in `reaper.out`.
   process and its main thread, threads, open files, the probe's and the
   ReaScript call's latency, the slowest command, what the phones did.
   Written as it goes, so a crash leaves it.
+- `soak-threads.csv`: per sample, each thread that used CPU: tid, name,
+  group, CPU %. REAPER names its threads (`reaper/audio_dm`,
+  `reaper/mediaafx`, ...); the main thread is `main`; REAmo's threads
+  (HTTP/WebSocket server, audio stream) have no name and show as
+  `unnamed`.
 - `soak-summary.json`: settings, seed, metrics, limits, refusals,
-  problems, and RSS growth by mapping (`[heap]`, anonymous, libraries).
+  problems, RSS growth by mapping (`[heap]`, anonymous, libraries), and
+  CPU by thread group and the busiest threads.
 
 ### Where the limits come from
 
