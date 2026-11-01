@@ -9,7 +9,7 @@
         frontend-dev dev dev-notests dev-cycle stop-reaper start-reaper \
         check lint typecheck test test-frontend test-e2e test-extension zig-version \
         test-ws test-ws-harness harness harness-image soak release-check \
-        container-image container-check clean
+        container-image container-check docker-clean clean
 
 # Zig 0.15.x. Point ZIG at it when the `zig` on PATH is another version:
 #   make test-extension ZIG=/path/to/zig-0.15/zig
@@ -193,6 +193,9 @@ container-check: container-image ## Run `make check` in the check image, on a co
 	docker run --rm --init --shm-size=1g "$(DEV_IMAGE)" make check
 
 ##@ Housekeeping
+
+docker-clean: ## Remove stopped harness containers and harness images for unpinned REAPER releases
+	scripts/docker-clean.sh
 
 clean: ## Delete build output (reamo/, zig-out, caches) and node_modules
 	rm -rf frontend/dist frontend/node_modules tests/ws-integration/node_modules reamo
