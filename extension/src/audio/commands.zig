@@ -55,6 +55,8 @@ pub fn handleStatus(_: anytype, _: protocol.CommandMessage, response: *mod.Respo
     const hook = audio_hook.instance();
     const held_stream = hook.holds(.stream);
     const held_tuner = hook.holds(.tuner);
+    const held_inputs = hook.holds(.inputs);
+    const input_taps = hook.openTaps();
     const missing_1 = hook.missing_output_1.load(.acquire);
     const missing_2 = hook.missing_output_2.load(.acquire);
     const has_api = manager.api != null;
@@ -77,8 +79,8 @@ pub fn handleStatus(_: anytype, _: protocol.CommandMessage, response: *mod.Respo
 
     var buf: [1024]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf,
-        "{{\"hookRegistered\":{},\"hookUsers\":{{\"stream\":{},\"tuner\":{}}},\"missingOutput1\":{d},\"missingOutput2\":{d},\"hasApi\":{},\"hasApiFn\":{},\"hasSharedState\":{},\"hasThread\":{},\"clientCount\":{d},\"ringBufferAvail\":{d},\"sampleRate\":{d},\"overflows\":{d},\"cbCount\":{d},\"postCount\":{d},\"noGetBuf\":{d},\"lowNch\":{d},\"noLeft\":{d},\"writeCount\":{d},\"lastNch\":{d}}}",
-        .{ hook_registered, held_stream, held_tuner, missing_1, missing_2, has_api, has_fn, has_shared, has_thread, client_count, rb_avail, rb_sr, rb_overflows, cb_count, post_count, no_getbuf, low_nch, no_left, write_count, last_nch },
+        "{{\"hookRegistered\":{},\"hookUsers\":{{\"stream\":{},\"tuner\":{},\"inputs\":{}}},\"inputTaps\":{d},\"missingOutput1\":{d},\"missingOutput2\":{d},\"hasApi\":{},\"hasApiFn\":{},\"hasSharedState\":{},\"hasThread\":{},\"clientCount\":{d},\"ringBufferAvail\":{d},\"sampleRate\":{d},\"overflows\":{d},\"cbCount\":{d},\"postCount\":{d},\"noGetBuf\":{d},\"lowNch\":{d},\"noLeft\":{d},\"writeCount\":{d},\"lastNch\":{d}}}",
+        .{ hook_registered, held_stream, held_tuner, held_inputs, input_taps, missing_1, missing_2, has_api, has_fn, has_shared, has_thread, client_count, rb_avail, rb_sr, rb_overflows, cb_count, post_count, no_getbuf, low_nch, no_left, write_count, last_nch },
     ) catch {
         response.err("FORMAT_ERROR", "Failed to format status");
         return;
