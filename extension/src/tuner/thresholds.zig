@@ -15,7 +15,7 @@
 //! target to fail on each side. Values not swept say so.
 
 /// Bumped on any change to a value below.
-pub const version = 5;
+pub const version = 6;
 
 /// The analysis window and YIN.
 pub const yin = struct {
@@ -149,6 +149,10 @@ pub const mains = struct {
     pub const fall_db = 0.1;
     pub const decay_db = 1.0;
     pub const hold_s = 1.0;
+    /// An onset the mains hold is waiting on lives this long, seconds,
+    /// rather than `onset.life_s`: a falling level is seen only 0.28-0.45
+    /// s after the onset, and a note that hasn't fallen by then is held.
+    pub const wait_s = 1.0;
     /// The mains rule (off by default): a note within this many cents of
     /// a mains harmonic that hasn't decayed stops showing.
     pub const rule_cents = 15.0;

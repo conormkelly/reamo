@@ -40,8 +40,8 @@
 //! Steady hum, buzz and noise have no onset and never show. Hum and buzz
 //! that switch on do have one, so a note reading near 50 or 60 Hz times 1
 //! to 4 whose input since its onset repeats at the mains period waits to
-//! start until its level is seen to fall, as a string's does and theirs
-//! doesn't. A note decaying into
+//! start (for up to 1 s) until its level is seen to fall, as a string's
+//! does and theirs doesn't; a note held at a level there never shows. A note decaying into
 //! them stops at 12 dB over them instead of reading them or a
 //! subharmonic; a muted stroke's tail in the window doesn't show once the
 //! string has stopped. Settings.silence_db stays an absolute floor the
@@ -286,11 +286,14 @@ pub const Options = struct {
     /// their level; the first readings of a sound that has just started
     /// can be 30 cents out, so its frequency can't tell it from a note.
     /// Only readings up to about 245 Hz are held (hum and buzz read 50 or
-    /// 60 Hz, or a low multiple), and a note repeats at the mains period
-    /// only within about 17 cents of 50 or 60 Hz times a whole number: no
-    /// note in tune at A = 440 Hz up to 245 Hz is within 33 cents of one.
-    /// One held level there (an e-bow, a pad) never shows, and a note
-    /// already showing is not affected.
+    /// 60 Hz, or a low multiple), the input must repeat best within 0.5%
+    /// of the mains period (about 8.6 cents), and a reading at 2-4 times
+    /// the mains frequency must not also repeat at its own period: no note
+    /// in tune at A = 440 Hz is that close. While it waits, the onset and
+    /// the floor are held for up to `thresholds.mains.wait_s` (a falling
+    /// level shows 0.28-0.45 s after the onset), so a decaying note there
+    /// starts once it is seen to fall; one held at a level (an e-bow, a
+    /// pad) never shows. A note already showing is not affected.
     mains_start_hold: bool = true,
     /// Whether a reading at 2 to 4 times a mains frequency is taken for
     /// mains only if the input doesn't also repeat at the reading's own
@@ -633,6 +636,8 @@ pub fn AnalyserWith(comptime options: Options) type {
         /// `fine_count` at the latest analysis whose level was within
         /// `rise_quiet_db` of the lowest.
         rise_quiet_at: u64,
+        /// The onset the mains hold last kept a note from starting at.
+        mains_waiting: u64,
         /// The last onset the gate has seen, and when it first saw it.
         onset_seen: u64,
         onset_seen_at: f64,
@@ -725,6 +730,7 @@ pub fn AnalyserWith(comptime options: Options) type {
             self.rise_quiet_at = 0;
             self.onset_seen = 0;
             self.onset_seen_at = 0;
+            self.mains_waiting = 0;
             self.block_fill = 0;
             self.block_energy = 0;
             @memset(&self.blocks, 0);
@@ -1204,7 +1210,9 @@ pub fn AnalyserWith(comptime options: Options) type {
                         self.jump_wait_since = now;
                     }
                 }
-                if (resuming or legato or (at_onset and !self.mainsLike(m.?.hz, now, self.sinceOnset()))) {
+                const mains_wait = at_onset and self.mainsLike(m.?.hz, now, self.sinceOnset());
+                if (mains_wait) self.mains_waiting = self.onset_count;
+                if (resuming or legato or (at_onset and !mains_wait)) {
                     self.jump_from_hz = 0;
                     self.jump_wait_hz = 0;
                     if (!resuming) self.note_start = now;
@@ -1228,7 +1236,8 @@ pub fn AnalyserWith(comptime options: Options) type {
             // to fill with a new note).
             if (!self.note_active and self.floor_paused) {
                 const since_onset = @as(f64, @floatFromInt(self.fine_count - self.onset_at)) / self.fine_rate;
-                if (self.note_onset_count == self.onset_count or since_onset >= onset_floor_hold_s) self.floor_paused = false;
+                const hold_s: f64 = if (self.mains_waiting == self.onset_count) th.mains.wait_s else onset_floor_hold_s;
+                if (self.note_onset_count == self.onset_count or since_onset >= hold_s) self.floor_paused = false;
             }
             return if (self.gate_open) m else null;
         }
@@ -1312,7 +1321,10 @@ pub fn AnalyserWith(comptime options: Options) type {
                 self.onset_seen = self.onset_count;
                 self.onset_seen_at = now;
             }
-            return now - self.onset_seen_at <= onset_life_s;
+            // While the mains hold waits on this onset for its level to
+            // fall, the onset lives as long as that evidence takes.
+            const life: f64 = if (self.mains_waiting == self.onset_count) th.mains.wait_s else onset_life_s;
+            return now - self.onset_seen_at <= life;
         }
 
         /// Keeps `level` among the lowest of its span of time, counting only
@@ -2842,6 +2854,23 @@ test "a note started by a comb onset stops at a jump without an onset, and no na
     errdefer std.debug.print("G4 {d}, other {d}\n", .{ g4, wrong });
     try testing.expect(g4 > 10);
     try testing.expectEqual(@as(usize, 0), wrong);
+}
+
+test "a decaying harmonic tone exactly at 50 or 60 Hz shows once its level is seen to fall" {
+    for ([_]f64{ 50, 60 }) |f0| {
+        const a = try newAnalyser(48000);
+        defer testing.allocator.destroy(a);
+        const buf = try generate(48000 * 2);
+        defer testing.allocator.destroy(buf);
+        @memset(buf[0..12000], 0);
+        signals.pluckedString(buf[12000..], 48000, .{ .f0 = f0, .inharmonicity = 0, .t60_s = 3 });
+        signals.addNoise(buf, 3e-5, 18);
+        const note: i32 = @intFromFloat(@round(69 + 12 * @log2(f0 / 440)));
+        const r = countNotes(a, buf, 48000, 0, note);
+        errdefer std.debug.print("{d} Hz: {any}\n", .{ f0, r });
+        try testing.expect(r.shown >= 30);
+        try testing.expectEqual(@as(usize, 0), r.other);
+    }
 }
 
 test "an onset that shows no note expires, so without the slow onset a swell over hum long after a click never shows" {
