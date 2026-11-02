@@ -532,10 +532,11 @@ the same time, sampled the same way, on a REAPER without REAmo (its
   reads, the audio hook), not REAmo's code alone.
 - The limits judge the soak's own numbers, not the difference.
 
-**The tuner is left out by default.** Opening and closing it leaves undo
-points in REAPER (RV1-165), so a run with it fails. `SOAK_OPS=+tuner` puts
-it in, to check a fix for RV1-165; until then that run fails on the undo
-check, naming RV1-165.
+**The tuner is left out by default.** A track tuner reads the track's
+hardware input, and REAPER's dummy device has none, so on it every
+tuner/subscribe is refused (INPUT_NOT_ON_DEVICE) and the run fails on the
+refusals. With inputs it is in: `HARNESS_AUDIO=jack SOAK_OPS=+tuner`
+(JACK with 2 inputs; the band session's tracks record from input 1).
 
 It fails if:
 
