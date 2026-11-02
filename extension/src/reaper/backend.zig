@@ -132,7 +132,6 @@ pub fn validateBackend(comptime T: type) void {
 
         // Pointer Validation
         "validateTrackPtr",
-        "validateTrackPtrIn",
         "validateItemPtr",
         "validateTakePtr",
 
