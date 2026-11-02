@@ -3,7 +3,7 @@
  *
  * Reference frequency: A4 tuning reference (default 440Hz)
  * Silence threshold: dB level below which input is ignored (the tuner's
- * default: -90 dB on the master's analyser, -60 dB on a track's JSFX)
+ * default, -90 dB, leaves the gating to the analyser's noise floor)
  */
 
 import { type ReactElement } from 'react';

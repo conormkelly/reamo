@@ -1,11 +1,11 @@
 """Opening and closing track tuners leaves REAPER's project exactly as it
 was: no undo point, not dirty, no plugin anywhere (RV1-165).
 
-A track tuner on a PitchDetect JSFX added it to the track's input FX and
-deleted it again: two undo points per open and close ("Add FX", "Remove
-FX"), a dirty project (REAPER asking to save after only tuning), the plugin
-saved in the .RPP if saved meanwhile, and Ctrl+Z bringing it back as an
-orphan. Against that tuner, every check here fails.
+A tuner that adds a plugin to the track's input FX and deletes it again
+leaves two undo points per open and close ("Add FX", "Remove FX"), a
+dirty project (REAPER asking to save after only tuning), the plugin saved
+in the .RPP if saved meanwhile, and Ctrl+Z bringing it back as an orphan.
+Against such a tuner, every check here fails.
 
 The fixture is a saved, clean project on JACK. A known undo point goes on
 top ("PROBE MARK", a rename in its own undo block), and the project is
