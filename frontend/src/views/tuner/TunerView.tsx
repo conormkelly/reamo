@@ -2,13 +2,17 @@
  * TunerView - Chromatic tuner for instrument tuning
  *
  * Subscribes to the tuner on a track (REAPER reads the hardware input the
- * track records from, armed or not) and displays real-time pitch detection:
+ * track records from, armed or not). Shows:
  * - Note name and octave (large display)
  * - Cents deviation meter (-50 to +50)
- * - Frequency display, or why there is none: the track's input can't be
- *   tuned (REAPER's own message), or REAPER's audio device isn't running
+ * - Frequency, or what stands in for it: why the track's input can't be
+ *   tuned (REAPER's own message), that REAPER's audio device isn't
+ *   running, that several notes sound, or that a note is starting
  * - Track selector (defaults to the first track); choosing the track
  *   already chosen asks REAPER again, after the user has fixed its input
+ *
+ * The analyser's flags decide what shows (tunerDisplay.ts): green only for
+ * a stable reading in the in-tune window.
  *
  * Uses ViewLayout for proper responsive layout handling.
  */
@@ -24,17 +28,7 @@ import { EMPTY_SKELETON } from '../../store/stableRefs';
 import { TunerMeter } from './TunerMeter';
 import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
-
-/**
- * What shows while REAPER's audio device isn't running: true whether REAPER
- * closed it while stopped (its preferences can say to; play reopens it) or
- * the device failed or was unplugged, which REAPER doesn't tell apart.
- */
-const DEVICE_CLOSED_TEXT = "REAPER's audio device isn't running. If it closes when stopped, press play.";
-
-// Hysteresis threshold: only switch notes when within this many cents of the new note
-// This prevents flickering at the ±50 cent boundary between adjacent notes
-const NOTE_SWITCH_THRESHOLD = 40;
+import { holdNote, tunerDisplay, type HeldNote } from './tunerDisplay';
 
 // Load selected track GUID from localStorage
 function loadSelectedTrack(): string | null {
@@ -62,12 +56,17 @@ export function TunerView(): ReactElement {
   const {
     subscribe,
     unsubscribe,
+    subscribedGuid,
     freq,
     note,
     noteName,
     octave,
     cents,
     inTune,
+    starting,
+    settling,
+    stable,
+    multiple,
     state,
     problem,
     referenceHz,
@@ -81,42 +80,24 @@ export function TunerView(): ReactElement {
   const [showTrackSelector, setShowTrackSelector] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Hysteresis: track the "stable" displayed note to prevent flickering at boundaries
-  // Only switch notes when clearly within the new note's range (|cents| < threshold)
-  // Also store MIDI note number to recalculate cents when overriding
-  const stableNoteRef = useRef<{ noteName: string; octave: number; midiNote: number } | null>(null);
+  // The note shown, held across the boundary to the next one (holdNote).
+  // holdNote gives the same for the same input, so a second render of one
+  // reading shows the same.
+  const heldNoteRef = useRef<HeldNote | null>(null);
+  const shown = holdNote(heldNoteRef.current, subscribedGuid, { freq, note, noteName, octave, cents });
+  heldNoteRef.current = shown.held;
 
-  // Compute display values with hysteresis
-  let displayNoteName = noteName;
-  let displayOctave = octave;
-  let displayCents = cents;
-
-  if (freq > 0 && noteName) {
-    const currentStable = stableNoteRef.current;
-    const isSameNote = currentStable?.noteName === noteName && currentStable?.octave === octave;
-
-    if (!currentStable) {
-      // First note detected - set it as stable
-      stableNoteRef.current = { noteName, octave, midiNote: note };
-    } else if (isSameNote) {
-      // Same note - keep it (no change needed)
-    } else if (Math.abs(cents) < NOTE_SWITCH_THRESHOLD) {
-      // Different note AND clearly within its range - switch
-      stableNoteRef.current = { noteName, octave, midiNote: note };
-    } else {
-      // Different note but at boundary (|cents| >= threshold) - keep showing stable note
-      displayNoteName = currentStable.noteName;
-      displayOctave = currentStable.octave;
-      // Recalculate cents relative to the stable note
-      // actualPitch = incomingNote + incomingCents/100 (in semitones)
-      // displayCents = (actualPitch - stableNote) * 100
-      const actualPitch = note + cents / 100;
-      displayCents = (actualPitch - currentStable.midiNote) * 100;
-    }
-  } else if (freq === 0) {
-    // No signal - clear stable note
-    stableNoteRef.current = null;
-  }
+  const display = tunerDisplay({
+    freq,
+    cents: shown.cents,
+    inTune,
+    starting,
+    settling,
+    stable,
+    multiple,
+    problem: problem?.message ?? null,
+    deviceClosed: state === 'deviceClosed',
+  });
 
   // Get track skeleton for track selection
   const tracks = useReaperStore((s) => s.trackSkeleton ?? EMPTY_SKELETON);
@@ -186,16 +167,6 @@ export function TunerView(): ReactElement {
     [selectedTrackGuid, setThresholdDb]
   );
 
-  // No signal state
-  const hasSignal = freq > 0;
-  const statusText = problem
-    ? problem.message
-    : state === 'deviceClosed'
-      ? DEVICE_CLOSED_TEXT
-      : hasSignal
-        ? `${freq.toFixed(1)} Hz`
-        : 'No input detected';
-
   return (
     <ViewLayout
       viewId="tuner"
@@ -228,20 +199,21 @@ export function TunerView(): ReactElement {
         </div>
       }
     >
-      {/* Main tuner content - always show skeleton, disabled when no signal */}
       {/* Centred by auto margins, so on a short screen it scrolls rather
           than being clipped top and bottom */}
       <div className="h-full overflow-y-auto overscroll-contain flex flex-col p-4">
         <div className="my-auto flex flex-col items-center gap-4">
-          <TunerNote
-            noteName={displayNoteName}
-            octave={displayOctave}
-            inTune={inTune}
-            disabled={!hasSignal}
-          />
-          <TunerMeter cents={displayCents} inTune={inTune} disabled={!hasSignal} />
-          <div className="text-text-muted text-sm text-center max-w-xs" role="status">
-            {statusText}
+          <TunerNote noteName={shown.noteName} octave={shown.octave} look={display.note} />
+          <TunerMeter cents={shown.cents} tone={display.needle} />
+          {/* One line: the frequency, or the message standing in for it.
+              Only the message is a live region: the frequency changes 30
+              times a second, so a screen reader is told the verdict of a
+              stable reading instead. */}
+          <div className="text-text-muted text-sm text-center max-w-xs">
+            <div role="status">
+              {display.message ?? <span className="sr-only">{display.announcement ?? ''}</span>}
+            </div>
+            {display.message === null && <div className="tabular-nums">{freq.toFixed(2)} Hz</div>}
           </div>
         </div>
       </div>
