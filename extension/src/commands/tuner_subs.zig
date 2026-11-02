@@ -71,12 +71,13 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
         switch (err) {
             error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             error.TrackNotFound => response.err("TRACK_NOT_FOUND", "Track GUID not found in cache"),
-            error.TooManyTuners => response.err("TOO_MANY_TUNERS", "Every input the tuner can read at once is in use"),
-            error.OutOfMemory => response.err("OUT_OF_MEMORY", "Not enough memory for the tuner"),
-            error.ThreadFailed => response.err("THREAD_FAILED", "Couldn't start the tuner's thread"),
+            // Each with the code and message a poll's cantTune gives for it.
+            error.TooManyTuners => cantOpen(response, .too_many_inputs),
+            error.OutOfMemory => cantOpen(response, .out_of_memory),
+            error.ThreadFailed => cantOpen(response, .thread_failed),
             error.AudioHookFailed => {
                 logging.warn("tuner: REAPER refused the audio hook the tuner reads", .{});
-                response.err("AUDIO_HOOK_FAILED", "REAPER refused the audio hook the tuner reads");
+                cantOpen(response, .audio_hook_failed);
             },
             error.InputNone, error.InputMidi, error.InputNotOnDevice, error.InputReaRoute, error.InputMultichannel => {
                 const why = tuner_subscriptions.cantTuneOf(err).?;
@@ -95,6 +96,10 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
     response.success(stream.getWritten());
+}
+
+fn cantOpen(response: *mod.ResponseWriter, why: tuner_subscriptions.CantTune) void {
+    response.err(why.code(), why.message());
 }
 
 /// fxGuid is always "": no plugin is inserted. It stays for pages that read it.
