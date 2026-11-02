@@ -7,7 +7,26 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { TunerEventPayload } from '../../core/WebSocketTypes';
+import type { TunerEventPayload, TunerState } from '../../core/WebSocketTypes';
+
+/** Why the tuner can't tune the chosen track, as REAPER says it. */
+export interface TunerProblem {
+  code: string;
+  message: string;
+}
+
+/** Nothing heard yet, and nothing known about what the tuner can hear. */
+const NO_READING = {
+  tunerFreq: 0,
+  tunerNote: 0,
+  tunerNoteName: '',
+  tunerOctave: 0,
+  tunerCents: 0,
+  tunerConf: 0,
+  tunerInTune: false,
+  tunerState: null,
+  tunerProblem: null,
+} as const;
 
 export interface TunerSlice {
   // Subscription state
@@ -22,6 +41,10 @@ export interface TunerSlice {
   tunerCents: number;
   tunerConf: number;
   tunerInTune: boolean;
+  /** What the tuner can hear, from the latest event (null before one, or from an older extension) */
+  tunerState: TunerState | null;
+  /** Why the chosen track can't be tuned: a refused subscribe, or a cantTune event */
+  tunerProblem: TunerProblem | null;
 
   // Settings (persisted to localStorage separately)
   tunerReferenceHz: number;
@@ -45,18 +68,14 @@ export interface TunerSlice {
   setTunerReferenceHz: (hz: number) => void;
   /** Update threshold dB (local state only - use sendCommand for backend) */
   setTunerThresholdDb: (db: number) => void;
+  /** Record why REAPER refused to tune the chosen track (null to clear) */
+  setTunerProblem: (problem: TunerProblem | null) => void;
 }
 
 export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (set, get) => ({
   // Initial state
   tunerSubscribedGuid: null,
-  tunerFreq: 0,
-  tunerNote: 0,
-  tunerNoteName: '',
-  tunerOctave: 0,
-  tunerCents: 0,
-  tunerConf: 0,
-  tunerInTune: false,
+  ...NO_READING,
   tunerReferenceHz: 440,
   tunerThresholdDb: -90,
 
@@ -64,13 +83,7 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
     set({
       tunerSubscribedGuid: trackGuid,
       // Clear old data when subscription changes
-      tunerFreq: 0,
-      tunerNote: 0,
-      tunerNoteName: '',
-      tunerOctave: 0,
-      tunerCents: 0,
-      tunerConf: 0,
-      tunerInTune: false,
+      ...NO_READING,
     }),
 
   handleTunerEvent: (payload) => {
@@ -85,6 +98,9 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
       tunerCents: payload.cents,
       tunerConf: payload.conf,
       tunerInTune: payload.inTune,
+      tunerState: payload.state ?? null,
+      tunerProblem:
+        payload.state === 'cantTune' ? { code: payload.code ?? '', message: payload.message ?? '' } : null,
       // Multi-client sync: update settings if changed by another client
       tunerReferenceHz: payload.referenceHz,
       tunerThresholdDb: payload.thresholdDb,
@@ -93,29 +109,12 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
 
   handleTunerError: (_error) => {
     // Auto-unsubscribed by backend, clear local state
-    set({
-      tunerSubscribedGuid: null,
-      tunerFreq: 0,
-      tunerNote: 0,
-      tunerNoteName: '',
-      tunerOctave: 0,
-      tunerCents: 0,
-      tunerConf: 0,
-      tunerInTune: false,
-    });
+    set({ tunerSubscribedGuid: null, ...NO_READING });
   },
 
-  clearTunerSubscription: () =>
-    set({
-      tunerSubscribedGuid: null,
-      tunerFreq: 0,
-      tunerNote: 0,
-      tunerNoteName: '',
-      tunerOctave: 0,
-      tunerCents: 0,
-      tunerConf: 0,
-      tunerInTune: false,
-    }),
+  clearTunerSubscription: () => set({ tunerSubscribedGuid: null, ...NO_READING }),
+
+  setTunerProblem: (problem) => set({ tunerProblem: problem }),
 
   setTunerReferenceHz: (hz) => set({ tunerReferenceHz: hz }),
 

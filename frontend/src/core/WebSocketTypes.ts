@@ -461,18 +461,30 @@ export interface TunerEventPayload {
   clarity: number;   // How periodic the input is at the detected period (0-1)
   conf: number;      // The same as clarity, under its older name
   inTune: boolean;   // True when there is a pitch and |cents| < 2
-  // From the master tuner's analyser; absent from a track tuner's JSFX,
-  // which can't tell them:
+  // From REAmo's analyser; absent from an extension that tuned tracks on a
+  // JSFX, which couldn't tell them:
   settling?: boolean; // A note's attack: the note is known, the cents not yet
   stable?: boolean;   // The pitch has held still: the reading to tune by
   multiple?: boolean; // Several notes sound; the reading is one of them
   starting?: boolean; // A new note's name is held back (its first ~0.1 s): no pitch yet, but not silence
+  state?: TunerState; // What the tuner can hear
+  code?: string;      // With state "cantTune": why, as tuner/subscribe's error codes
+  message?: string;   // With state "cantTune": the reason, for the phone to show
   // Settings (for multi-client sync)
   referenceHz: number;  // A4 reference frequency (400-480)
   thresholdDb: number;  // Silence threshold in dB (-90 to -30)
 }
 
-/** Tuner error event (track/tuner deleted while subscribed) */
+/**
+ * What a tuner can hear: "listening" (audio arrives), "deviceClosed" (REAPER
+ * has closed the audio device while stopped, as its preferences can say: no
+ * audio until play reopens it), or "cantTune" (the track's record input
+ * can't be tuned now; the phone stays on the track and tuning resumes when
+ * it can).
+ */
+export type TunerState = 'listening' | 'deviceClosed' | 'cantTune';
+
+/** Tuner error event (track deleted, or in another project tab, while subscribed) */
 export interface TunerErrorEventPayload {
   error: string;     // "TUNER_NOT_FOUND" | "GENERATION_FAILED"
 }

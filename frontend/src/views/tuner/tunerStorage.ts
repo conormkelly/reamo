@@ -2,17 +2,19 @@
  * Tuner settings this phone has saved: only what the user chose.
  *
  * The defaults belong to the tuner in REAPER, which reports its settings in
- * the subscribe response and every event: the master's analyser starts at
- * -90 dB (its learned noise floor does the gating), a track's PitchDetect
- * JSFX at -60 dB. Sending a default from here would override whichever
- * tuner is open, so an unsaved setting is null and nothing is sent for it.
+ * the subscribe response and every event: the analyser starts at -90 dB
+ * (its learned noise floor does the gating). Sending a default from here
+ * would override whichever tuner is open, so an unsaved setting is null and
+ * nothing is sent for it.
  *
- * The threshold means different things to the two (a gate over the JSFX's
- * whole input, a floor under the analyser's own), so each kind of tuner
- * keeps its own: `tuner-threshold` for tracks, the key every earlier page
- * saved to when tracks were all it could tune, and `tuner-threshold-master`
- * for the master, which nothing earlier saved, so no old value, chosen or
- * not, reaches the analyser. A4 means the same to both and is shared.
+ * Each kind of tuner keeps its own threshold, `tuner-threshold-track` and
+ * `tuner-threshold-master`, as one hears an instrument's input and the
+ * other the whole mix. A4 means the same to both and is shared.
+ *
+ * `tuner-threshold`, where pages saved a track tuner's threshold when it was
+ * the PitchDetect JSFX, is never read: that threshold gated the JSFX's whole
+ * input, raised to hide the notes it read in noise, which the analyser
+ * doesn't; applied to the analyser, an old value would only hide quiet notes.
  */
 
 /** Which tuner a GUID opens. */
@@ -24,7 +26,7 @@ export function tunerKind(trackGuid: string): TunerKind {
 
 const REFERENCE_KEY = 'tuner-reference';
 const THRESHOLD_KEYS: Record<TunerKind, string> = {
-  track: 'tuner-threshold',
+  track: 'tuner-threshold-track',
   master: 'tuner-threshold-master',
 };
 

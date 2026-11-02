@@ -638,6 +638,13 @@ describe('handleWebSocketMessage', () => {
       expect(spy).toHaveBeenCalledWith('TUNER_NOT_FOUND');
       spy.mockRestore();
     });
+
+    it('takes the code from beside the payload, where an older extension sends it', () => {
+      const spy = vi.spyOn(useReaperStore.getState(), 'handleTunerError');
+      handle({ type: 'event', event: 'tunerError', error: 'GENERATION_FAILED' } as unknown as Parameters<typeof handle>[0]);
+      expect(spy).toHaveBeenCalledWith('GENERATION_FAILED');
+      spy.mockRestore();
+    });
   });
 
   // ===========================================================================

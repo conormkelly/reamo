@@ -24,7 +24,11 @@ import { useReaperStore } from '../store';
 
 const TRACK = '{TRACK-GUID-0001}';
 
-type Response = { success: boolean; payload?: { reference: number; threshold: number } };
+type Response = {
+  success: boolean;
+  payload?: { reference: number; threshold: number };
+  error?: { code: string; message: string };
+};
 
 /** The subscribe's response, released by the test. */
 function pendingSubscribe(): (r: Response) => Promise<void> {
@@ -54,7 +58,7 @@ describe('useTuner', () => {
 
   it('sends saved settings only after the subscribe succeeds, against what the tuner reports', async () => {
     localStorage.setItem('tuner-reference', '442');
-    localStorage.setItem('tuner-threshold', '-60'); // the JSFX's own value: nothing to send
+    localStorage.setItem('tuner-threshold-track', '-90'); // the analyser's own value: nothing to send
     const respond = pendingSubscribe();
     const { result } = renderHook(() => useTuner());
 
@@ -64,7 +68,7 @@ describe('useTuner', () => {
     // The tuner isn't open yet: a setParam now would be refused (NOT_SUBSCRIBED).
     expect(setParams()).toEqual([]);
 
-    await respond({ success: true, payload: { reference: 440, threshold: -60 } });
+    await respond({ success: true, payload: { reference: 440, threshold: -90 } });
     expect(setParams()).toEqual([['reference', 442]]);
     expect(useReaperStore.getState().tunerReferenceHz).toBe(442);
   });
@@ -95,8 +99,8 @@ describe('useTuner', () => {
   });
 
   it("never applies a track tuner's saved threshold to the master", async () => {
-    // Saved by a page that could tune only tracks, chosen or not.
-    localStorage.setItem('tuner-threshold', '-60');
+    // A track tuner's threshold, saved on this phone.
+    localStorage.setItem('tuner-threshold-track', '-60');
     const respond = pendingSubscribe();
     const { result } = renderHook(() => useTuner());
     act(() => {
@@ -112,11 +116,34 @@ describe('useTuner', () => {
       result.current.setThresholdDb(-70, 'master');
     });
     expect(localStorage.getItem('tuner-threshold-master')).toBe('-70');
-    expect(localStorage.getItem('tuner-threshold')).toBeNull();
+    expect(localStorage.getItem('tuner-threshold-track')).toBeNull();
     act(() => {
       result.current.setThresholdDb(-50, TRACK);
     });
-    expect(localStorage.getItem('tuner-threshold')).toBe('-50');
+    expect(localStorage.getItem('tuner-threshold-track')).toBe('-50');
     expect(localStorage.getItem('tuner-threshold-master')).toBe('-70');
+    expect(localStorage.getItem('tuner-threshold')).toBeNull();
+  });
+
+  it("keeps a refusal's code and message for the screen to show", async () => {
+    const respond = pendingSubscribe();
+    const { result } = renderHook(() => useTuner());
+    act(() => {
+      void result.current.subscribe(TRACK);
+    });
+    await respond({
+      success: false,
+      error: { code: 'INPUT_MIDI', message: 'This track records MIDI.' },
+    });
+    expect(result.current.problem).toEqual({ code: 'INPUT_MIDI', message: 'This track records MIDI.' });
+
+    // Subscribing again clears it until REAPER answers.
+    const again = pendingSubscribe();
+    act(() => {
+      void result.current.subscribe(TRACK);
+    });
+    expect(result.current.problem).toBeNull();
+    await again({ success: true, payload: { reference: 440, threshold: -90 } });
+    expect(result.current.problem).toBeNull();
   });
 });
