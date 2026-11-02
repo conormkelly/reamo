@@ -176,7 +176,7 @@ with Client() as a:
         assert r["success"], r
         st = status(b)
         print("tuner + stream:", st["hookRegistered"], st.get("hookUsers"))
-        if st.get("hookUsers") != {"stream": True, "tuner": True}:
+        if st.get("hookUsers") != {"stream": True, "tuner": True, "inputs": False}:
             problems.append(f"with tuner and stream both on, hook users are {st.get('hookUsers')}")
         frames = len(b.binary)
         shows_a3(b, "tuner beside the stream")
@@ -197,7 +197,7 @@ with Client() as a:
         b.drain(1.0)
         if len(b.binary) == frames:
             problems.append("the stream stopped when the tuner closed")
-        if hook_users(b) != {"stream": True, "tuner": False}:
+        if hook_users(b) != {"stream": True, "tuner": False, "inputs": False}:
             problems.append(f"after the tuner closed: {hook_users(b)}")
         assert b.command("audio/stopStream")["success"]
         if status(b)["hookRegistered"]:
