@@ -1,73 +1,55 @@
 /**
  * TunerNote - Large note name + octave display
  *
- * Shows the currently detected note with color-coded in-tune feedback.
- * Uses responsive sizing that scales with container.
- * Supports disabled state for "no signal" display.
+ * How it shows (tunerDisplay.ts decides):
+ * - none: a faded A4, holding the layout, with no pitch
+ * - starting: a dimmed dash, as a note has begun but its name isn't known yet
+ * - shown: the note
+ * - inTune: the note in green
  */
 
 import type { ReactElement } from 'react';
+import type { NoteLook } from './tunerDisplay';
 
 export interface TunerNoteProps {
   noteName: string;
   octave: number;
-  inTune: boolean;
-  /** Show muted placeholder state (no signal) */
-  disabled?: boolean;
+  look: NoteLook;
 }
 
-export function TunerNote({ noteName, octave, inTune, disabled }: TunerNoteProps): ReactElement {
-  const showPlaceholder = disabled || !noteName;
+const NAME_SIZE = { fontSize: 'clamp(64px, 20vw, 120px)', lineHeight: 1 } as const;
+const OCTAVE_SIZE = { fontSize: 'clamp(24px, 8vw, 48px)', lineHeight: 1 } as const;
 
-  // When disabled, show faded "A4" as a reference hint
-  // Uses same font sizes as active state for consistent layout
-  if (showPlaceholder) {
+export function TunerNote({ noteName, octave, look }: TunerNoteProps): ReactElement {
+  if (look === 'none' || look === 'starting' || !noteName) {
+    const starting = look === 'starting';
     return (
-      <div className="flex items-baseline gap-2 opacity-20">
-        <span
-          className="font-bold text-text-muted"
-          style={{
-            fontSize: 'clamp(64px, 20vw, 120px)',
-            lineHeight: 1,
-          }}
-        >
-          A
+      <div
+        data-testid="tuner-note"
+        data-look={look}
+        aria-hidden="true"
+        className={`flex items-baseline gap-2 ${starting ? 'opacity-40 motion-safe:animate-pulse' : 'opacity-20'}`}
+      >
+        <span className="font-bold text-text-muted" style={NAME_SIZE}>
+          {starting ? '–' : 'A'}
         </span>
-        <span
-          className="font-medium text-text-muted"
-          style={{
-            fontSize: 'clamp(24px, 8vw, 48px)',
-            lineHeight: 1,
-          }}
-        >
-          4
+        {/* Keeps the name where it is with an octave; the name sets the height */}
+        <span className="font-medium text-text-muted" style={OCTAVE_SIZE}>
+          {starting ? ' ' : '4'}
         </span>
       </div>
     );
   }
 
   return (
-    <div className="flex items-baseline gap-2">
-      {/* Note name - large */}
+    <div data-testid="tuner-note" data-look={look} className="flex items-baseline gap-2">
       <span
-        className={`font-bold transition-colors duration-150 ${
-          inTune ? 'text-success' : 'text-text-primary'
-        }`}
-        style={{
-          fontSize: 'clamp(64px, 20vw, 120px)',
-          lineHeight: 1,
-        }}
+        className={`font-bold transition-colors duration-150 ${look === 'inTune' ? 'text-success' : 'text-text-primary'}`}
+        style={NAME_SIZE}
       >
         {noteName}
       </span>
-      {/* Octave - smaller */}
-      <span
-        className="font-medium text-text-tertiary"
-        style={{
-          fontSize: 'clamp(24px, 8vw, 48px)',
-          lineHeight: 1,
-        }}
-      >
+      <span className="font-medium text-text-tertiary" style={OCTAVE_SIZE}>
         {octave}
       </span>
     </div>

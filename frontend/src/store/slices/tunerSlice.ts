@@ -24,6 +24,10 @@ const NO_READING = {
   tunerCents: 0,
   tunerConf: 0,
   tunerInTune: false,
+  tunerStarting: false,
+  tunerSettling: false,
+  tunerStable: false,
+  tunerMultiple: false,
   tunerState: null,
   tunerProblem: null,
 } as const;
@@ -40,7 +44,20 @@ export interface TunerSlice {
   tunerOctave: number;
   tunerCents: number;
   tunerConf: number;
+  /** The backend's in-tune window (a pitch, and |cents| < 2): not a reading to tune by unless `tunerStable` */
   tunerInTune: boolean;
+  /**
+   * The analyser's flags for the reading (false when an event has none: an
+   * extension whose track tuner was a JSFX, which can't tell them).
+   * - starting: a note has begun but its name is held back (~0.1 s); no pitch yet
+   * - settling: the note's attack; the name is known, the cents not yet
+   * - stable: the pitch has held still; the only reading to tune by
+   * - multiple: several notes sound; a reading is one of them
+   */
+  tunerStarting: boolean;
+  tunerSettling: boolean;
+  tunerStable: boolean;
+  tunerMultiple: boolean;
   /** What the tuner can hear, from the latest event (null before one, or from an older extension) */
   tunerState: TunerState | null;
   /** Why the chosen track can't be tuned: a refused subscribe, or a cantTune event */
@@ -98,6 +115,10 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
       tunerCents: payload.cents,
       tunerConf: payload.conf,
       tunerInTune: payload.inTune,
+      tunerStarting: payload.starting === true,
+      tunerSettling: payload.settling === true,
+      tunerStable: payload.stable === true,
+      tunerMultiple: payload.multiple === true,
       tunerState: payload.state ?? null,
       tunerProblem:
         payload.state === 'cantTune' ? { code: payload.code ?? '', message: payload.message ?? '' } : null,

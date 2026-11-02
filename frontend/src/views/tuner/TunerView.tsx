@@ -1,14 +1,19 @@
 /**
  * TunerView - Chromatic tuner for instrument tuning
  *
- * Subscribes to the tuner on a track (REAPER reads the hardware input the
- * track records from, armed or not) and displays real-time pitch detection:
+ * Tunes one source at a time: the master output, or a track (REAPER reads
+ * the hardware input the track records from, armed or not). Shows:
  * - Note name and octave (large display)
  * - Cents deviation meter (-50 to +50)
- * - Frequency display, or why there is none: the track's input can't be
- *   tuned (REAPER's own message), or REAPER's audio device isn't running
- * - Track selector (defaults to the first track); choosing the track
- *   already chosen asks REAPER again, after the user has fixed its input
+ * - Frequency, or what stands in for it: why the track's input can't be
+ *   tuned (REAPER's own message), that REAPER's audio device isn't
+ *   running, that several notes sound, or that a note is starting
+ * - Source selector: the master output, then the tracks (defaults to the
+ *   first track). Choosing the source already chosen asks REAPER again,
+ *   after the user has fixed its input.
+ *
+ * The analyser's flags decide what shows (tunerDisplay.ts): green only for
+ * a stable reading in the in-tune window.
  *
  * Uses ViewLayout for proper responsive layout handling.
  */
@@ -24,19 +29,16 @@ import { EMPTY_SKELETON } from '../../store/stableRefs';
 import { TunerMeter } from './TunerMeter';
 import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
+import { holdNote, tunerDisplay, type HeldNote } from './tunerDisplay';
+import { useSettled } from './useSettled';
 
-/**
- * What shows while REAPER's audio device isn't running: true whether REAPER
- * closed it while stopped (its preferences can say to; play reopens it) or
- * the device failed or was unplugged, which REAPER doesn't tell apart.
- */
-const DEVICE_CLOSED_TEXT = "REAPER's audio device isn't running. If it closes when stopped, press play.";
+/** The GUID the master output is tuned by (and its entry in the track skeleton). */
+const MASTER = 'master';
+const MASTER_LABEL = 'Master output';
+/** How long what a screen reader is told must hold before it is said. */
+const SPOKEN_SETTLE_MS = 300;
 
-// Hysteresis threshold: only switch notes when within this many cents of the new note
-// This prevents flickering at the ±50 cent boundary between adjacent notes
-const NOTE_SWITCH_THRESHOLD = 40;
-
-// Load selected track GUID from localStorage
+// Load the chosen source's GUID from localStorage
 function loadSelectedTrack(): string | null {
   try {
     return localStorage.getItem('tuner-track') || null;
@@ -45,7 +47,7 @@ function loadSelectedTrack(): string | null {
   }
 }
 
-// Save selected track GUID to localStorage
+// Save the chosen source's GUID to localStorage
 function saveSelectedTrack(guid: string | null): void {
   try {
     if (guid) {
@@ -58,16 +60,25 @@ function saveSelectedTrack(guid: string | null): void {
   }
 }
 
+function trackLabel(guid: string, name: string): string {
+  return name || `Track ${guid.slice(1, 8)}`;
+}
+
 export function TunerView(): ReactElement {
   const {
     subscribe,
     unsubscribe,
+    subscribedGuid,
     freq,
     note,
     noteName,
     octave,
     cents,
     inTune,
+    starting,
+    settling,
+    stable,
+    multiple,
     state,
     problem,
     referenceHz,
@@ -76,74 +87,63 @@ export function TunerView(): ReactElement {
     setThresholdDb,
   } = useTuner();
 
-  // Track selection state - initialize from localStorage to survive orientation changes
+  // Source selection state - initialize from localStorage to survive orientation changes
   const [selectedTrackGuid, setSelectedTrackGuid] = useState<string | null>(() => loadSelectedTrack());
   const [showTrackSelector, setShowTrackSelector] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Hysteresis: track the "stable" displayed note to prevent flickering at boundaries
-  // Only switch notes when clearly within the new note's range (|cents| < threshold)
-  // Also store MIDI note number to recalculate cents when overriding
-  const stableNoteRef = useRef<{ noteName: string; octave: number; midiNote: number } | null>(null);
+  // The note shown, held across the boundary to the next one (holdNote).
+  // holdNote gives the same for the same input, so a second render of one
+  // reading shows the same.
+  const heldNoteRef = useRef<HeldNote | null>(null);
+  const shown = holdNote(heldNoteRef.current, subscribedGuid, { freq, note, noteName, octave, cents });
+  heldNoteRef.current = shown.held;
 
-  // Compute display values with hysteresis
-  let displayNoteName = noteName;
-  let displayOctave = octave;
-  let displayCents = cents;
+  const display = tunerDisplay({
+    freq,
+    cents: shown.cents,
+    inTune,
+    starting,
+    settling,
+    stable,
+    multiple,
+    problem: problem?.message ?? null,
+    deviceClosed: state === 'deviceClosed',
+  });
 
-  if (freq > 0 && noteName) {
-    const currentStable = stableNoteRef.current;
-    const isSameNote = currentStable?.noteName === noteName && currentStable?.octave === octave;
+  const spoken = useSettled(display.spoken, SPOKEN_SETTLE_MS);
 
-    if (!currentStable) {
-      // First note detected - set it as stable
-      stableNoteRef.current = { noteName, octave, midiNote: note };
-    } else if (isSameNote) {
-      // Same note - keep it (no change needed)
-    } else if (Math.abs(cents) < NOTE_SWITCH_THRESHOLD) {
-      // Different note AND clearly within its range - switch
-      stableNoteRef.current = { noteName, octave, midiNote: note };
-    } else {
-      // Different note but at boundary (|cents| >= threshold) - keep showing stable note
-      displayNoteName = currentStable.noteName;
-      displayOctave = currentStable.octave;
-      // Recalculate cents relative to the stable note
-      // actualPitch = incomingNote + incomingCents/100 (in semitones)
-      // displayCents = (actualPitch - stableNote) * 100
-      const actualPitch = note + cents / 100;
-      displayCents = (actualPitch - currentStable.midiNote) * 100;
-    }
-  } else if (freq === 0) {
-    // No signal - clear stable note
-    stableNoteRef.current = null;
-  }
-
-  // Get track skeleton for track selection
+  // The track skeleton always holds the master once it has arrived
   const tracks = useReaperStore((s) => s.trackSkeleton ?? EMPTY_SKELETON);
+  const skeletonLoaded = tracks.length > 0;
 
-  // Filter to non-master tracks
-  const trackList = tracks.filter((t) => t.g !== 'master');
+  // The tracks; the master is offered apart, first, as the master output
+  const trackList = tracks.filter((t) => t.g !== MASTER);
 
-  // Get track name for current selection
+  // Name of the current selection
   const selectedTrack = trackList.find((t) => t.g === selectedTrackGuid);
-  const trackName = selectedTrack?.n || 'Select Track';
+  const sourceName =
+    selectedTrackGuid === MASTER
+      ? MASTER_LABEL
+      : selectedTrack
+        ? trackLabel(selectedTrack.g, selectedTrack.n)
+        : 'Select source';
 
-  // Auto-select track on mount (prefer saved track, then first track)
+  // Choose a source: the saved one while it is still there, else the first
+  // track, else the master output. Waits for the track list, so a saved
+  // track isn't taken for gone before the list arrives.
   useEffect(() => {
-    if (trackList.length === 0) return;
-
-    // Check if current selection is still valid
-    const currentValid = selectedTrackGuid && trackList.some((t) => t.g === selectedTrackGuid);
+    if (!skeletonLoaded) return;
+    const currentValid =
+      selectedTrackGuid === MASTER || (selectedTrackGuid !== null && trackList.some((t) => t.g === selectedTrackGuid));
     if (currentValid) return;
 
-    const defaultTrack = trackList[0]?.g ?? null;
-    if (defaultTrack) {
-      setSelectedTrackGuid(defaultTrack);
-      saveSelectedTrack(defaultTrack);
-    }
-  }, [selectedTrackGuid, trackList]);
+    const fallback = trackList[0]?.g ?? MASTER;
+    setSelectedTrackGuid(fallback);
+    saveSelectedTrack(fallback);
+  }, [selectedTrackGuid, trackList, skeletonLoaded]);
 
-  // Subscribe/unsubscribe when selected track changes
+  // Subscribe/unsubscribe when the chosen source changes
   useEffect(() => {
     if (!selectedTrackGuid) return;
 
@@ -154,7 +154,7 @@ export function TunerView(): ReactElement {
     };
   }, [selectedTrackGuid, subscribe, unsubscribe]);
 
-  // Handle track selection. The track already chosen is asked for again:
+  // Handle source selection. The source already chosen is asked for again:
   // REAPER may have refused it, and the user fixed its input since.
   const handleTrackSelect = useCallback(
     (guid: string) => {
@@ -186,16 +186,6 @@ export function TunerView(): ReactElement {
     [selectedTrackGuid, setThresholdDb]
   );
 
-  // No signal state
-  const hasSignal = freq > 0;
-  const statusText = problem
-    ? problem.message
-    : state === 'deviceClosed'
-      ? DEVICE_CLOSED_TEXT
-      : hasSignal
-        ? `${freq.toFixed(1)} Hz`
-        : 'No input detected';
-
   return (
     <ViewLayout
       viewId="tuner"
@@ -204,12 +194,13 @@ export function TunerView(): ReactElement {
       header={
         <div className="p-3">
           <ViewHeader currentView="tuner">
-            {/* Track selector button */}
+            {/* Source selector button */}
             <button
               onClick={() => setShowTrackSelector(true)}
+              aria-haspopup="dialog"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-elevated hover:bg-bg-hover transition-colors text-sm font-medium"
             >
-              <span className="truncate max-w-[120px]">{trackName}</span>
+              <span className="truncate max-w-[140px]">{sourceName}</span>
               <ChevronDown size={16} className="text-text-tertiary shrink-0" />
             </button>
           </ViewHeader>
@@ -228,56 +219,78 @@ export function TunerView(): ReactElement {
         </div>
       }
     >
-      {/* Main tuner content - always show skeleton, disabled when no signal */}
       {/* Centred by auto margins, so on a short screen it scrolls rather
           than being clipped top and bottom */}
       <div className="h-full overflow-y-auto overscroll-contain flex flex-col p-4">
         <div className="my-auto flex flex-col items-center gap-4">
-          <TunerNote
-            noteName={displayNoteName}
-            octave={displayOctave}
-            inTune={inTune}
-            disabled={!hasSignal}
-          />
-          <TunerMeter cents={displayCents} inTune={inTune} disabled={!hasSignal} />
-          <div className="text-text-muted text-sm text-center max-w-xs" role="status">
-            {statusText}
+          <TunerNote noteName={shown.noteName} octave={shown.octave} look={display.note} />
+          <TunerMeter cents={shown.cents} tone={display.needle} />
+          {/* One line: the frequency, or the message standing in for it.
+              A screen reader is told only what tunerDisplay says to speak,
+              once it has held (useSettled): not the frequency, which
+              changes 30 times a second, nor a verdict wavering at an edge. */}
+          <div className="text-text-muted text-sm text-center max-w-xs">
+            {display.message ?? <span className="tabular-nums">{freq.toFixed(2)} Hz</span>}
+            <div role="status" className="sr-only">
+              {spoken}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Track selector bottom sheet */}
-      <BottomSheet
-        isOpen={showTrackSelector}
-        onClose={() => setShowTrackSelector(false)}
-        ariaLabel="Select Track"
-      >
-        <h2 className="text-lg font-semibold text-text-primary px-4 pb-3">Select Track</h2>
+      {/* Source selector bottom sheet */}
+      <BottomSheet isOpen={showTrackSelector} onClose={() => setShowTrackSelector(false)} ariaLabel="Tune">
+        <h2 className="text-lg font-semibold text-text-primary px-4 pb-3">Tune</h2>
         <div className="max-h-[60dvh] overflow-y-auto">
-          {trackList.length === 0 ? (
-            <p className="text-center text-text-tertiary py-8">No tracks available</p>
-          ) : (
-            <div className="flex flex-col">
-              {trackList.map((track) => (
-                <button
+          <div className="flex flex-col">
+            <SourceOption
+              label={MASTER_LABEL}
+              selected={selectedTrackGuid === MASTER}
+              onSelect={() => handleTrackSelect(MASTER)}
+            />
+            <div className="mx-4 my-1 border-t border-border-muted" role="separator" />
+            {trackList.length === 0 ? (
+              <p className="text-center text-text-tertiary py-6">No tracks</p>
+            ) : (
+              trackList.map((track) => (
+                <SourceOption
                   key={track.g}
-                  onClick={() => handleTrackSelect(track.g)}
-                  className={`flex items-center justify-between px-4 py-3 hover:bg-bg-hover transition-colors ${
-                    track.g === selectedTrackGuid ? 'bg-bg-elevated' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="truncate">{track.n || `Track ${track.g.slice(1, 8)}`}</span>
-                  </div>
-                  {track.g === selectedTrackGuid && (
-                    <span className="text-primary">✓</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+                  label={trackLabel(track.g, track.n)}
+                  selected={track.g === selectedTrackGuid}
+                  onSelect={() => handleTrackSelect(track.g)}
+                />
+              ))
+            )}
+          </div>
         </div>
       </BottomSheet>
     </ViewLayout>
+  );
+}
+
+function SourceOption({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}): ReactElement {
+  return (
+    <button
+      onClick={onSelect}
+      aria-current={selected ? 'true' : undefined}
+      className={`flex items-center justify-between px-4 py-3 hover:bg-bg-hover transition-colors ${
+        selected ? 'bg-bg-elevated' : ''
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      {selected && (
+        <span className="text-primary" aria-hidden="true">
+          ✓
+        </span>
+      )}
+    </button>
   );
 }
