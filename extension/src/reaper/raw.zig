@@ -2647,9 +2647,11 @@ pub const Api = struct {
         if (self.audioRegHardwareHook) |f| _ = f(false, reg);
     }
 
-    /// Check if the audio engine is currently running.
+    /// Check if the audio engine is currently running. A REAPER without
+    /// Audio_IsRunning can't say, and is taken as running: the tuners would
+    /// otherwise report the device closed and show nothing, for ever.
     pub fn isAudioRunning(self: *const Api) bool {
-        return if (self.audioIsRunning) |f| f() != 0 else false;
+        return if (self.audioIsRunning) |f| f() != 0 else true;
     }
 
     /// Get maximum MIDI input device index (iterate 0..maxMidiInputs()-1).

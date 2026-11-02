@@ -132,14 +132,14 @@ pub fn analyserEvent(
     const track_guid = client.getTrackGuid() orelse return .none;
     const heard: State = if (device_open) .listening else .device_closed;
     const snap = if (tuner_subscriptions.isMaster(track_guid))
-        subs.master.snapshot()
+        subs.masterSnapshot()
     else switch (subs.refreshTrack(slot, guid_cache, api, device_open)) {
         .gone => return .gone,
         .cant => |why| return outcome(generateReadingEvent(allocator, track_guid, pitch.Reading.none, client.settings, .{
             .cant_tune = .{ .code = why.code(), .message = why.message() },
         })),
         .source => |index| s: {
-            const got = subs.inputs.source(index).worker.snapshot();
+            const got = subs.sourceSnapshot(index);
             client.settings = got.settings;
             break :s got;
         },

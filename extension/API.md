@@ -2900,7 +2900,7 @@ Subscribe to the tuner on a track, or on the master.
 - `reference` and `threshold` are the source's current settings: the defaults (440, -90) for a new one, another phone's for a shared one.
 - After subscribing, receive `tuner` events at 30Hz (see below). Each poll checks the track's record input again: a phone follows its track to a new input.
 
-**Errors** (a track whose record input can't be tuned; each with a message for the phone to show):
+**Errors** (a track whose record input can't be tuned; each with a message for the phone to show). After an `INPUT_*` refusal the client still follows the track: its `tuner` events say `cantTune` with the reason, and tuning starts when the track's input can be tuned. The other errors leave the client unsubscribed:
 
 | Code | When |
 |------|------|

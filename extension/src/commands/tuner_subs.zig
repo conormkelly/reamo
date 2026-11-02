@@ -35,7 +35,8 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 /// share its analyser and settings. A track whose record input can't be
 /// tuned is refused with INPUT_NONE, INPUT_MIDI, INPUT_NOT_ON_DEVICE or
 /// INPUT_NOT_SUPPORTED (ReaRoute, loopback, multichannel), each with a
-/// message for the phone to show. The master ("master") hears the device's
+/// message for the phone to show; the phone still follows the track, and
+/// its events start reading once the input can be tuned. The master ("master") hears the device's
 /// hardware outputs 1/2, post master fader and mute
 /// (subscriptions/master_tuner.zig): a muted or faded-down master reads as
 /// silence.

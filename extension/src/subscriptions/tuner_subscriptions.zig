@@ -120,6 +120,9 @@ pub const ClientSubscription = struct {
     /// The settings this phone's tuner last had, for an event while it has
     /// no source, and for a source opened when its track moves input.
     settings: pitch.Settings = .{},
+    /// Polls left before opening a source that failed to open is tried
+    /// again (`open_retry_polls`).
+    retry_polls: u8 = 0,
 
     pub fn getTrackGuid(self: *const ClientSubscription) ?[]const u8 {
         if (!self.active or self.track_guid_len == 0) return null;
@@ -174,6 +177,11 @@ pub fn cantTuneOf(err: SubscribeError) ?CantTune {
         else => null,
     };
 }
+
+/// Polls between tries at opening a source that failed to (REAPER refused
+/// the hook, or the analyser couldn't start): once a second at 30 Hz, so a
+/// failure isn't retried, and logged, at every poll.
+pub const open_retry_polls = 30;
 
 /// Where a track's tuner reads.
 pub const TrackSource = enum {
@@ -233,6 +241,11 @@ pub const TunerSubscriptions = struct {
     inputs: input_tuners.InputTuners = .{},
     /// Where track tuners read. Only tests set .jsfx.
     track_source: TrackSource = .input,
+    /// Each source's snapshot for the poll under way (`sourceSnapshot`),
+    /// and the master's, so every phone on a source is sent the same
+    /// reading at a poll: the worker may publish between two phones.
+    poll_snapshots: [audio_hook.max_taps]?tuner_worker.Worker.Snapshot = [_]?tuner_worker.Worker.Snapshot{null} ** audio_hook.max_taps,
+    poll_master: ?tuner_worker.Worker.Snapshot = null,
     /// The audio hook the tuners read.
     hook: *audio_hook.Hook,
 
@@ -367,12 +380,16 @@ pub const TunerSubscriptions = struct {
                     return trackResult(tuner, track, api);
                 };
             };
-            // Otherwise leave the previous tuner first.
-            self.unsubscribeInternal(client_id, slot, api);
         }
+        // A phone choosing its track again keeps the settings its tuner had
+        // (it may have no source now, or its track has moved input).
+        const same_track = if (client.getTrackGuid()) |current| std.mem.eql(u8, current, track_guid) else false;
+        const carried: pitch.Settings = if (same_track) client.settings else .{};
+        // Otherwise leave the previous tuner first.
+        if (client.active) self.unsubscribeInternal(client_id, slot, api);
 
         if (isMaster(track_guid)) return self.subscribeMaster(slot, api);
-        if (self.track_source == .input) return self.subscribeInput(slot, track_guid, guid_cache, api);
+        if (self.track_source == .input) return self.subscribeInput(slot, track_guid, guid_cache, api, carried);
 
         // Resolve track GUID to track pointer
         const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
@@ -442,15 +459,23 @@ pub const TunerSubscriptions = struct {
         return if (api.validateTrackPtr(track)) track else null;
     }
 
-    /// Subscribe a client to the tuner on a track's input, refusing a track
-    /// whose record input can't be tuned.
-    fn subscribeInput(self: *TunerSubscriptions, slot: usize, track_guid: []const u8, guid_cache: anytype, api: anytype) SubscribeError!SubscribeResult {
+    /// Subscribe a client to the tuner on a track's input, a new source
+    /// starting from `settings`. A track whose record input can't be tuned
+    /// is refused, and the phone still follows it: its polls say why, until
+    /// the input can be tuned and tuning starts. A source that fails to open
+    /// is refused and not followed.
+    fn subscribeInput(self: *TunerSubscriptions, slot: usize, track_guid: []const u8, guid_cache: anytype, api: anytype, settings: pitch.Settings) SubscribeError!SubscribeResult {
         const track = resolveTrack(guid_cache, api, track_guid) orelse return error.TrackNotFound;
         const channels = switch (input_tuners.classify(api.getTrackRecInput(track), api.numAudioInputs(), api.isAudioRunning())) {
-            .cant => |why| return cantTuneError(why),
+            .cant => |why| {
+                self.activate(slot, track_guid);
+                self.clients[slot].cant = why;
+                self.clients[slot].settings = settings;
+                return cantTuneError(why);
+            },
             .channels => |c| c,
         };
-        const index = self.inputs.open(self.allocator, self.hook, api, channels, .{}) catch |err|
+        const index = self.inputs.open(self.allocator, self.hook, api, channels, settings) catch |err|
             return cantTuneError(CantTune.fromOpenError(err));
         self.activate(slot, track_guid);
         self.clients[slot].source = index;
@@ -487,19 +512,25 @@ pub const TunerSubscriptions = struct {
             const s = self.inputs.source(index);
             if (now == .channels and now.channels.eql(s.channels)) return .{ .source = index };
             client.settings = s.worker.snapshot().settings;
-            self.inputs.close(self.allocator, self.hook, api, index);
+            self.closeSource(api, index);
             client.source = null;
             logging.info("tuner: track {s} changed its record input", .{track_guid});
         }
         switch (now) {
             .cant => |why| {
                 client.cant = why;
+                client.retry_polls = 0;
                 return .{ .cant = why };
             },
             .channels => |channels| {
+                if (client.retry_polls > 0) {
+                    client.retry_polls -= 1;
+                    return .{ .cant = client.cant.? };
+                }
                 const index = self.inputs.open(self.allocator, self.hook, api, channels, client.settings) catch |err| {
                     const why = CantTune.fromOpenError(err);
                     client.cant = why;
+                    client.retry_polls = open_retry_polls - 1;
                     return .{ .cant = why };
                 };
                 client.source = index;
@@ -507,6 +538,36 @@ pub const TunerSubscriptions = struct {
                 return .{ .source = index };
             },
         }
+    }
+
+    /// Start a poll: sources' readings are taken afresh, once each.
+    pub fn beginPoll(self: *TunerSubscriptions) void {
+        @memset(&self.poll_snapshots, null);
+        self.poll_master = null;
+    }
+
+    /// A source's reading and settings for this poll: taken from its worker
+    /// the first time a phone on it asks, the same for the rest. Main thread.
+    pub fn sourceSnapshot(self: *TunerSubscriptions, index: u8) tuner_worker.Worker.Snapshot {
+        if (self.poll_snapshots[index]) |snap| return snap;
+        const snap = self.inputs.source(index).worker.snapshot();
+        self.poll_snapshots[index] = snap;
+        return snap;
+    }
+
+    /// The master's reading and settings for this poll, as sourceSnapshot.
+    pub fn masterSnapshot(self: *TunerSubscriptions) tuner_worker.Worker.Snapshot {
+        if (self.poll_master) |snap| return snap;
+        const snap = self.master.snapshot();
+        self.poll_master = snap;
+        return snap;
+    }
+
+    /// A phone leaves source `index`; a source opened in the slot later in
+    /// the same poll is a new one, with no snapshot yet.
+    fn closeSource(self: *TunerSubscriptions, api: anytype, index: u8) void {
+        self.inputs.close(self.allocator, self.hook, api, index);
+        if (self.inputs.source(index).phones == 0) self.poll_snapshots[index] = null;
     }
 
     /// Record a client's subscription and have its first poll broadcast.
@@ -565,7 +626,7 @@ pub const TunerSubscriptions = struct {
             self.master.close(self.allocator, self.hook, api);
             if (!self.master.isOpen()) logging.info("tuner: master tuner closed (last subscriber)", .{});
         } else if (client.source) |index| {
-            self.inputs.close(self.allocator, self.hook, api, index);
+            self.closeSource(api, index);
         } else if (self.findTrackTuner(track_guid)) |tuner| {
             tuner.ref_count -= 1;
 
@@ -1212,14 +1273,14 @@ test "a track whose record input can't be tuned is refused, and nothing opens" {
     for (cases) |c| {
         rig.setInput(1, c.rec);
         try std.testing.expectError(c.err, rig.sub(1, "{T1}"));
-        try std.testing.expect(!rig.subs.hasSubscriptions());
         try std.testing.expect(!rig.hook.registered);
+        try std.testing.expectEqual(@as(usize, 0), rig.hook.openTaps());
         // The handler tells the phone the reason's own code and message.
         try std.testing.expect(cantTuneOf(c.err) != null);
     }
     // The phone can then tune a track that can be.
     _ = try rig.sub(1, "{T2}");
-    try std.testing.expect(rig.subs.hasSubscriptions());
+    try std.testing.expectEqual(@as(usize, 1), rig.hook.openTaps());
 }
 
 test "with the device closed a track's channel isn't checked, and refreshing doesn't take it for missing" {
@@ -1490,4 +1551,122 @@ test "a poll finds a deleted track gone" {
     rig.api.track_count = 2;
     const slot = rig.subs.client_id_to_slot.get(1).?;
     try std.testing.expectEqual(tuner_generator.AnalyserOutcome.gone, tuner_generator.analyserEvent(std.testing.allocator, &rig.subs, slot, &rig.cache, &rig.api, true));
+}
+
+test "a refused track is still followed, and tuning starts once its input can be tuned" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    rig.setInput(1, -1);
+    try std.testing.expectError(error.InputNone, rig.sub(1, "{T1}"));
+    try std.testing.expect(rig.subs.hasSubscriptions());
+    try std.testing.expect(!rig.hook.registered);
+    try std.testing.expectEqual(TrackStatus{ .cant = .input_none }, rig.refresh(1));
+    rig.setInput(1, 0); // the user chooses input 1 in REAPER
+    try std.testing.expect(rig.refresh(1) == .source);
+}
+
+test "re-choosing a track that can't be tuned keeps following it, with its settings" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1, "{T1}");
+    try rig.subs.setParam("{T1}", .reference, 442, &rig.cache, &rig.api);
+    rig.setInput(1, 4096);
+    try std.testing.expectEqual(TrackStatus{ .cant = .input_midi }, rig.refresh(1));
+    try std.testing.expectError(error.InputMidi, rig.sub(1, "{T1}"));
+    try std.testing.expect(rig.subs.hasSubscriptions());
+    rig.setInput(1, 0);
+    try std.testing.expect(rig.refresh(1) == .source);
+    try std.testing.expectEqual(@as(f64, 442), rig.settingsOf(1).reference_hz);
+}
+
+test "subscribing again after the track moved input keeps the tuner's settings" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1, "{T1}");
+    try rig.subs.setParam("{T1}", .reference, 445, &rig.cache, &rig.api);
+    rig.setInput(1, 3);
+    const r = try rig.sub(1, "{T1}");
+    try std.testing.expectEqual(@as(f32, 445), r.reference_hz);
+}
+
+test "a source that won't open is tried again once a second, not at every poll" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1, "{T1}");
+    rig.api.audio_hook_refuse = true;
+    rig.setInput(1, 3); // the last tap closes, so the hook must be taken again
+    try std.testing.expectEqual(TrackStatus{ .cant = .audio_hook_failed }, rig.refresh(1));
+    rig.api.audio_hook_refuse = false;
+    for (0..open_retry_polls - 1) |_| try std.testing.expectEqual(TrackStatus{ .cant = .audio_hook_failed }, rig.refresh(1));
+    try std.testing.expect(rig.refresh(1) == .source);
+}
+
+test "a subscribe that fails to open isn't kept" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    rig.api.audio_hook_refuse = true;
+    try std.testing.expectError(error.AudioHookFailed, rig.sub(1, "{T1}"));
+    try std.testing.expect(!rig.subs.hasSubscriptions());
+}
+
+fn publish(w: *tuner_worker.Worker, hz: f64) void {
+    w.lock.lock();
+    defer w.lock.unlock();
+    w.reading = .{ .freq_hz = hz, .note = 55, .cents = 0, .clarity = 0.9, .settling = false, .stable = false, .multiple = false, .starting = false };
+}
+
+test "every phone on a source is sent the same reading in a poll, though the worker publishes between them" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Workers that tick once, at start, then wait: what the test publishes stays.
+    rig.subs.inputs.tick_ns = 60 * std.time.ns_per_s;
+    rig.subs.master.worker.tick_ns = 60 * std.time.ns_per_s;
+    _ = try rig.sub(1, "{T2}");
+    _ = try rig.sub(2, "{T3}"); // Keys, on the guitar's input
+    _ = try rig.sub(3, MASTER_GUID);
+    std.Thread.sleep(50 * std.time.ns_per_ms); // their first ticks are done
+    const w = &rig.subs.inputs.source(rig.sourceOf(1).?).worker;
+
+    rig.subs.beginPoll();
+    publish(w, 196.0);
+    publish(&rig.subs.master.worker, 110.0);
+    const first = try polledPayload(&rig, 1, arena.allocator());
+    const m1 = try polledPayload(&rig, 3, arena.allocator());
+    publish(w, 196.5); // the worker's next tick lands mid-poll
+    publish(&rig.subs.master.worker, 111.0);
+    const second = try polledPayload(&rig, 2, arena.allocator());
+    try std.testing.expectEqual(first.get("freq").?.float, second.get("freq").?.float);
+    try std.testing.expectEqual(@as(f64, 110), m1.get("freq").?.float);
+
+    rig.subs.beginPoll();
+    try std.testing.expectEqual(@as(f64, 196.5), (try polledPayload(&rig, 1, arena.allocator())).get("freq").?.float);
+    try std.testing.expectEqual(@as(f64, 111), (try polledPayload(&rig, 3, arena.allocator())).get("freq").?.float);
+}
+
+test "a source closed and opened again in one poll isn't sent the closed one's snapshot" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Workers that tick once, at start, then wait: what the test publishes stays.
+    rig.subs.inputs.tick_ns = 60 * std.time.ns_per_s;
+    rig.subs.master.worker.tick_ns = 60 * std.time.ns_per_s;
+    _ = try rig.sub(1, "{T1}");
+    const index = rig.sourceOf(1).?;
+    std.Thread.sleep(50 * std.time.ns_per_ms); // its first tick is done
+    rig.subs.beginPoll();
+    publish(&rig.subs.inputs.source(index).worker, 82.0);
+    _ = try polledPayload(&rig, 1, arena.allocator());
+    rig.setInput(1, 3); // same poll: the phone moves, and the new source may take the same slot
+    const p = try polledPayload(&rig, 1, arena.allocator());
+    try std.testing.expectEqual(@as(f64, 0), p.get("freq").?.float);
 }
