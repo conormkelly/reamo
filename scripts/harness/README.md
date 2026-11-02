@@ -107,8 +107,8 @@ screenshots wouldn't exist (Microsoft: containers "were designed to not have
 RDP or GUI support"), and a Windows VM needs its own licence.
 
 **How it runs.** `windows/run.sh` (on the controller) builds
-`reaper_reamo.dll`, copies a snapshot of this directory, `reamo/`, the effects,
-the fixtures and the licence to the PC, and runs each scenario there in turn.
+`reaper_reamo.dll`, copies a snapshot of this directory, `reamo/`, the
+installer, the fixtures and the licence to the PC, and runs each scenario there in turn.
 A process started over SSH has no desktop, so `windows/run-scenario.ps1`
 hands the scenario to `windows/boot.ps1` through a scheduled task in the
 logged-in session, which:

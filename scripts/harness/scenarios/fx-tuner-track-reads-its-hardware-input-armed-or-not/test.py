@@ -10,8 +10,9 @@ playing, A3 is plucked on input 2, and the phone tuning Guitar must:
 - have stable readings within 1 cent of the frequency fed;
 - get the analyser's flags (settling, stable, multiple, starting) and
   state "listening" on every event.
-Against a tuner on the JSFX, unarmed reads nothing (input FX don't run on
-an unarmed track) and the events carry no flags or state.
+A tuner in the track's input FX would read nothing unarmed (input FX
+don't run on an unarmed track), and its events would carry no flags or
+state.
 
 The subscribe response has no fxGuid and the analyser's -90 dB threshold,
 and the track's FX chains stay empty throughout.

@@ -89,7 +89,6 @@ stage="$OUT/stage"
 mkdir -p "$stage/harness"
 (cd "$HERE" && tar --exclude ./out --exclude ./reaper-license.rk --exclude __pycache__ -cf - .) | (cd "$stage/harness" && tar -xf -)
 cp -R "$ROOT/reamo" "$stage/reamo"
-cp -R "$ROOT/extension/effects" "$stage/effects"
 cp -R "$ROOT/test-fixtures" "$stage/fixtures"
 cp "$OUT/build/bin/reaper_reamo.dll" "$stage/reaper_reamo.dll"
 # The release installer scripts, for scenarios that install over a running REAmo.

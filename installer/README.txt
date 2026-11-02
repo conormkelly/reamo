@@ -28,6 +28,11 @@ Run Install_REAmo.lua from the new version's folder, the same way as above.
 REAPER can stay open: the new version is put in place, and the old one keeps
 running until you restart REAPER. Restart to finish the update.
 
+Versions before 0.9.0 installed a tuner plugin, Effects/REAmo/PitchDetect.jsfx.
+REAmo no longer uses it. The installer leaves it, because a project saved
+while that tuner was open may still list it in a track's input FX: delete
+it from the track there. The uninstaller removes the file.
+
 Versions before 0.8.1 put REAmo's web files in reaper_www_root/web/, a folder
 other web control surfaces use too. They are now in reaper_www_root/reamo/,
 and the installer removes the old folder if it holds REAmo's files.
@@ -49,17 +54,17 @@ Option B: Manual uninstall
   WINDOWS:
     C:\Users\<you>\AppData\Roaming\REAPER\UserPlugins\reaper_reamo.dll
     C:\Users\<you>\AppData\Roaming\REAPER\reaper_www_root\reamo\
-    C:\Users\<you>\AppData\Roaming\REAPER\Effects\REAmo\
+    C:\Users\<you>\AppData\Roaming\REAPER\Effects\REAmo\   (versions before 0.9.0)
 
   macOS:
     ~/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib
     ~/Library/Application Support/REAPER/reaper_www_root/reamo/
-    ~/Library/Application Support/REAPER/Effects/REAmo/
+    ~/Library/Application Support/REAPER/Effects/REAmo/   (versions before 0.9.0)
 
   LINUX:
     ~/.config/REAPER/UserPlugins/reaper_reamo.so
     ~/.config/REAPER/reaper_www_root/reamo/
-    ~/.config/REAPER/Effects/REAmo/
+    ~/.config/REAPER/Effects/REAmo/   (versions before 0.9.0)
 
   PORTABLE INSTALL (any OS):
     Same paths, but inside your portable REAPER folder.

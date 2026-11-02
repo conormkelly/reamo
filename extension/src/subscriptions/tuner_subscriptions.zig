@@ -10,22 +10,15 @@
 ///   post-master output (master_tuner.zig).
 /// Neither puts anything in REAPER: no FX, no undo point, no project change.
 ///
-/// `track_source = .jsfx` puts a track's tuner on a PitchDetect JSFX in its
-/// input FX instead (per-track reference counting: inserted on the first
-/// subscriber, removed when the last leaves), which leaves undo points and
-/// dirties the project. Nothing sets it outside tests; the path stays only
-/// until the JSFX is removed.
-///
 /// Usage:
 ///   var subs = TunerSubscriptions.init(allocator);
 ///   defer subs.deinit();
-///   const result = try subs.subscribe(client_id, "{track-guid}", api);
+///   const result = try subs.subscribe(client_id, "{track-guid}", guid_cache, api);
 ///   // ... tuner events broadcast at 30Hz ...
 ///   subs.unsubscribe(client_id, api);
 const std = @import("std");
 const logging = @import("../core/logging.zig");
 const constants = @import("../core/constants.zig");
-const project = @import("../state/project.zig");
 const audio_hook = @import("../audio/audio_hook.zig");
 const master_tuner = @import("master_tuner.zig");
 const tuner_worker = @import("tuner_worker.zig");
@@ -38,34 +31,19 @@ const Allocator = std.mem.Allocator;
 
 pub const MAX_CLIENTS = constants.MAX_SUBSCRIPTION_CLIENTS;
 pub const GUID_LEN = 40;
-pub const MAX_TRACK_TUNERS = 32; // Max concurrent tuner tracks
 
-/// Input FX index offset - all TrackFX_* calls for Input FX chain need this added to the index
-pub const INPUT_FX_OFFSET: c_int = 0x1000000;
-
-/// The tuner JSFX by its file name as installed, extension included: REAPER
-/// 6 finds a JSFX only by its exact file name (REAPER 7 also without the
-/// extension).
-pub const TUNER_JSFX_NAME = "JS:REAmo/PitchDetect.jsfx";
-
-/// Tuner parameter indices - CONTIGUOUS mapping from JSFX sliders
-/// JSFX sliders with gaps (1-5, 10-11) map to contiguous param indices (0-6)
-/// slider1→0, slider2→1, slider3→2, slider4→3, slider5→4, slider10→5, slider11→6
-pub const TunerParam = enum(c_int) {
-    frequency = 0, // Read: detected frequency (Hz) - slider1
-    note = 1, // Read: MIDI note number - slider2
-    cents = 2, // Read: cents deviation from note - slider3
-    confidence = 3, // Read: detection confidence (0-1) - slider4
-    reference = 4, // Write: A4 reference frequency (400-480) - slider5
-    yin_threshold = 5, // slider10 (not used by frontend)
-    threshold = 6, // Write: silence threshold (dB, -90 to -30) - slider11
+/// The settings a phone can set (tuner/setParam).
+pub const TunerParam = enum {
+    /// A4, Hz (400-480).
+    reference,
+    /// The silence threshold, dB (-90 to -30).
+    threshold,
 };
 
 /// Result from subscribe operation. The track name is held in the result
 /// itself: it is read after subscribe() returns.
 pub const SubscribeResult = struct {
     track_guid: []const u8,
-    fx_guid: []const u8,
     track_name_buf: [256]u8 = undefined,
     track_name_len: usize = 0,
     reference_hz: f32,
@@ -73,37 +51,6 @@ pub const SubscribeResult = struct {
 
     pub fn trackName(self: *const SubscribeResult) []const u8 {
         return self.track_name_buf[0..self.track_name_len];
-    }
-};
-
-/// Per-track tuner state (shared across clients subscribing to same track)
-pub const TrackTuner = struct {
-    track_guid: [GUID_LEN]u8 = undefined,
-    track_guid_len: u8 = 0,
-    fx_guid: [GUID_LEN]u8 = undefined,
-    fx_guid_len: u8 = 0,
-    fx_index: c_int = -1, // Raw index in Input FX chain (0, 1, 2...)
-    ref_count: u8 = 0, // Number of clients subscribed to this track
-    // The track and project tab (ReaProject*) the JSFX went into: the user
-    // may have switched tabs by the time it comes out
-    track: ?*anyopaque = null,
-    project: ?*anyopaque = null,
-
-    // Configurable params (shared across subscribers to this track)
-    reference_hz: f32 = 440.0, // A4 reference frequency
-    silence_threshold: f32 = -60.0, // dB threshold for "no signal"
-
-    /// Get the FX index for use with TrackFX_* API calls
-    pub fn getApiFxIndex(self: *const TrackTuner) c_int {
-        return self.fx_index + INPUT_FX_OFFSET;
-    }
-
-    pub fn getTrackGuid(self: *const TrackTuner) []const u8 {
-        return self.track_guid[0..self.track_guid_len];
-    }
-
-    pub fn getFxGuid(self: *const TrackTuner) []const u8 {
-        return self.fx_guid[0..self.fx_guid_len];
     }
 };
 
@@ -138,7 +85,6 @@ pub const ClientSubscription = struct {
 pub const SubscribeError = error{
     TooManyClients,
     TrackNotFound,
-    FxInsertFailed,
     TooManyTuners,
     OutOfMemory,
     AudioHookFailed,
@@ -183,14 +129,6 @@ pub fn cantTuneOf(err: SubscribeError) ?CantTune {
 /// failure isn't retried, and logged, at every poll.
 pub const open_retry_polls = 30;
 
-/// Where a track's tuner reads.
-pub const TrackSource = enum {
-    /// The track's hardware input, through the audio hook.
-    input,
-    /// A PitchDetect JSFX inserted in the track's input FX.
-    jsfx,
-};
-
 /// What a poll finds of a phone's track tuner.
 pub const TrackStatus = union(enum) {
     /// The track can't be found (deleted, or in another project tab).
@@ -217,11 +155,6 @@ pub const TunerSubscriptions = struct {
     /// Map from client_id to slot index
     client_id_to_slot: std.AutoHashMap(usize, usize),
 
-    /// Per-track tuner state (keyed by track GUID)
-    /// Using fixed array instead of HashMap for simplicity
-    track_tuners: [MAX_TRACK_TUNERS]TrackTuner,
-    track_tuner_count: usize,
-
     /// Previous state hash per client (for change detection)
     prev_hash: [MAX_CLIENTS]u64,
 
@@ -239,8 +172,6 @@ pub const TunerSubscriptions = struct {
     master: master_tuner.MasterTuner = .{},
     /// The track tuners' input sources.
     inputs: input_tuners.InputTuners = .{},
-    /// Where track tuners read. Only tests set .jsfx.
-    track_source: TrackSource = .input,
     /// Each source's snapshot for the poll under way (`sourceSnapshot`),
     /// and the master's, so every phone on a source is sent the same
     /// reading at a poll: the worker may publish between two phones.
@@ -254,8 +185,6 @@ pub const TunerSubscriptions = struct {
             .allocator = allocator,
             .clients = undefined,
             .client_id_to_slot = std.AutoHashMap(usize, usize).init(allocator),
-            .track_tuners = undefined,
-            .track_tuner_count = 0,
             .prev_hash = [_]u64{0} ** MAX_CLIENTS,
             .force_broadcast_clients = [_]bool{false} ** MAX_CLIENTS,
             .free_slots = undefined,
@@ -267,11 +196,6 @@ pub const TunerSubscriptions = struct {
         // Initialize all client slots
         for (&subs.clients) |*client| {
             client.* = ClientSubscription{};
-        }
-
-        // Initialize all track tuner slots
-        for (&subs.track_tuners) |*tuner| {
-            tuner.* = TrackTuner{};
         }
 
         return subs;
@@ -312,39 +236,9 @@ pub const TunerSubscriptions = struct {
         return slot;
     }
 
-    /// Find a track tuner by GUID
-    fn findTrackTuner(self: *TunerSubscriptions, track_guid: []const u8) ?*TrackTuner {
-        // Search all slots - ref_count > 0 check filters out unused ones
-        for (&self.track_tuners) |*tuner| {
-            if (tuner.ref_count > 0 and std.mem.eql(u8, tuner.getTrackGuid(), track_guid)) {
-                return tuner;
-            }
-        }
-        return null;
-    }
-
-    /// Find or create a track tuner slot
-    fn getOrCreateTrackTuner(self: *TunerSubscriptions) ?*TrackTuner {
-        // First, look for an empty slot (ref_count == 0)
-        for (&self.track_tuners) |*tuner| {
-            if (tuner.ref_count == 0) {
-                return tuner;
-            }
-        }
-
-        // If no empty slot, expand if possible
-        if (self.track_tuner_count < MAX_TRACK_TUNERS) {
-            const tuner = &self.track_tuners[self.track_tuner_count];
-            self.track_tuner_count += 1;
-            return tuner;
-        }
-
-        return null;
-    }
-
-    /// Subscribe to tuner on a track.
-    /// Inserts JSFX if first subscriber to this track.
-    /// Returns subscribe result with track info.
+    /// Subscribe a client to the tuner on a track's input, or on the master,
+    /// leaving any other tuner it was on. Returns the track's name and the
+    /// source's settings.
     pub fn subscribe(
         self: *TunerSubscriptions,
         client_id: usize,
@@ -358,26 +252,21 @@ pub const TunerSubscriptions = struct {
 
         if (client.active) {
             // Already on this tuner (a page re-sending its subscribe): keep
-            // it and its settings, rather than tearing down and re-inserting
-            // a JSFX or resetting the master's analyser.
+            // it and its settings, rather than tearing down and resetting
+            // its analyser.
             if (client.getTrackGuid()) |current| if (std.mem.eql(u8, current, track_guid)) {
                 if (isMaster(track_guid)) {
                     self.activate(slot, MASTER_GUID);
                     return self.masterResult(api);
                 }
-                if (self.track_source == .input) {
-                    // Still on the input it is tuning: keep the source.
-                    if (client.source) |index| if (resolveTrack(guid_cache, api, track_guid)) |track| {
-                        const now = input_tuners.classify(api.getTrackRecInput(track), api.numAudioInputs(), api.isAudioRunning());
-                        if (now == .channels and now.channels.eql(self.inputs.source(index).channels)) {
-                            self.activate(slot, track_guid);
-                            self.clients[slot].source = index;
-                            return self.inputResult(slot, track, api);
-                        }
-                    };
-                } else if (self.findTrackTuner(track_guid)) |tuner| if (guid_cache.resolve(api, track_guid)) |track| {
-                    self.activate(slot, track_guid);
-                    return trackResult(tuner, track, api);
+                // Still on the input it is tuning: keep the source.
+                if (client.source) |index| if (resolveTrack(guid_cache, api, track_guid)) |track| {
+                    const now = input_tuners.classify(api.getTrackRecInput(track), api.numAudioInputs(), api.isAudioRunning());
+                    if (now == .channels and now.channels.eql(self.inputs.source(index).channels)) {
+                        self.activate(slot, track_guid);
+                        self.clients[slot].source = index;
+                        return self.inputResult(slot, track, api);
+                    }
                 };
             };
         }
@@ -389,68 +278,7 @@ pub const TunerSubscriptions = struct {
         if (client.active) self.unsubscribeInternal(client_id, slot, api);
 
         if (isMaster(track_guid)) return self.subscribeMaster(slot, api);
-        if (self.track_source == .input) return self.subscribeInput(slot, track_guid, guid_cache, api, carried);
-
-        // Resolve track GUID to track pointer
-        const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
-
-        // Check if there's already a tuner for this track
-        var tuner = self.findTrackTuner(track_guid);
-
-        if (tuner == null) {
-            // Need to insert new JSFX
-            tuner = self.getOrCreateTrackTuner() orelse return error.TooManyTuners;
-
-            // Insert JSFX into Input FX chain at end (position -1)
-            // Note: position 0 doesn't work for Input FX in REAPER's API
-            const fx_idx = api.trackFxAddByName(track, TUNER_JSFX_NAME, true, -1);
-            if (fx_idx < 0) {
-                return error.FxInsertFailed;
-            }
-
-            // Get FX GUID before moving (GUID stays the same after move)
-            var guid_buf: [64]u8 = undefined;
-            const fx_guid = api.trackFxGetGuid(track, fx_idx + INPUT_FX_OFFSET, &guid_buf);
-            const fx_len: u8 = @intCast(@min(fx_guid.len, GUID_LEN));
-            @memcpy(tuner.?.fx_guid[0..fx_len], fx_guid[0..fx_len]);
-            tuner.?.fx_guid_len = fx_len;
-
-            // Move to position 0 (first in chain) so tuner sees raw input
-            // If already at 0, this is a no-op
-            api.trackFxCopyToTrack(track, fx_idx + INPUT_FX_OFFSET, track, 0 + INPUT_FX_OFFSET, true);
-
-            // Store track GUID
-            const track_len: u8 = @intCast(@min(track_guid.len, GUID_LEN));
-            @memcpy(tuner.?.track_guid[0..track_len], track_guid[0..track_len]);
-            tuner.?.track_guid_len = track_len;
-
-            tuner.?.track = track;
-            tuner.?.project = project.Identity.current(api).pointer;
-            tuner.?.fx_index = 0; // Always at position 0 after move
-            tuner.?.ref_count = 0;
-            tuner.?.reference_hz = 440.0;
-            tuner.?.silence_threshold = -60.0;
-
-            logging.info("tuner: inserted JSFX for track {s} at Input FX index 0", .{track_guid});
-        }
-
-        // Increment ref count
-        tuner.?.ref_count += 1;
-
-        self.activate(slot, track_guid);
-        logging.debug("tuner: client {d} subscribed to track {s} (ref_count={d})", .{ client_id, track_guid, tuner.?.ref_count });
-        return trackResult(tuner.?, track, api);
-    }
-
-    fn trackResult(tuner: *const TrackTuner, track: *anyopaque, api: anytype) SubscribeResult {
-        var result = SubscribeResult{
-            .track_guid = tuner.getTrackGuid(),
-            .fx_guid = tuner.getFxGuid(),
-            .reference_hz = tuner.reference_hz,
-            .threshold_db = tuner.silence_threshold,
-        };
-        result.track_name_len = api.getTrackNameStr(track, &result.track_name_buf).len;
-        return result;
+        return self.subscribeInput(slot, track_guid, guid_cache, api, carried);
     }
 
     /// The track a GUID names now, or null.
@@ -488,7 +316,6 @@ pub const TunerSubscriptions = struct {
         client.settings = settings;
         var result = SubscribeResult{
             .track_guid = client.getTrackGuid().?,
-            .fx_guid = "",
             .reference_hz = @floatCast(settings.reference_hz),
             .threshold_db = @floatCast(settings.silence_db),
         };
@@ -594,25 +421,11 @@ pub const TunerSubscriptions = struct {
         const settings = self.master.snapshot().settings;
         var result = SubscribeResult{
             .track_guid = MASTER_GUID,
-            .fx_guid = "",
             .reference_hz = @floatCast(settings.reference_hz),
             .threshold_db = @floatCast(settings.silence_db),
         };
         if (api.masterTrack()) |master| result.track_name_len = api.getTrackNameStr(master, &result.track_name_buf).len;
         return result;
-    }
-
-    /// The track a track tuner's JSFX went into, checked against the tab it
-    /// went into, which needn't be the tab shown now. null once the track or
-    /// its tab is gone. Found by pointer, not GUID: REAPER 6.0's
-    /// GetTrackGUID gives nothing for a track in a background tab. A stale
-    /// pointer reused by another track is harmless: the JSFX is deleted only
-    /// where its own FX GUID is found.
-    fn findTrack(api: anytype, tuner: *const TrackTuner) ?*anyopaque {
-        const track = tuner.track orelse return null;
-        if (tuner.project != null and !api.validateProjectPtr(tuner.project)) return null;
-        if (!api.validateTrackPtrIn(tuner.project, track)) return null;
-        return track;
     }
 
     /// Internal unsubscribe (doesn't remove client from map)
@@ -627,53 +440,6 @@ pub const TunerSubscriptions = struct {
             if (!self.master.isOpen()) logging.info("tuner: master tuner closed (last subscriber)", .{});
         } else if (client.source) |index| {
             self.closeSource(api, index);
-        } else if (self.findTrackTuner(track_guid)) |tuner| {
-            tuner.ref_count -= 1;
-
-            if (tuner.ref_count == 0) {
-                // Last subscriber - remove JSFX
-                // Note: We need to resolve track first, but it might be gone
-                // In that case, the JSFX is already gone with the track
-                logging.info("tuner: removing JSFX for track {s} (last subscriber)", .{track_guid});
-
-                const stored_fx_guid = tuner.getFxGuid();
-
-                // Delete the JSFX if the track still exists (deleting a track
-                // takes its FX with it). Search all of its Input FX by GUID, in
-                // case the user has reordered the chain.
-                if (findTrack(api, tuner)) |track| {
-                    const input_fx_count = api.trackFxRecCount(track);
-                    var found = false;
-                    var fx_idx: c_int = 0;
-                    while (fx_idx < input_fx_count) : (fx_idx += 1) {
-                        var fx_guid_buf: [64]u8 = undefined;
-                        const api_fx_idx = fx_idx + INPUT_FX_OFFSET;
-                        const current_fx_guid = api.trackFxGetGuid(track, api_fx_idx, &fx_guid_buf);
-
-                        if (current_fx_guid.len > 0 and std.mem.eql(u8, current_fx_guid, stored_fx_guid)) {
-                            if (api.trackFxDelete(track, api_fx_idx)) {
-                                logging.debug("tuner: deleted JSFX from track {s} at Input FX position {d}", .{ track_guid, fx_idx });
-                            } else {
-                                logging.warn("tuner: REAPER wouldn't remove the tuner JSFX from track {s}; it stays in the Input FX chain", .{track_guid});
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                    // The user may have deleted it by hand.
-                    if (!found) logging.warn("tuner: JSFX with GUID {s} not found in Input FX chain on track {s}", .{
-                        stored_fx_guid,
-                        track_guid,
-                    });
-                }
-
-                // Clean up our state
-                tuner.track_guid_len = 0;
-                tuner.fx_guid_len = 0;
-                tuner.fx_index = -1;
-                tuner.track = null;
-                tuner.project = null;
-            }
         }
 
         client.clear();
@@ -682,8 +448,8 @@ pub const TunerSubscriptions = struct {
         logging.debug("tuner: client {d} unsubscribed", .{client_id});
     }
 
-    /// Unsubscribe a client from their current tuner.
-    /// Removes JSFX if this was the last subscriber.
+    /// Unsubscribe a client from their current tuner. The last phone on a
+    /// source closes it.
     pub fn unsubscribe(self: *TunerSubscriptions, client_id: usize, api: anytype) void {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
         self.unsubscribeInternal(client_id, slot, api);
@@ -693,7 +459,6 @@ pub const TunerSubscriptions = struct {
     pub fn removeClient(self: *TunerSubscriptions, client_id: usize, api: anytype) void {
         const slot = self.client_id_to_slot.get(client_id) orelse return;
 
-        // Unsubscribe first (handles JSFX cleanup)
         self.unsubscribeInternal(client_id, slot, api);
 
         _ = self.client_id_to_slot.remove(client_id);
@@ -705,8 +470,8 @@ pub const TunerSubscriptions = struct {
         logging.debug("tuner: client {d} removed", .{client_id});
     }
 
-    /// Remove all clients, cleaning up all JSFXs and closing the master
-    /// tuner (called on shutdown).
+    /// Remove all clients, closing every source and the master tuner
+    /// (called on shutdown).
     pub fn removeAllClients(self: *TunerSubscriptions, api: anytype) void {
         // Collect all client IDs first (can't iterate and modify)
         var client_ids: [MAX_CLIENTS]usize = undefined;
@@ -726,63 +491,24 @@ pub const TunerSubscriptions = struct {
         }
     }
 
-    /// Set a tuner parameter (reference or threshold).
-    /// Searches for FX by GUID to handle user reordering the FX chain.
+    /// Set a tuner parameter (reference or threshold) on the master, or on
+    /// a track's source and every phone tuning that track.
     pub fn setParam(
         self: *TunerSubscriptions,
         track_guid: []const u8,
         param: TunerParam,
         value: f32,
-        guid_cache: anytype,
-        api: anytype,
-    ) !void {
+    ) error{ InvalidParam, NotSubscribed }!void {
         const held = heldToRange(param, value) orelse return error.InvalidParam;
         if (isMaster(track_guid)) {
             if (!self.master.isOpen()) return error.NotSubscribed;
             switch (param) {
                 .reference => self.master.setReference(held),
                 .threshold => self.master.setSilenceDb(held),
-                else => unreachable, // heldToRange takes only these two
             }
             return;
         }
-        if (self.track_source == .input) return self.setInputParam(track_guid, param, held);
-        const tuner = self.findTrackTuner(track_guid) orelse return error.NotSubscribed;
-        const track = guid_cache.resolve(api, track_guid) orelse return error.TrackNotFound;
-
-        // Search Input FX chain by GUID to find current index
-        // This handles when user has reordered the FX chain - CRITICAL for safety
-        const stored_fx_guid = tuner.getFxGuid();
-        const input_fx_count = api.trackFxRecCount(track);
-        var api_fx_idx: c_int = -1;
-        var fx_idx: c_int = 0;
-        while (fx_idx < input_fx_count) : (fx_idx += 1) {
-            var guid_buf: [64]u8 = undefined;
-            const current_guid = api.trackFxGetGuid(track, fx_idx + INPUT_FX_OFFSET, &guid_buf);
-            if (current_guid.len > 0 and std.mem.eql(u8, current_guid, stored_fx_guid)) {
-                api_fx_idx = fx_idx + INPUT_FX_OFFSET;
-                break;
-            }
-        }
-
-        if (api_fx_idx < 0) {
-            logging.debug("tuner: setParam failed - FX GUID not found in Input FX chain", .{});
-            return error.FxNotFound;
-        }
-
-        switch (param) {
-            .reference => {
-                tuner.reference_hz = @floatCast(held);
-                // JSFX slider5: 400-480 Hz range → normalize to 0-1
-                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.reference), (held - 400.0) / 80.0);
-            },
-            .threshold => {
-                tuner.silence_threshold = @floatCast(held);
-                // JSFX slider11: -90 to -30 dB range → normalize to 0-1
-                _ = api.trackFxSetParamNormalized(track, api_fx_idx, @intFromEnum(TunerParam.threshold), (held + 90.0) / 60.0);
-            },
-            else => unreachable, // heldToRange takes only these two
-        }
+        return self.setInputParam(track_guid, param, held);
     }
 
     /// setParam on a track tuner on its input: the source the phones on
@@ -797,30 +523,26 @@ pub const TunerSubscriptions = struct {
             switch (param) {
                 .reference => client.settings.reference_hz = held,
                 .threshold => client.settings.silence_db = held,
-                else => unreachable, // heldToRange takes only these two
             }
             if (client.source) |index| {
                 const w = &self.inputs.source(index).worker;
                 switch (param) {
                     .reference => w.setReference(held),
                     .threshold => w.setSilenceDb(held),
-                    else => unreachable,
                 }
             }
         }
         if (!found) return error.NotSubscribed;
     }
 
-    /// A setParam value held to the tuner's range, the same for both kinds
-    /// of tuner (the JSFX's sliders span exactly these): A4 400-480 Hz, the
-    /// silence threshold -90 to -30 dB. Null for a parameter phones can't
-    /// set, or a value that isn't a finite number.
+    /// A setParam value held to the tuner's range, the same for a track
+    /// tuner and the master: A4 400-480 Hz, the silence threshold -90 to
+    /// -30 dB. Null for a value that isn't a finite number.
     pub fn heldToRange(param: TunerParam, value: f64) ?f64 {
         if (!std.math.isFinite(value)) return null;
         return switch (param) {
             .reference => std.math.clamp(value, tuner_worker.reference_min_hz, tuner_worker.reference_max_hz),
             .threshold => std.math.clamp(value, tuner_worker.silence_min_db, tuner_worker.silence_max_db),
-            else => null,
         };
     }
 
@@ -831,11 +553,6 @@ pub const TunerSubscriptions = struct {
             if (self.clients[slot.*].active) return true;
         }
         return false;
-    }
-
-    /// Get track tuner for a subscription
-    pub fn getTrackTuner(self: *TunerSubscriptions, track_guid: []const u8) ?*TrackTuner {
-        return self.findTrackTuner(track_guid);
     }
 
     /// Check if data changed by comparing hash. Returns true if changed (or force broadcast).
@@ -925,19 +642,6 @@ test "TunerSubscriptions init and deinit" {
     try std.testing.expect(!subs.hasSubscriptions());
 }
 
-test "INPUT_FX_OFFSET constant" {
-    try std.testing.expectEqual(@as(c_int, 0x1000000), INPUT_FX_OFFSET);
-}
-
-test "TrackTuner.getApiFxIndex adds offset" {
-    var tuner = TrackTuner{};
-    tuner.fx_index = 0;
-    try std.testing.expectEqual(@as(c_int, 0x1000000), tuner.getApiFxIndex());
-
-    tuner.fx_index = 2;
-    try std.testing.expectEqual(@as(c_int, 0x1000002), tuner.getApiFxIndex());
-}
-
 test "ClientSubscription clear" {
     var client = ClientSubscription{};
     client.active = true;
@@ -997,7 +701,6 @@ test "the master tuner opens on the audio hook, with no plugin, and closes with 
 
     const r = try rig.sub(1);
     try std.testing.expectEqualStrings("master", r.track_guid);
-    try std.testing.expectEqualStrings("", r.fx_guid);
     try std.testing.expectEqualStrings("MASTER", r.trackName());
     try std.testing.expectEqual(@as(f32, 440), r.reference_hz);
     try std.testing.expectEqual(@as(f32, -90), r.threshold_db);
@@ -1017,7 +720,7 @@ test "reopening the master tuner takes the hook again and starts from the defaul
     defer rig.deinit();
 
     _ = try rig.sub(1);
-    try rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api);
+    try rig.subs.setParam(MASTER_GUID, .reference, 442);
     rig.subs.unsubscribe(1, &rig.api);
     const r = try rig.sub(1);
     try std.testing.expectEqual(@as(f32, 440), r.reference_hz);
@@ -1034,7 +737,7 @@ test "two phones on the master share it; it stays open until both leave" {
     _ = try rig.sub(2);
     try std.testing.expectEqual(@as(u8, 2), rig.subs.master.subscribers);
     try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
-    try rig.subs.setParam(MASTER_GUID, .threshold, -50, &rig.cache, &rig.api);
+    try rig.subs.setParam(MASTER_GUID, .threshold, -50);
     try std.testing.expectEqual(@as(f64, -50), rig.subs.master.snapshot().settings.silence_db);
 
     // Phone 1 subscribing again to the master is a resubscribe, not a third phone.
@@ -1092,7 +795,7 @@ test "setParam on the master before anyone tunes it is refused" {
     var rig: MasterRig = undefined;
     try rig.init();
     defer rig.deinit();
-    try std.testing.expectError(error.NotSubscribed, rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api));
+    try std.testing.expectError(error.NotSubscribed, rig.subs.setParam(MASTER_GUID, .reference, 442));
 }
 
 test "a phone subscribing again to the master it is on keeps the tuner and its settings" {
@@ -1101,7 +804,7 @@ test "a phone subscribing again to the master it is on keeps the tuner and its s
     defer rig.deinit();
 
     _ = try rig.sub(1);
-    try rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api);
+    try rig.subs.setParam(MASTER_GUID, .reference, 442);
     const analysis = rig.subs.master.worker.analysis;
     const r = try rig.sub(1); // the page re-sends its subscribe, e.g. after a re-render
     try std.testing.expectEqual(@as(f32, 442), r.reference_hz);
@@ -1109,33 +812,6 @@ test "a phone subscribing again to the master it is on keeps the tuner and its s
     try std.testing.expectEqual(@as(u8, 1), rig.subs.master.subscribers);
     try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
     try std.testing.expectEqual(@as(u32, 0), rig.api.audio_hook_unregisters);
-}
-
-/// A GUID cache that knows one track, "{T1}", the mock's track 1.
-const OneTrack = struct {
-    fn resolve(_: *const OneTrack, api: anytype, guid: []const u8) ?*anyopaque {
-        if (isMaster(guid)) return api.masterTrack();
-        return if (std.mem.eql(u8, guid, "{T1}")) @import("../reaper/mock/state.zig").encodeTrackPtr(1) else null;
-    }
-};
-
-test "a phone subscribing again to the track it is on keeps the JSFX instead of re-inserting it" {
-    var api = MockBackend{ .track_count = 1 };
-    api.tracks[1].setName("Guitar");
-    var subs = TunerSubscriptions.init(std.testing.allocator);
-    defer subs.deinit();
-    subs.track_source = .jsfx;
-    const cache = OneTrack{};
-
-    const first = try subs.subscribe(1, "{T1}", &cache, &api);
-    const fx_guid = first.fx_guid;
-    const again = try subs.subscribe(1, "{T1}", &cache, &api);
-    try std.testing.expectEqualStrings(fx_guid, again.fx_guid);
-    try std.testing.expectEqualStrings("Guitar", again.trackName());
-    try std.testing.expectEqual(@as(usize, 1), api.getCallCount(.trackFxAddByName));
-    try std.testing.expectEqual(@as(usize, 0), api.getCallCount(.trackFxDelete));
-    try std.testing.expectEqual(@as(u8, 1), subs.getTrackTuner("{T1}").?.ref_count);
-    subs.removeAllClients(&api);
 }
 
 test "setParam values are held to the tuner's range, for track tuners and the master alike" {
@@ -1147,7 +823,6 @@ test "setParam values are held to the tuner's range, for track tuners and the ma
     try std.testing.expectEqual(@as(?f64, -90), H(.threshold, -120));
     try std.testing.expectEqual(@as(?f64, null), H(.reference, std.math.nan(f64)));
     try std.testing.expectEqual(@as(?f64, null), H(.threshold, std.math.inf(f64)));
-    try std.testing.expectEqual(@as(?f64, null), H(.yin_threshold, 0.1));
 }
 
 test "setParam on the master holds an out-of-range value and refuses a non-finite one" {
@@ -1155,9 +830,9 @@ test "setParam on the master holds an out-of-range value and refuses a non-finit
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1);
-    try rig.subs.setParam(MASTER_GUID, .reference, 300, &rig.cache, &rig.api);
+    try rig.subs.setParam(MASTER_GUID, .reference, 300);
     try std.testing.expectEqual(@as(f64, 400), rig.subs.master.snapshot().settings.reference_hz);
-    try std.testing.expectError(error.InvalidParam, rig.subs.setParam(MASTER_GUID, .threshold, std.math.nan(f32), &rig.cache, &rig.api));
+    try std.testing.expectError(error.InvalidParam, rig.subs.setParam(MASTER_GUID, .threshold, std.math.nan(f32)));
     try std.testing.expectEqual(@as(f64, -90), rig.subs.master.snapshot().settings.silence_db);
 }
 
@@ -1234,7 +909,6 @@ test "a track tuner opens on the track's record input, unarmed, with no plugin" 
 
     const r = try rig.sub(1, "{T2}");
     try std.testing.expectEqualStrings("{T2}", r.track_guid);
-    try std.testing.expectEqualStrings("", r.fx_guid);
     try std.testing.expectEqualStrings("Guitar", r.trackName());
     try std.testing.expectEqual(@as(f32, 440), r.reference_hz);
     try std.testing.expectEqual(@as(f32, -90), r.threshold_db);
@@ -1307,7 +981,7 @@ test "phones on tracks on one input share its source and settings; another input
     try std.testing.expect(rig.sourceOf(1).? != rig.sourceOf(2).?);
     try std.testing.expectEqual(@as(usize, 2), rig.hook.openTaps());
 
-    try rig.subs.setParam("{T2}", .reference, 442, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T2}", .reference, 442);
     try std.testing.expectEqual(@as(f64, 442), rig.settingsOf(2).reference_hz);
     try std.testing.expectEqual(@as(f64, 440), rig.settingsOf(1).reference_hz);
 
@@ -1344,7 +1018,7 @@ test "a phone subscribing again to its track keeps its source and settings" {
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
-    try rig.subs.setParam("{T1}", .threshold, -60, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .threshold, -60);
     const index = rig.sourceOf(1).?;
     const tag = rig.subs.inputs.source(index).tap.tag;
     const r = try rig.sub(1, "{T1}");
@@ -1359,7 +1033,7 @@ test "a track's input changing moves its phone to the new input, with its settin
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
-    try rig.subs.setParam("{T1}", .reference, 445, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .reference, 445);
     const old = rig.sourceOf(1).?;
     try std.testing.expectEqual(TrackStatus{ .source = old }, rig.refresh(1));
 
@@ -1379,7 +1053,7 @@ test "a track moving to an input another phone tunes joins that phone's source" 
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
     _ = try rig.sub(2, "{T2}");
-    try rig.subs.setParam("{T2}", .reference, 432, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T2}", .reference, 432);
     rig.setInput(1, 1); // Bass now records from input 2, as Guitar does
     try std.testing.expectEqual(TrackStatus{ .source = rig.sourceOf(2).? }, rig.refresh(1));
     try std.testing.expectEqual(@as(f64, 432), rig.settingsOf(1).reference_hz);
@@ -1392,14 +1066,14 @@ test "an input changing to one that can't be tuned says why, and tuning resumes 
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
-    try rig.subs.setParam("{T1}", .threshold, -70, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .threshold, -70);
 
     rig.setInput(1, 4096); // MIDI
     try std.testing.expectEqual(TrackStatus{ .cant = .input_midi }, rig.refresh(1));
     try std.testing.expect(!rig.hook.registered);
     try std.testing.expect(rig.subs.hasSubscriptions()); // still on the track
     // Settings set meanwhile are kept for when it can be tuned again.
-    try rig.subs.setParam("{T1}", .reference, 441, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .reference, 441);
 
     rig.setInput(1, 6); // an input the device doesn't have
     try std.testing.expectEqual(TrackStatus{ .cant = .input_not_on_device }, rig.refresh(1));
@@ -1439,8 +1113,8 @@ test "setParam on a track nobody tunes is refused" {
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
-    try std.testing.expectError(error.NotSubscribed, rig.subs.setParam("{T2}", .reference, 442, &rig.cache, &rig.api));
-    try std.testing.expectError(error.InvalidParam, rig.subs.setParam("{T1}", .reference, std.math.nan(f32), &rig.cache, &rig.api));
+    try std.testing.expectError(error.NotSubscribed, rig.subs.setParam("{T2}", .reference, 442));
+    try std.testing.expectError(error.InvalidParam, rig.subs.setParam("{T1}", .reference, std.math.nan(f32)));
 }
 
 test "the master and track tuners on inputs share the one hook registration" {
@@ -1454,6 +1128,79 @@ test "the master and track tuners on inputs share the one hook registration" {
     try std.testing.expect(rig.hook.registered and rig.hook.holds(.tuner) and !rig.hook.holds(.inputs));
     rig.subs.unsubscribe(2, &rig.api);
     try std.testing.expect(!rig.hook.registered);
+}
+
+/// Whether a mock method may change REAPER (FX, tracks, items, transport,
+/// the undo history, the project), by its name. Only names that read are
+/// let through, so a method added to the mock later counts as a write
+/// unless it is named as a read; a read taken for a write only fails the
+/// test that calls it, visibly.
+fn writesToReaper(name: []const u8) bool {
+    const write_words = [_][]const u8{ "Set", "Delete", "Add", "Copy", "Navigate", "Toggle", "Insert", "Remove", "Move", "OnCommand" };
+    for (write_words) |w| if (std.mem.indexOf(u8, name, w) != null) return true;
+    const read_prefixes = [_][]const u8{ "get", "is", "can", "validate", "enum", "format", "num", "max", "time", "play", "cursor", "project", "bar", "beats", "tempo", "major", "reverse", "master", "namedCommandLookup", "midiEditorGetActive", "midiInputName", "audioInputName", "audioOutputName", "itemNotes", "itemTakeCount", "markerCount", "trackCount", "trackItemCount" };
+    for (read_prefixes) |p| if (std.mem.startsWith(u8, name, p)) return false;
+    // track*Get*, track*Count: a track's FX, sends, receives and outputs, read.
+    if (std.mem.startsWith(u8, name, "track") and
+        (std.mem.indexOf(u8, name, "Get") != null or std.mem.endsWith(u8, name, "Count"))) return false;
+    return true;
+}
+
+test "no tuner path changes REAPER: no FX, no undo point, no project change, whatever the phones do" {
+    const Method = @import("../reaper/mock/state.zig").Method;
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    _ = try rig.sub(1, "{T1}");
+    _ = try rig.sub(1, "{T1}"); // the page re-sends its subscribe
+    try rig.subs.setParam("{T1}", .reference, 442);
+    try rig.subs.setParam("{T1}", .threshold, -60);
+    _ = try rig.sub(2, "{T2}");
+    _ = try rig.sub(3, "{T3}"); // shares the guitar's input
+    _ = try rig.sub(4, MASTER_GUID);
+    try rig.subs.setParam(MASTER_GUID, .reference, 441);
+    rig.subs.beginPoll();
+    for ([_]usize{ 1, 2, 3, 4 }) |client| _ = try polledPayload(&rig, client, arena.allocator());
+    rig.setInput(1, 3); // the bass moves input
+    _ = rig.refresh(1);
+    rig.setInput(1, 4096); // then to MIDI
+    _ = rig.refresh(1);
+    rig.setInput(1, -1);
+    try std.testing.expectError(error.InputNone, rig.sub(1, "{T1}"));
+    rig.setInput(1, 0);
+    _ = rig.refresh(1);
+    _ = try rig.sub(2, MASTER_GUID); // a phone moves from a track to the master
+    _ = try rig.sub(4, "{T2}"); // and one from the master to a track
+    // Keys, phone 3's track, is deleted: the poll finds it gone three times
+    // and ends the subscription, as pollTunerSubscriptions does.
+    rig.api.track_count = 2;
+    const slot3 = rig.subs.client_id_to_slot.get(3).?;
+    for (0..3) |_| {
+        try std.testing.expectEqual(tuner_generator.AnalyserOutcome.gone, tuner_generator.analyserEvent(arena.allocator(), &rig.subs, slot3, &rig.cache, &rig.api, true));
+        if (rig.subs.recordFailure(3)) rig.subs.unsubscribe(3, &rig.api);
+    }
+    try std.testing.expect(!rig.subs.clients[slot3].active);
+    rig.subs.removeClient(2, &rig.api); // a connection drops
+    rig.subs.removeAllClients(&rig.api); // REAPER quits
+
+    try std.testing.expect(rig.api.call_count < @import("../reaper/mock/mod.zig").MAX_CALLS); // every call was logged
+    inline for (@typeInfo(Method).@"enum".fields) |f| {
+        if (writesToReaper(f.name)) {
+            const n = rig.api.getCallCount(@field(Method, f.name));
+            if (n != 0) std.debug.print("the tuner called {s} {d} times\n", .{ f.name, n });
+            try std.testing.expectEqual(@as(usize, 0), n);
+        }
+    }
+    // The name filter catches the calls an FX in the project would need.
+    try std.testing.expect(writesToReaper("trackFxAddByName") and writesToReaper("trackFxDelete") and
+        writesToReaper("trackFxCopyToTrack") and writesToReaper("trackFxSetParamNormalized") and writesToReaper("undoBeginBlock"));
+    try std.testing.expect(!writesToReaper("getTrackRecInput") and !writesToReaper("trackFxGetGuid") and
+        !writesToReaper("numAudioInputs") and !writesToReaper("validateTrackPtr"));
+    // A name it doesn't know is taken for a write.
+    try std.testing.expect(writesToReaper("armTrack") and writesToReaper("saveProject") and writesToReaper("trackFxShow"));
 }
 
 test "a phone moving from a track to the master leaves its input" {
@@ -1533,7 +1280,7 @@ test "a poll tells a phone why its track's input can't be tuned now, with its se
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     _ = try rig.sub(1, "{T1}");
-    try rig.subs.setParam("{T1}", .reference, 442, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .reference, 442);
     rig.setInput(1, -1);
     const p = try polledPayload(&rig, 1, arena.allocator());
     try std.testing.expectEqualStrings("cantTune", p.get("state").?.string);
@@ -1571,7 +1318,7 @@ test "re-choosing a track that can't be tuned keeps following it, with its setti
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
-    try rig.subs.setParam("{T1}", .reference, 442, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .reference, 442);
     rig.setInput(1, 4096);
     try std.testing.expectEqual(TrackStatus{ .cant = .input_midi }, rig.refresh(1));
     try std.testing.expectError(error.InputMidi, rig.sub(1, "{T1}"));
@@ -1586,7 +1333,7 @@ test "subscribing again after the track moved input keeps the tuner's settings" 
     try rig.init();
     defer rig.deinit();
     _ = try rig.sub(1, "{T1}");
-    try rig.subs.setParam("{T1}", .reference, 445, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .reference, 445);
     rig.setInput(1, 3);
     const r = try rig.sub(1, "{T1}");
     try std.testing.expectEqual(@as(f32, 445), r.reference_hz);

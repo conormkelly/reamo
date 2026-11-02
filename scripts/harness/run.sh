@@ -192,7 +192,7 @@ run_one() {
     docker run --rm --init --name "reamo-v1-harness-$s-$$-$i" --network none \
         --label reamo.harness=v1 --label reamo.harness.run="$RUN_ID" \
         -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/reamo:/reamo:ro" \
-        -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
+        -v "$ROOT/test-fixtures:/fixtures:ro" \
         -v "$ARTIFACTS:/out" \
         ${lic_mount[@]+"${lic_mount[@]}"} ${caps[@]+"${caps[@]}"} -e HARNESS_GDB="${HARNESS_GDB:-0}" -e HARNESS_AUDIO="${HARNESS_AUDIO:-dummy}" -e HARNESS_OUT_DIR="$out" -e TOUR_ONLY="${TOUR_ONLY:-}" \
         -e HARNESS_SCENARIO_DIR="/harness/$dir" ${soak_env[@]+"${soak_env[@]}"} \

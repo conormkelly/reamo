@@ -324,13 +324,6 @@ pub const TracksMethods = struct {
     /// Mock always returns true for valid-looking pointers.
     /// In tests, use track_count to control what's "valid".
     /// Uses <= because unified indexing: 0=master, 1..track_count=user tracks
-    /// The mock holds one project, `project_pointer` (null: the current one);
-    /// any other project has no tracks.
-    pub fn validateTrackPtrIn(self: anytype, project: ?*anyopaque, track: ?*anyopaque) bool {
-        self.recordCall(.validateTrackPtrIn);
-        if (project != null and project != self.project_pointer) return false;
-        return self.validateTrackPtr(track);
-    }
 
     pub fn validateTrackPtr(self: anytype, track: ?*anyopaque) bool {
         self.recordCall(.validateTrackPtr);
@@ -738,14 +731,6 @@ pub const TracksMethods = struct {
         return self.tracks[idx].fx_count;
     }
 
-    /// Get number of Input FX (recording FX) on a track.
-    /// Note: Mock doesn't track Input FX, always returns 0.
-    pub fn trackFxRecCount(self: anytype, track: *anyopaque) c_int {
-        self.recordCall(.trackFxRecCount);
-        _ = track;
-        return 0; // Mock doesn't simulate Input FX
-    }
-
     pub fn trackFxGetName(self: anytype, track: *anyopaque, fx_idx: c_int, buf: []u8) []const u8 {
         self.recordCall(.trackFxGetName);
         const idx = state.decodeTrackPtr(track);
@@ -981,18 +966,6 @@ pub const TracksMethods = struct {
         return fx.params[param_usize].value;
     }
 
-    /// Get actual parameter value (not normalized). Mock returns same as normalized.
-    pub fn trackFxGetParam(self: anytype, track: *anyopaque, fx_idx: c_int, param_idx: c_int) f64 {
-        self.recordCall(.trackFxGetParam);
-        const idx = state.decodeTrackPtr(track);
-        if (idx >= state.MAX_TRACKS) return 0.0;
-        if (fx_idx < 0 or fx_idx >= self.tracks[idx].fx_count) return 0.0;
-        const fx_usize: usize = @intCast(fx_idx);
-        const fx = &self.tracks[idx].fx[fx_usize];
-        if (param_idx < 0 or param_idx >= fx.param_count) return 0.0;
-        const param_usize: usize = @intCast(param_idx);
-        return fx.params[param_usize].value;
-    }
 
     /// Set normalized parameter value.
     pub fn trackFxSetParamNormalized(self: anytype, track: *anyopaque, fx_idx: c_int, param_idx: c_int, value: f64) bool {

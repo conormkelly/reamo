@@ -405,7 +405,6 @@ pub const MockBackend = struct {
     // Pointer Validation (delegated)
     // =========================================================================
     pub const validateTrackPtr = tracks.TracksMethods.validateTrackPtr;
-    pub const validateTrackPtrIn = tracks.TracksMethods.validateTrackPtrIn;
     pub const validateItemPtr = tracks.TracksMethods.validateItemPtr;
     pub const validateTakePtr = tracks.TracksMethods.validateTakePtr;
 
@@ -459,7 +458,6 @@ pub const MockBackend = struct {
     // Track FX (delegated)
     // =========================================================================
     pub const trackFxCount = tracks.TracksMethods.trackFxCount;
-    pub const trackFxRecCount = tracks.TracksMethods.trackFxRecCount;
     pub const trackFxGetName = tracks.TracksMethods.trackFxGetName;
     pub const trackFxGetPresetIndex = tracks.TracksMethods.trackFxGetPresetIndex;
     pub const trackFxGetPreset = tracks.TracksMethods.trackFxGetPreset;
@@ -476,7 +474,6 @@ pub const MockBackend = struct {
     pub const trackFxGetNumParams = tracks.TracksMethods.trackFxGetNumParams;
     pub const trackFxGetParamName = tracks.TracksMethods.trackFxGetParamName;
     pub const trackFxGetParamNormalized = tracks.TracksMethods.trackFxGetParamNormalized;
-    pub const trackFxGetParam = tracks.TracksMethods.trackFxGetParam;
     pub const trackFxSetParamNormalized = tracks.TracksMethods.trackFxSetParamNormalized;
     pub const trackFxGetFormattedParamValue = tracks.TracksMethods.trackFxGetFormattedParamValue;
 

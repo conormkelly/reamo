@@ -93,7 +93,6 @@ pub const Method = enum {
     markDirty,
     getFrameRate,
     enumCurrentProject,
-    validateTrackPtrIn,
     getProjectName,
     getCommandState,
     getCommandStateEx,
@@ -230,7 +229,6 @@ pub const Method = enum {
     updateTimeline,
     // Track FX
     trackFxCount,
-    trackFxRecCount,
     trackFxGetName,
     trackFxGetPresetIndex,
     trackFxGetPreset,
@@ -247,7 +245,6 @@ pub const Method = enum {
     trackFxGetNumParams,
     trackFxGetParamName,
     trackFxGetParamNormalized,
-    trackFxGetParam,
     trackFxSetParamNormalized,
     trackFxGetFormattedParamValue,
     // Track Sends/Receives

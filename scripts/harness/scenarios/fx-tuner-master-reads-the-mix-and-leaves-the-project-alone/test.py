@@ -15,7 +15,7 @@ and audio streaming running beside it:
 - the tuner and the stream share the one audio hook: each keeps working
   when the other stops, and the hook goes when both have.
 
-What tells a master tuner on the analyser from one on a JSFX in
+What tells a master tuner on the analyser from a tuner plugin in
 REAPER's monitoring chain: the empty monitoring chain after open (the only
 project-state check that does), the subscribe payload (threshold -90, no
 fxGuid), the clarity and flags in events, a stable reading, a ringing note

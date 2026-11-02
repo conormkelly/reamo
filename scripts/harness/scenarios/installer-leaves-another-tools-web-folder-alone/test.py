@@ -35,7 +35,8 @@ with Client(timeout=10) as c:
         open(os.path.join(OTHER_WEB, rel), "w").write(text)
 
     make_package("9.9.9-test")
-    run_script("Install_REAmo.lua", "Return")
+    titles = run_script("Install_REAmo.lua", "Return")
+    assert titles == ["REAmo Install"], f"the installer reported problems: {titles}"
     assert os.path.exists(os.path.join(RES, "reaper_www_root", "reamo", "index.html"))
     assert other_tool() == OTHER_FILES, f"the installer changed another tool's web/: {sorted(other_tool())}"
 

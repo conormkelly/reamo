@@ -72,7 +72,6 @@ Copy these files from the ZIP to your REAPER resource path (Options > Show REAPE
 |-------------|---------|
 | `reaper_reamo.dylib` / `.dll` / `.so` | `UserPlugins/` |
 | `reamo/` (entire folder) | `reaper_www_root/reamo/` |
-| `effects/REAmo/PitchDetect.jsfx` | `Effects/REAmo/` |
 
 Restart REAPER.
 

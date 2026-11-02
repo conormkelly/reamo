@@ -1,6 +1,7 @@
-//! `extension/effects/REAmo/PitchDetect.jsfx` (version 1.2) ported to Zig,
-//! step for step, as the baseline the tuner's own analyser is measured
-//! against.
+//! PitchDetect.jsfx (version 1.2), REAmo's track tuner before 0.9.0, ported
+//! to Zig step for step, as the baseline the tuner's own analyser is
+//! measured against. REAmo no longer ships the JSFX; its source is
+//! `git show 2e780c3:extension/effects/REAmo/PitchDetect.jsfx`.
 //!
 //! It keeps the JSFX's behaviour exactly, quirks included: a 4096-sample
 //! window whatever the sample rate, an analysis every 512 samples, YIN's

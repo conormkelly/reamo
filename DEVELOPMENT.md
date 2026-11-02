@@ -116,7 +116,6 @@ make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart
 ├── extension/              # Zig REAPER extension: HTTP + WebSocket server
 │   ├── build.zig(.zon)     # build options: -Dcsurf, -Ddev, -Dtracy; Zig 0.15.x
 │   ├── API.md              # WebSocket protocol reference (every command and event)
-│   ├── effects/REAmo/      # JSFX shipped with the extension (PitchDetect.jsfx, the tuner)
 │   └── src/
 │       ├── main.zig        # entry point, timer loop, state broadcasting
 │       ├── core/           # protocol parsing, errors, FFI validation, logging, constants
@@ -593,7 +592,7 @@ make test             # test-frontend + test-e2e + test-extension
 make test-frontend    # Vitest unit tests
 make test-e2e         # Playwright E2E tests (starts Vite on 5173, or reuses one already there)
 make test-extension   # Zig unit tests
-make tuner-bench      # tuner pitch analyser vs the JSFX on synthetic signals: accuracy and CPU
+make tuner-bench      # tuner pitch analyser vs the old tuner JSFX (ported) on synthetic signals: accuracy and CPU
 make tuner-targets    # tuner pitch analyser against its targets: strings with known first partials, hum, starts, swells, findings
 make tuner-wav WAV=take.wav  # tuner pitch analyser over one WAV take (ARGS="--out frames.csv --notes notes.csv")
 make tuner-mdb MDB=<dir>     # tuner pitch analyser on MDB-bass-synth stems (dataset outside the repo; ARGS="--tracks name")

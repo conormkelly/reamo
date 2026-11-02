@@ -33,8 +33,7 @@ const no_alloc = @import("../core/no_alloc.zig");
 
 const Allocator = std.mem.Allocator;
 
-/// The tuner's A4 range, as the JSFX's slider and the phone's settings
-/// offer it.
+/// The tuner's A4 range, as the phone's settings offer it.
 pub const reference_min_hz = 400.0;
 pub const reference_max_hz = 480.0;
 /// The silence threshold's range, as the phone's slider offers it. The

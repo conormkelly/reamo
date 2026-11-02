@@ -25,7 +25,7 @@ local confirm = reaper.ShowMessageBox(
   "This will remove REAmo from REAPER:\n\n" ..
   "  - Extension: UserPlugins/" .. ext_name .. "\n" ..
   "  - Frontend: reaper_www_root/reamo/\n" ..
-  "  - Tuner JSFX: Effects/REAmo/\n\n" ..
+  "  - The tuner JSFX of versions before 0.9.0: Effects/REAmo/\n\n" ..
   "Continue?",
   "Uninstall REAmo", 4) -- 4 = Yes/No
 
@@ -135,7 +135,8 @@ if is_reamo_page(old_web_dir) then
   removed[#removed + 1] = "Frontend: reaper_www_root/web/ (from an older version)"
 end
 
--- 3. JSFX tuner + Effects/REAmo/ directory
+-- 3. The tuner JSFX versions before 0.9.0 installed, and Effects/REAmo/
+-- if that leaves it empty. The installer leaves it (Install_REAmo.lua).
 local effects_dir = resource_path .. sep .. "Effects" .. sep .. "REAmo"
 local jsfx_path = effects_dir .. sep .. "PitchDetect.jsfx"
 if os.remove(jsfx_path) then

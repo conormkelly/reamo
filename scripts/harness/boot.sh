@@ -5,7 +5,6 @@
 #   /harness   this directory (client library, lua helper, scenarios)
 #   /ext       reaper_reamo.so built for the container's architecture
 #   /reamo     the built frontend (index.html carries the hello token)
-#   /effects   REAmo's own JSFX (extension/effects), installed as the release zip does
 #   /fixtures  the repo's test-fixtures (projects a startup.lua can open)
 #   /lic       optional reaper-license.rk (suppresses the evaluation nag)
 #
@@ -101,7 +100,6 @@ EOF
 mkdir -p "$HOME_DIR/UserPlugins" "$HOME_DIR/Scripts" "$HOME_DIR/reaper_www_root"
 # The installer copies stock JSFX into the resource folder; portable mode doesn't.
 cp -a "$HOME_DIR/InstallData/Effects" "$HOME_DIR/Effects"
-cp -a /effects/. "$HOME_DIR/Effects/"
 # A scenario with a `no-extension` file runs REAPER without REAmo: a
 # control to measure REAmo against.
 NO_EXT=0

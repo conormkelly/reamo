@@ -71,17 +71,13 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
         switch (err) {
             error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             error.TrackNotFound => response.err("TRACK_NOT_FOUND", "Track GUID not found in cache"),
-            error.FxInsertFailed => {
-                // The tuner's commonest support case: REAmo's JSFX isn't where REAPER looks.
-                logging.warn("tuner: REAPER couldn't insert the tuner JSFX on track {f}; is REAmo/PitchDetect.jsfx installed in Effects?", .{logging.untrusted(track_guid)});
-                response.err("FX_INSERT_FAILED", "Failed to insert tuner JSFX (not installed?)");
-            },
-            error.TooManyTuners => response.err("TOO_MANY_TUNERS", "Maximum tuner track limit reached"),
-            error.OutOfMemory => response.err("OUT_OF_MEMORY", "Not enough memory for the tuner"),
-            error.ThreadFailed => response.err("THREAD_FAILED", "Couldn't start the tuner's thread"),
+            // Each with the code and message a poll's cantTune gives for it.
+            error.TooManyTuners => cantOpen(response, .too_many_inputs),
+            error.OutOfMemory => cantOpen(response, .out_of_memory),
+            error.ThreadFailed => cantOpen(response, .thread_failed),
             error.AudioHookFailed => {
                 logging.warn("tuner: REAPER refused the audio hook the tuner reads", .{});
-                response.err("AUDIO_HOOK_FAILED", "REAPER refused the audio hook the tuner reads");
+                cantOpen(response, .audio_hook_failed);
             },
             error.InputNone, error.InputMidi, error.InputNotOnDevice, error.InputReaRoute, error.InputMultichannel => {
                 const why = tuner_subscriptions.cantTuneOf(err).?;
@@ -102,12 +98,15 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
     response.success(stream.getWritten());
 }
 
+fn cantOpen(response: *mod.ResponseWriter, why: tuner_subscriptions.CantTune) void {
+    response.err(why.code(), why.message());
+}
+
+/// fxGuid is always "": no plugin is inserted. It stays for pages that read it.
 fn writeSubscribeResult(w: anytype, result: *const tuner_subscriptions.SubscribeResult) !void {
     try w.writeAll("{\"trackGuid\":\"");
     try protocol.writeJsonString(w, result.track_guid);
-    try w.writeAll("\",\"fxGuid\":\"");
-    try protocol.writeJsonString(w, result.fx_guid);
-    try w.writeAll("\",\"trackName\":\"");
+    try w.writeAll("\",\"fxGuid\":\"\",\"trackName\":\"");
     try protocol.writeJsonString(w, result.trackName());
     try w.print("\",\"reference\":{d:.1},\"threshold\":{d:.1}}}", .{ result.reference_hz, result.threshold_db });
 }
@@ -142,14 +141,9 @@ pub fn handleUnsubscribe(api: anytype, _: protocol.CommandMessage, response: *mo
 ///
 /// Response:
 /// { "type": "response", "id": "1", "success": true }
-pub fn handleSetParam(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
+pub fn handleSetParam(_: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const subs = mod.g_ctx.tuner_subs orelse {
         response.err("NOT_INITIALIZED", "Tuner subscriptions not initialized");
-        return;
-    };
-
-    const guid_cache = mod.g_ctx.guid_cache orelse {
-        response.err("NOT_INITIALIZED", "GUID cache not initialized");
         return;
     };
 
@@ -180,11 +174,9 @@ pub fn handleSetParam(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Set the parameter
-    subs.setParam(track_guid, param, @floatCast(value), guid_cache, api) catch |err| {
+    subs.setParam(track_guid, param, @floatCast(value)) catch |err| {
         switch (err) {
             error.NotSubscribed => response.err("NOT_SUBSCRIBED", "No active tuner for this track"),
-            error.TrackNotFound => response.err("TRACK_NOT_FOUND", "Track GUID not found"),
-            error.FxNotFound => response.err("FX_NOT_FOUND", "Tuner plugin not found in FX chain"),
             error.InvalidParam => response.err("INVALID_PARAM", "Invalid parameter"),
         }
         return;
@@ -199,4 +191,18 @@ pub fn handleSetParam(api: anytype, cmd: protocol.CommandMessage, response: *mod
 
 test "handleSubscribe, handleUnsubscribe, handleSetParam compile" {
     // Just verify the module compiles - full tests need mock ResponseWriter
+}
+
+test "the subscribe response keeps fxGuid, empty, for pages that read it" {
+    var result = tuner_subscriptions.SubscribeResult{ .track_guid = "{T1}", .reference_hz = 442, .threshold_db = -90 };
+    const name = "Guitar \"Lead\"";
+    @memcpy(result.track_name_buf[0..name.len], name);
+    result.track_name_len = name.len;
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try writeSubscribeResult(stream.writer(), &result);
+    try std.testing.expectEqualStrings(
+        "{\"trackGuid\":\"{T1}\",\"fxGuid\":\"\",\"trackName\":\"Guitar \\\"Lead\\\"\",\"reference\":442.0,\"threshold\":-90.0}",
+        stream.getWritten(),
+    );
 }

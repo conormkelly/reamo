@@ -487,7 +487,7 @@ export type TunerState = 'listening' | 'deviceClosed' | 'cantTune';
 
 /** Tuner error event (track deleted, or in another project tab, while subscribed) */
 export interface TunerErrorEventPayload {
-  error: string;     // "TUNER_NOT_FOUND" | "GENERATION_FAILED"
+  error: string;     // "TUNER_NOT_FOUND"
 }
 
 // =============================================================================
