@@ -1,54 +1,47 @@
 /**
- * TunerMeter - Cents deviation meter
+ * TunerMeter - Cents deviation meter, -50 to +50
  *
- * Shows pitch deviation from -50 to +50 cents with color-coded indicator:
- * - Green: |cents| < 2 (in tune)
- * - Yellow: |cents| < 10 (close)
- * - Red: |cents| >= 10 (out of tune)
+ * The needle (tunerDisplay.ts decides its tone):
+ * - hidden: no pitch, so no needle
+ * - moving: grey, the pitch isn't stable yet (an attack, a peg turning,
+ *   several notes)
+ * - inTune: green; close: yellow, under 10 cents; off: red
  *
- * Uses CSS transitions for smooth animation at 30Hz updates.
- * Supports disabled state for "no signal" display.
+ * Uses CSS transitions for smooth movement at 30 Hz updates.
  */
 
 import type { ReactElement } from 'react';
+import type { NeedleTone } from './tunerDisplay';
 
 export interface TunerMeterProps {
   cents: number;
-  inTune: boolean;
-  /** Show muted placeholder state (no signal) */
-  disabled?: boolean;
+  tone: NeedleTone;
 }
 
-export function TunerMeter({ cents, inTune, disabled }: TunerMeterProps): ReactElement {
-  // Clamp cents to display range
-  const clampedCents = Math.max(-50, Math.min(50, cents));
+const NEEDLE_CLASS: Record<Exclude<NeedleTone, 'hidden'>, string> = {
+  moving: 'bg-text-muted',
+  inTune: 'bg-success shadow-[0_0_12px_rgba(var(--success-rgb),0.5)]',
+  close: 'bg-warning',
+  off: 'bg-error',
+};
 
-  // Calculate indicator position (0-100%), center when disabled
-  const position = disabled ? 50 : 50 + clampedCents;
+const LABEL_CLASS: Record<NeedleTone, string> = {
+  hidden: 'text-text-muted',
+  moving: 'text-text-secondary',
+  inTune: 'text-success',
+  close: 'text-warning',
+  off: 'text-error',
+};
 
-  // Determine color based on deviation (muted when disabled)
-  const absCents = Math.abs(cents);
-  let indicatorColor: string;
-  let bgGlow: string;
-
-  if (disabled) {
-    indicatorColor = 'bg-text-muted';
-    bgGlow = '';
-  } else if (inTune || absCents < 2) {
-    indicatorColor = 'bg-success';
-    bgGlow = 'shadow-[0_0_12px_rgba(var(--success-rgb),0.5)]';
-  } else if (absCents < 10) {
-    indicatorColor = 'bg-warning';
-    bgGlow = '';
-  } else {
-    indicatorColor = 'bg-error';
-    bgGlow = '';
-  }
+export function TunerMeter({ cents, tone }: TunerMeterProps): ReactElement {
+  const position = 50 + Math.max(-50, Math.min(50, cents));
+  // To the tenth shown, with no "-0.0"
+  const tenths = Math.round(cents * 10) / 10 || 0;
 
   return (
     <div className="w-full max-w-xs flex flex-col items-center gap-2">
       {/* Meter bar */}
-      <div className="relative w-full h-3 bg-bg-elevated rounded-full overflow-hidden">
+      <div className="relative w-full h-3 bg-bg-elevated rounded-full overflow-hidden" aria-hidden="true">
         {/* Center marker */}
         <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-border-muted -translate-x-1/2 z-10" />
 
@@ -63,32 +56,23 @@ export function TunerMeter({ cents, inTune, disabled }: TunerMeterProps): ReactE
           ))}
         </div>
 
-        {/* Indicator */}
-        <div
-          className={`absolute top-0 bottom-0 w-3 rounded-full transition-[left] duration-50 ease-out ${indicatorColor} ${bgGlow}`}
-          style={{
-            left: `calc(${position}% - 6px)`,
-          }}
-        />
+        {tone !== 'hidden' && (
+          <div
+            data-testid="tuner-needle"
+            data-tone={tone}
+            className={`absolute top-0 bottom-0 w-3 rounded-full transition-[left] duration-50 ease-out ${NEEDLE_CLASS[tone]}`}
+            style={{ left: `calc(${position}% - 6px)` }}
+          />
+        )}
       </div>
 
       {/* Labels */}
       <div className="w-full flex justify-between text-xs text-text-muted px-1">
-        <span>−50</span>
-        <span
-          className={`font-medium ${
-            disabled
-              ? 'text-text-muted'
-              : inTune
-                ? 'text-success'
-                : absCents < 10
-                  ? 'text-warning'
-                  : 'text-error'
-          }`}
-        >
-          {disabled ? '—' : `${cents >= 0 ? '+' : ''}${cents.toFixed(1)}¢`}
+        <span aria-hidden="true">−50</span>
+        <span className={`font-medium ${LABEL_CLASS[tone]}`}>
+          {tone === 'hidden' ? '—' : `${tenths >= 0 ? '+' : ''}${tenths.toFixed(1)}¢`}
         </span>
-        <span>+50</span>
+        <span aria-hidden="true">+50</span>
       </div>
     </div>
   );

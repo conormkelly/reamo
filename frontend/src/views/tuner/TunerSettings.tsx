@@ -3,7 +3,7 @@
  *
  * Reference frequency: A4 tuning reference (default 440Hz)
  * Silence threshold: dB level below which input is ignored (the tuner's
- * default: -90 dB on the master's analyser, -60 dB on a track's JSFX)
+ * default is -90 dB: the analyser's learned noise floor does the gating)
  */
 
 import { type ReactElement } from 'react';
@@ -99,7 +99,7 @@ export function TunerSettings({
                 }
               }}
               onTouchStart={(e) => (e.target as HTMLInputElement).focus()}
-              className="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border-muted text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border-muted text-base text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
 
