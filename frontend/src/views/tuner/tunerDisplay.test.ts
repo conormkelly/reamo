@@ -100,6 +100,19 @@ describe('tunerDisplay', () => {
     expect(d.message).toBe('No input detected');
   });
 
+  it('tells a screen reader problems, several notes and a stable verdict, never the passing states', () => {
+    expect(tunerDisplay(reading()).spoken).toBe('In tune');
+    expect(tunerDisplay(reading({ inTune: false, cents: -6 })).spoken).toBe('Flat');
+    expect(tunerDisplay(reading({ stable: false })).spoken).toBe('');
+    expect(tunerDisplay(reading({ ...SILENCE, starting: true })).spoken).toBe('');
+    expect(tunerDisplay(reading(SILENCE)).spoken).toBe('');
+    expect(tunerDisplay(reading({ multiple: true })).spoken).toBe('Several notes — let one string ring');
+    expect(tunerDisplay(reading({ ...SILENCE, problem: 'No record input.' })).spoken).toBe('No record input.');
+    expect(tunerDisplay(reading({ ...SILENCE, deviceClosed: true })).spoken).toBe(
+      "REAPER's audio device isn't running. If it closes when stopped, press play."
+    );
+  });
+
   it("puts why the tuner can't hear before anything a reading says", () => {
     expect(tunerDisplay(reading({ ...SILENCE, problem: 'No record input.', multiple: true })).message).toBe(
       'No record input.'

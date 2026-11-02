@@ -42,8 +42,14 @@ export interface TunerDisplay {
   needle: NeedleTone;
   /** Shown in place of the frequency; null to show the frequency */
   message: string | null;
-  /** For screen readers: changes only when a stable reading's verdict does */
+  /** A stable reading's verdict */
   announcement: 'In tune' | 'Sharp' | 'Flat' | null;
+  /**
+   * What a screen reader is told: a problem, several notes, or a stable
+   * reading's verdict; '' otherwise. Not the passing states (a note
+   * starting, silence between notes), which come with every pluck.
+   */
+  spoken: string;
 }
 
 /**
@@ -65,6 +71,12 @@ const CLOSE_CENTS = 10;
 const IN_TUNE_CENTS = 2;
 
 export function tunerDisplay(r: DisplayInput): TunerDisplay {
+  const shown = looks(r);
+  const passing = shown.message === STARTING_TEXT || shown.message === NO_INPUT_TEXT;
+  return { ...shown, spoken: shown.message !== null && !passing ? shown.message : (shown.announcement ?? '') };
+}
+
+function looks(r: DisplayInput): Omit<TunerDisplay, 'spoken'> {
   const pitched = r.freq > 0;
   const message = r.problem
     ? r.problem

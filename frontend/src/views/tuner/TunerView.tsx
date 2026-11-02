@@ -30,10 +30,13 @@ import { TunerMeter } from './TunerMeter';
 import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
 import { holdNote, tunerDisplay, type HeldNote } from './tunerDisplay';
+import { useSettled } from './useSettled';
 
 /** The GUID the master output is tuned by (and its entry in the track skeleton). */
 const MASTER = 'master';
 const MASTER_LABEL = 'Master output';
+/** How long what a screen reader is told must hold before it is said. */
+const SPOKEN_SETTLE_MS = 300;
 
 // Load the chosen source's GUID from localStorage
 function loadSelectedTrack(): string | null {
@@ -107,6 +110,8 @@ export function TunerView(): ReactElement {
     problem: problem?.message ?? null,
     deviceClosed: state === 'deviceClosed',
   });
+
+  const spoken = useSettled(display.spoken, SPOKEN_SETTLE_MS);
 
   // The track skeleton always holds the master once it has arrived
   const tracks = useReaperStore((s) => s.trackSkeleton ?? EMPTY_SKELETON);
@@ -221,14 +226,14 @@ export function TunerView(): ReactElement {
           <TunerNote noteName={shown.noteName} octave={shown.octave} look={display.note} />
           <TunerMeter cents={shown.cents} tone={display.needle} />
           {/* One line: the frequency, or the message standing in for it.
-              Only the message is a live region: the frequency changes 30
-              times a second, so a screen reader is told the verdict of a
-              stable reading instead. */}
+              A screen reader is told only what tunerDisplay says to speak,
+              once it has held (useSettled): not the frequency, which
+              changes 30 times a second, nor a verdict wavering at an edge. */}
           <div className="text-text-muted text-sm text-center max-w-xs">
-            <div role="status">
-              {display.message ?? <span className="sr-only">{display.announcement ?? ''}</span>}
+            {display.message ?? <span className="tabular-nums">{freq.toFixed(2)} Hz</span>}
+            <div role="status" className="sr-only">
+              {spoken}
             </div>
-            {display.message === null && <div className="tabular-nums">{freq.toFixed(2)} Hz</div>}
           </div>
         </div>
       </div>

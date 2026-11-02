@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { useReaperStore } from '../../store';
 import type { SkeletonTrack, TunerEventPayload } from '../../core/WebSocketTypes';
 
@@ -35,6 +35,11 @@ function track(g: string, n: string, armed: boolean): SkeletonTrack {
 
 const KEYS = '{KEYS}';
 const GUITAR = '{GUITAR}';
+
+/** What the live region settles on (it takes a value once it has held 300 ms). */
+async function says(text: string) {
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(text), { timeout: 1000 });
+}
 
 function subscribes(): string[] {
   return sendCommandAsync.mock.calls
@@ -91,9 +96,7 @@ describe('TunerView', () => {
       inTune: false, referenceHz: 440, thresholdDb: -90,
     };
     act(() => useReaperStore.getState().handleTunerEvent({ ...base, state: 'deviceClosed' }));
-    expect(screen.getByRole('status').textContent).toBe(
-      "REAPER's audio device isn't running. If it closes when stopped, press play."
-    );
+    await says("REAPER's audio device isn't running. If it closes when stopped, press play.");
     act(() =>
       useReaperStore.getState().handleTunerEvent({
         ...base,
@@ -102,10 +105,11 @@ describe('TunerView', () => {
         message: 'This track has no record input.',
       })
     );
-    expect(screen.getByRole('status').textContent).toBe('This track has no record input.');
+    expect(screen.getByText('This track has no record input.')).toBeTruthy();
+    await says('This track has no record input.');
     act(() => useReaperStore.getState().handleTunerEvent({ ...base, freq: 220, note: 57, noteName: 'A', octave: 3, state: 'listening' }));
-    expect(screen.getByRole('status').textContent).toBe('');
     expect(screen.getByText('220.00 Hz')).toBeTruthy();
+    await says('');
   });
 
   describe('readings', () => {
@@ -143,12 +147,12 @@ describe('TunerView', () => {
       expect(green(container)).toBe(false);
       send({ inTune: false, cents: 4 });
       expect(green(container)).toBe(false);
-      expect(screen.getByRole('status').textContent).toBe('Sharp');
+      await says('Sharp');
       send();
       expect(green(container)).toBe(true);
       expect(note().dataset.look).toBe('inTune');
       expect(needle()?.dataset.tone).toBe('inTune');
-      expect(screen.getByRole('status').textContent).toBe('In tune');
+      await says('In tune');
     });
 
     it('dims the note and hides the needle while a note is starting', async () => {
@@ -159,6 +163,9 @@ describe('TunerView', () => {
       expect(needle()).toBeNull();
       expect(screen.getByText('Hearing a note…')).toBeTruthy();
       expect(green(container)).toBe(false);
+      // Comes with every pluck: shown, not spoken
+      await new Promise((r) => setTimeout(r, 350));
+      expect(screen.getByRole('status').textContent).toBe('');
     });
 
     it('shows the note solid with a grey needle while it settles', async () => {
@@ -172,7 +179,8 @@ describe('TunerView', () => {
     it('asks for one string when several notes sound', async () => {
       await open();
       send({ multiple: true });
-      expect(screen.getByRole('status').textContent).toBe('Several notes — let one string ring');
+      expect(screen.getByText('Several notes — let one string ring')).toBeTruthy();
+      await says('Several notes — let one string ring');
     });
 
     it('shows no needle with no pitch', async () => {
