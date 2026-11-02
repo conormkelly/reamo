@@ -298,8 +298,9 @@ pub fn pollTunerSubscriptions(
     tuner_subs: *tuner_subscriptions.TunerSubscriptions,
 ) !void {
     if (!tuner_subs.hasSubscriptions()) return;
-    // REAPER closes the device while stopped when its preferences say to:
-    // then no audio arrives, and nothing a tuner shows would be true.
+    // With REAPER's audio device not running (closed while stopped, as its
+    // preferences can say, or failed) no audio arrives, and nothing a tuner
+    // shows would be true.
     const device_open = ctx.backend.isAudioRunning();
     tuner_subs.beginPoll();
 

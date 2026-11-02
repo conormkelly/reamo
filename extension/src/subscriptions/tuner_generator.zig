@@ -39,8 +39,10 @@ pub const Event = struct {
 pub const State = union(enum) {
     /// Audio arrives; the reading is what it holds (silence included).
     listening,
-    /// REAPER has the audio device closed (it closes it while stopped when
-    /// Preferences > Audio says to): no audio arrives until it reopens.
+    /// REAPER's audio device isn't running (Audio_IsRunning is 0): REAPER
+    /// closed it while stopped, as Preferences > Audio can say to, and play
+    /// reopens it; or the device failed or was unplugged. No audio arrives
+    /// either way.
     device_closed,
     /// The track's record input can't be tuned now.
     cant_tune: struct { code: []const u8, message: []const u8 },

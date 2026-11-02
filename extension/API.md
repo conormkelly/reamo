@@ -2985,7 +2985,7 @@ Sent to subscribed clients at 30Hz with pitch detection data.
 | `stable` | bool | The pitch has held still: the reading to tune by |
 | `multiple` | bool | Several notes sound; the reading is one of them |
 | `starting` | bool | A new note's name is held back (its first ~0.1 s): no pitch yet, but not silence |
-| `state` | string | `"listening"`: audio arrives. `"deviceClosed"`: REAPER has closed the audio device (Preferences > Audio, close the device when stopped), so no audio arrives until it reopens, on play. `"cantTune"`: the track's record input has changed to one that can't be tuned; `code` and `message` say why, as `tuner/subscribe`'s errors do. The phone stays on the track, and tuning resumes when its input can be tuned |
+| `state` | string | `"listening"`: audio arrives. `"deviceClosed"`: REAPER's audio device isn't running (`Audio_IsRunning()` is 0), so no audio arrives: REAPER closed it while stopped (Preferences > Audio, close the device when stopped), and play reopens it; or the device failed or was unplugged. `"cantTune"`: the track's record input has changed to one that can't be tuned; `code` and `message` say why, as `tuner/subscribe`'s errors do. The phone stays on the track, and tuning resumes when its input can be tuned |
 | `code`, `message` | string | With `"cantTune"` only |
 | `referenceHz`, `thresholdDb` | float | The source's settings, for phones sharing it |
 

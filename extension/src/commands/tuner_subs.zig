@@ -44,8 +44,9 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 /// After subscribing, the client receives "tuner" events at 30Hz
 /// containing pitch detection data, with settling, stable, multiple and
 /// starting (a new note's name is held back for its first ~0.1 s), and
-/// state: "listening", "deviceClosed" (REAPER has closed the audio device
-/// while stopped: no audio until it reopens), or "cantTune" with code and
+/// state: "listening", "deviceClosed" (REAPER's audio device isn't running:
+/// closed while stopped, which play reopens, or failed or unplugged; no
+/// audio either way), or "cantTune" with code and
 /// message, when a track's record input changes to one that can't be tuned
 /// (the phone stays on the track, and tuning resumes when it can).
 pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {

@@ -476,9 +476,10 @@ export interface TunerEventPayload {
 }
 
 /**
- * What a tuner can hear: "listening" (audio arrives), "deviceClosed" (REAPER
- * has closed the audio device while stopped, as its preferences can say: no
- * audio until play reopens it), or "cantTune" (the track's record input
+ * What a tuner can hear: "listening" (audio arrives), "deviceClosed" (REAPER's
+ * audio device isn't running, so no audio arrives: closed while stopped, as
+ * its preferences can say, which play reopens, or failed or unplugged), or
+ * "cantTune" (the track's record input
  * can't be tuned now; the phone stays on the track and tuning resumes when
  * it can).
  */

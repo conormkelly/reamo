@@ -6,7 +6,7 @@
  * - Note name and octave (large display)
  * - Cents deviation meter (-50 to +50)
  * - Frequency display, or why there is none: the track's input can't be
- *   tuned (REAPER's own message), or REAPER has closed the audio device
+ *   tuned (REAPER's own message), or REAPER's audio device isn't running
  * - Track selector (defaults to the first track); choosing the track
  *   already chosen asks REAPER again, after the user has fixed its input
  *
@@ -25,8 +25,12 @@ import { TunerMeter } from './TunerMeter';
 import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
 
-/** What shows while REAPER has the audio device closed (it closes it while stopped when its preferences say to). */
-const DEVICE_CLOSED_TEXT = 'REAPER has closed the audio device while stopped. Press play to tune.';
+/**
+ * What shows while REAPER's audio device isn't running: true whether REAPER
+ * closed it while stopped (its preferences can say to; play reopens it) or
+ * the device failed or was unplugged, which REAPER doesn't tell apart.
+ */
+const DEVICE_CLOSED_TEXT = "REAPER's audio device isn't running. If it closes when stopped, press play.";
 
 // Hysteresis threshold: only switch notes when within this many cents of the new note
 // This prevents flickering at the ±50 cent boundary between adjacent notes

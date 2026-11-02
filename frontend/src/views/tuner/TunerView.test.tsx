@@ -82,7 +82,7 @@ describe('TunerView', () => {
     expect(screen.getByText('No input detected')).toBeTruthy();
   });
 
-  it('says when REAPER has closed the audio device, and why a track it was tuning stopped', async () => {
+  it("says when REAPER's audio device isn't running, and why a track it was tuning stopped", async () => {
     sendCommandAsync.mockResolvedValue({ success: true, payload: { reference: 440, threshold: -90 } });
     render(<TunerView />);
     await act(async () => {});
@@ -91,7 +91,9 @@ describe('TunerView', () => {
       inTune: false, referenceHz: 440, thresholdDb: -90,
     };
     act(() => useReaperStore.getState().handleTunerEvent({ ...base, state: 'deviceClosed' }));
-    expect(screen.getByRole('status').textContent).toMatch(/closed the audio device/);
+    expect(screen.getByRole('status').textContent).toBe(
+      "REAPER's audio device isn't running. If it closes when stopped, press play."
+    );
     act(() =>
       useReaperStore.getState().handleTunerEvent({
         ...base,
