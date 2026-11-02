@@ -1130,14 +1130,20 @@ test "the master and track tuners on inputs share the one hook registration" {
     try std.testing.expect(!rig.hook.registered);
 }
 
-/// A mock method that changes REAPER (FX, tracks, items, transport, the
-/// undo history, the project), by its name: only reads are left out.
+/// Whether a mock method may change REAPER (FX, tracks, items, transport,
+/// the undo history, the project), by its name. Only names that read are
+/// let through, so a method added to the mock later counts as a write
+/// unless it is named as a read; a read taken for a write only fails the
+/// test that calls it, visibly.
 fn writesToReaper(name: []const u8) bool {
-    const prefixes = [_][]const u8{ "set", "clear", "insert", "delete", "undo", "do", "csurf", "toggle", "run", "add", "update", "move", "create", "remove", "send", "markDirty", "midiEditorOnCommand" };
-    for (prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
-    const infixes = [_][]const u8{ "Set", "Delete", "Add", "Copy", "Navigate", "Toggle" };
-    for (infixes) |i| if (std.mem.indexOf(u8, name, i) != null) return true;
-    return false;
+    const write_words = [_][]const u8{ "Set", "Delete", "Add", "Copy", "Navigate", "Toggle", "Insert", "Remove", "Move", "OnCommand" };
+    for (write_words) |w| if (std.mem.indexOf(u8, name, w) != null) return true;
+    const read_prefixes = [_][]const u8{ "get", "is", "can", "validate", "enum", "format", "num", "max", "time", "play", "cursor", "project", "bar", "beats", "tempo", "major", "reverse", "master", "namedCommandLookup", "midiEditorGetActive", "midiInputName", "audioInputName", "audioOutputName", "itemNotes", "itemTakeCount", "markerCount", "trackCount", "trackItemCount" };
+    for (read_prefixes) |p| if (std.mem.startsWith(u8, name, p)) return false;
+    // track*Get*, track*Count: a track's FX, sends, receives and outputs, read.
+    if (std.mem.startsWith(u8, name, "track") and
+        (std.mem.indexOf(u8, name, "Get") != null or std.mem.endsWith(u8, name, "Count"))) return false;
+    return true;
 }
 
 test "no tuner path changes REAPER: no FX, no undo point, no project change, whatever the phones do" {
@@ -1168,7 +1174,15 @@ test "no tuner path changes REAPER: no FX, no undo point, no project change, wha
     _ = rig.refresh(1);
     _ = try rig.sub(2, MASTER_GUID); // a phone moves from a track to the master
     _ = try rig.sub(4, "{T2}"); // and one from the master to a track
-    rig.subs.unsubscribe(3, &rig.api);
+    // Keys, phone 3's track, is deleted: the poll finds it gone three times
+    // and ends the subscription, as pollTunerSubscriptions does.
+    rig.api.track_count = 2;
+    const slot3 = rig.subs.client_id_to_slot.get(3).?;
+    for (0..3) |_| {
+        try std.testing.expectEqual(tuner_generator.AnalyserOutcome.gone, tuner_generator.analyserEvent(arena.allocator(), &rig.subs, slot3, &rig.cache, &rig.api, true));
+        if (rig.subs.recordFailure(3)) rig.subs.unsubscribe(3, &rig.api);
+    }
+    try std.testing.expect(!rig.subs.clients[slot3].active);
     rig.subs.removeClient(2, &rig.api); // a connection drops
     rig.subs.removeAllClients(&rig.api); // REAPER quits
 
@@ -1183,7 +1197,10 @@ test "no tuner path changes REAPER: no FX, no undo point, no project change, wha
     // The name filter catches the calls an FX in the project would need.
     try std.testing.expect(writesToReaper("trackFxAddByName") and writesToReaper("trackFxDelete") and
         writesToReaper("trackFxCopyToTrack") and writesToReaper("trackFxSetParamNormalized") and writesToReaper("undoBeginBlock"));
-    try std.testing.expect(!writesToReaper("getTrackRecInput") and !writesToReaper("trackFxGetGuid"));
+    try std.testing.expect(!writesToReaper("getTrackRecInput") and !writesToReaper("trackFxGetGuid") and
+        !writesToReaper("numAudioInputs") and !writesToReaper("validateTrackPtr"));
+    // A name it doesn't know is taken for a write.
+    try std.testing.expect(writesToReaper("armTrack") and writesToReaper("saveProject") and writesToReaper("trackFxShow"));
 }
 
 test "a phone moving from a track to the master leaves its input" {
