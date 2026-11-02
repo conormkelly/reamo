@@ -299,7 +299,7 @@ if #errors > 0 then
     (#installed > 0 and ("Installed:\n  " .. table.concat(installed, "\n  ") .. "\n\n") or "") ..
     "Problems:\n  " .. table.concat(errors, "\n  ") .. "\n\n" ..
     "Fix the problem above and run the installer again.",
-    "REAmo Install", 0)
+    "REAmo Install: problems", 0)
 elseif updated then
   reaper.ShowMessageBox(
     name .. " is installed.\n\n" ..

@@ -26,18 +26,23 @@ def make_package(version):
 
 
 def run_script(name, *keys):
-    """Run a package script as REAPER's Run ReaScript does, answering its dialogs."""
+    """Run a package script as REAPER's Run ReaScript does, answering its
+    dialogs. Returns the titles of the dialogs answered, in order: the
+    installer titles its failure dialog "REAmo Install: problems"."""
     path = os.path.abspath(os.path.join(PKG, name)).replace("\\", "/")
     cmd = reaper(f"return reaper.AddRemoveReaScript(true, 0, '{path}', true)")
     assert cmd, f"REAPER didn't register {name}"
     pending = submit(f"reaper.Main_OnCommand({cmd}, 0)")
+    titles = []
     for key in keys:
         deadline = time.time() + 15
         while not any(w.startswith("REAmo") or w.startswith("Uninstall REAmo") for w in windows()):
             assert time.time() < deadline, f"{name} showed no dialog; windows: {windows()}"
             time.sleep(0.1)
         title = next(w for w in windows() if w.startswith("REAmo") or w.startswith("Uninstall REAmo"))
+        titles.append(title)
         time.sleep(0.3)
         press(title, key)
         time.sleep(0.5)
     pending.result(15)
+    return titles

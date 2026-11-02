@@ -64,8 +64,11 @@ with Client(timeout=10) as c:
 
     make_package("9.9.9-test")
     assert sorted(os.listdir(PKG)) == sorted([BINARY_NAME, "Install_REAmo.lua", "README.txt", "Uninstall_REAmo.lua", "reamo"]), os.listdir(PKG)
-    run_script("Install_REAmo.lua", "Return")
-    run_script("Install_REAmo.lua", "Return")  # again, before any restart
+    titles = run_script("Install_REAmo.lua", "Return")
+    assert titles == ["REAmo Install"], f"the installer reported problems: {titles}"
+    # Again, before any restart.
+    titles = run_script("Install_REAmo.lua", "Return")
+    assert titles == ["REAmo Install"], f"the installer reported problems: {titles}"
 
     assert c.command("debug/memoryStats")["success"], "REAPER stopped answering after the install"
     assert open(BINARY, "rb").read() == open(BUILT, "rb").read()
