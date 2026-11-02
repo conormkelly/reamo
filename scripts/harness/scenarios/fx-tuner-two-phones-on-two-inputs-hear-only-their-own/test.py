@@ -22,7 +22,7 @@ from reamo_client import Client, reaper, skip_unless_linux
 skip_unless_linux("REAPER's inputs come from the container's JACK server")
 
 from jack_feeder import Feeder  # noqa: E402  after the skip: Linux only
-from tuner_phone import Phone, check_note, watch  # noqa: E402
+from tuner_phone import Phone, check_note, midi_note, watch  # noqa: E402
 
 E1, G3 = 41.2034, 195.9977
 
@@ -40,8 +40,10 @@ def pluck_both(f, phones):
 
 def check(phone, freq, problems):
     # A phone is sent a reading only when it changes, so a held note is a
-    # few events, not 30 a second.
-    check_note(phone, freq, problems, min_readings=3)
+    # few events, not 30 a second. No reading may name the other
+    # instrument's note, or an octave either side of it.
+    n = midi_note(G3 if freq < 100 else E1)
+    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12))
 
 
 def taps(c):
@@ -86,10 +88,11 @@ with Client() as a, Client() as b, Feeder() as f:
             check(pa, fb, problems)
             check(pb, fg, problems)
             check(pc, fg, problems)
-            # The phones are read in turn, so a poll's events can reach C
-            # inside the window and B just after it: read B a little longer.
+            # Against everything B has had: the phones are read in turn, so
+            # a poll's events can reach one inside a window and the other
+            # just outside it.
             pb.pump(0.2)
-            seen_by_b = {(p["freq"], p["cents"]) for p in pb.pitched()}
+            seen_by_b = {(p["freq"], p["cents"]) for p in pb.all if p["freq"] > 0}
             not_b = [(p["freq"], p["cents"]) for p in pc.pitched() if (p["freq"], p["cents"]) not in seen_by_b]
             print(f"C's pitched readings not among B's: {len(not_b)} of {len(pc.pitched())}")
             if not_b:

@@ -52,7 +52,7 @@ with Client() as c, Feeder() as f:
             watch([phone], 1.5)
             print(f"--- {when}: plucked {freq:.3f} Hz")
             before = len(problems)
-            check_note(phone, freq, problems)
+            check_note(phone, freq, problems, never=(40,))  # nothing of input 1's E2
             missing = [k for k in ("settling", "stable", "multiple", "starting", "state") if k not in phone.since[-1]]
             if missing:
                 problems.append(f"{when}: events lack {missing}")

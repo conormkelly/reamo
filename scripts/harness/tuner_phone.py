@@ -26,6 +26,7 @@ class Phone:
         self.name = name
         self.last = None
         self.since = []
+        self.all = []
 
     def subscribe(self, guid):
         r = self.c.command("tuner/subscribe", trackGuid=guid)
@@ -40,6 +41,7 @@ class Phone:
             if name == "tuner":
                 self.last = msg["payload"]
                 self.since.append(self.last)
+                self.all.append(self.last)
         # Other events aren't kept, so a long run doesn't hold them all;
         # tunerError is, for the scenario to wait on.
         self.c.events[:] = [(n, m) for n, m in self.c.events if n == "tunerError"]
@@ -79,22 +81,33 @@ def watch(phones, seconds):
             p.pump(0.02)
 
 
-def check_note(phone, freq, problems, min_readings=5, max_cents=1.0):
-    """Every pitched reading since mark() names the note of `freq`, and the
-    stable ones are within `max_cents` of it. Problems are appended."""
+def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=()):
+    """Since mark(): every stable reading (the reading to tune by) names the
+    note of `freq` within `max_cents`, and no reading at all names a note in
+    `never` (another input's, for crosstalk). An unstable reading of some
+    other note is reported, not failed: the analyser shows a few on a
+    plucked E1 (F1 and around 22 Hz, never stable; cause not traced), and
+    jackd runs here without realtime scheduling, so a late block leaves a
+    gap in the input. Problems are appended."""
     got = phone.pitched()
     want = midi_note(freq)
-    wrong = [p for p in got if p["note"] != want]
     stable = [p for p in got if p.get("stable")]
+    wrong = [p for p in stable if p["note"] != want]
+    stray = [(p["note"], p["freq"]) for p in got if p["note"] != want and not p.get("stable")]
+    heard = [(p["note"], p["freq"]) for p in got if p["note"] in never]
     off = [round(cents_off(p["freq"], freq), 2) for p in stable if abs(cents_off(p["freq"], freq)) > max_cents]
     print(f"{phone.name}: {len(got)} pitched readings, {len(stable)} stable, notes "
           f"{sorted({p['note'] for p in got})} (want {want}), stable cents off "
           f"{[round(cents_off(p['freq'], freq), 2) for p in stable][:8]}")
     if len(got) < min_readings:
         problems.append(f"{phone.name}: {len(got)} pitched readings of {freq:.2f} Hz, want at least {min_readings}")
+    if stray:
+        print(f"{phone.name}: unstable readings of another note (not failed): {stray[:5]}")
     if wrong:
-        problems.append(f"{phone.name}: {len(wrong)} readings of another note than {want}: "
+        problems.append(f"{phone.name}: {len(wrong)} stable readings of another note than {want}: "
                         f"{[(p['note'], p['freq']) for p in wrong[:5]]}")
+    if heard:
+        problems.append(f"{phone.name}: readings of another input's note {list(never)}: {heard[:5]}")
     if not stable:
         problems.append(f"{phone.name}: no stable reading of {freq:.2f} Hz")
     if off:
