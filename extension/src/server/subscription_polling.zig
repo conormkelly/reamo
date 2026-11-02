@@ -291,8 +291,7 @@ fn tunerErrorJson(comptime code: []const u8) []const u8 {
 /// Poll tuner subscriptions and broadcast pitch detection data.
 /// Per-client single-track subscriptions with auto-unsubscribe on failure.
 /// The master tuner, and a track tuner on its input, send the latest reading
-/// their analysis thread published, with what the tuner can hear (`state`);
-/// a track tuner on a JSFX sends the JSFX's slider values.
+/// their analysis thread published, with what the tuner can hear (`state`).
 pub fn pollTunerSubscriptions(
     ctx: *const PollingContext,
     tuner_subs: *tuner_subscriptions.TunerSubscriptions,
@@ -307,73 +306,23 @@ pub fn pollTunerSubscriptions(
     var iter = tuner_subs.activeSubscriptions();
     while (iter.next()) |entry| {
         const scratch = ctx.scratchAllocator();
-
-        if (tuner_subscriptions.isMaster(entry.track_guid) or tuner_subs.track_source == .input) {
-            switch (tuner_generator.analyserEvent(scratch, tuner_subs, entry.slot, ctx.guid_cache_ptr, ctx.backend, device_open)) {
-                .gone => {
-                    // Auto-unsubscribe after 3 failures (~100 ms at 30 Hz), as
-                    // a track tuner on a JSFX does: the track was deleted, or
-                    // the user switched project tabs.
-                    if (tuner_subs.recordFailure(entry.client_id)) {
-                        logging.warn("tuner: auto-unsubscribing client {d}: its track is gone", .{entry.client_id});
-                        ctx.shared_state.sendToClient(entry.client_id, comptime tunerErrorJson("TUNER_NOT_FOUND"));
-                        tuner_subs.unsubscribe(entry.client_id, ctx.backend);
-                    }
-                },
-                .event => |json| {
-                    tuner_subs.resetFailures(entry.client_id);
-                    if (tuner_subs.checkChanged(entry.slot, tuner_generator.hashTunerEvent(json))) {
-                        ctx.shared_state.sendToClient(entry.client_id, json);
-                    }
-                },
-                .none => {},
-            }
-            continue;
-        }
-
-        // Get the track tuner for this subscription
-        const tuner = tuner_subs.getTrackTuner(entry.track_guid) orelse {
-            // Track tuner not found - increment failure count
-            if (tuner_subs.recordFailure(entry.client_id)) {
-                // Auto-unsubscribe after 3 failures (~100ms at 30Hz): long
-                // enough for an undo that restores the FX to land without an
-                // error, short enough not to leave a dead modal open.
-                logging.warn("tuner: auto-unsubscribing client {d} after repeated failures", .{entry.client_id});
-                ctx.shared_state.sendToClient(entry.client_id, comptime tunerErrorJson("TUNER_NOT_FOUND"));
-                tuner_subs.unsubscribe(entry.client_id, ctx.backend);
-            }
-            continue;
-        };
-
-        // Generate tuner event JSON
-        // Pass FX GUID so generator can find current position (handles user reordering)
-        // All values (including settings) read directly from JSFX for bidirectional sync
-        if (tuner_generator.generateTunerEvent(
-            scratch,
-            ctx.backend,
-            ctx.guid_cache_ptr,
-            entry.track_guid,
-            tuner.getFxGuid(),
-        )) |json| {
-            // Check if changed using hash
-            const data_hash = tuner_generator.hashTunerEvent(json);
-            const hash_changed = tuner_subs.checkChanged(entry.slot, data_hash);
-
-            if (hash_changed) {
-                ctx.shared_state.sendToClient(entry.client_id, json);
-            }
-            // Reset failure count on successful generation
-            tuner_subs.resetFailures(entry.client_id);
-        } else {
-            // Generation failed - increment failure count
-            if (tuner_subs.recordFailure(entry.client_id)) {
-                // Auto-unsubscribe after 3 failures
-                logging.warn("tuner: auto-unsubscribing client {d} after repeated generation failures", .{entry.client_id});
-
-                ctx.shared_state.sendToClient(entry.client_id, comptime tunerErrorJson("GENERATION_FAILED"));
-
-                tuner_subs.unsubscribe(entry.client_id, ctx.backend);
-            }
+        switch (tuner_generator.analyserEvent(scratch, tuner_subs, entry.slot, ctx.guid_cache_ptr, ctx.backend, device_open)) {
+            .gone => {
+                // Auto-unsubscribe after 3 failures (~100 ms at 30 Hz): the
+                // track was deleted, or the user switched project tabs.
+                if (tuner_subs.recordFailure(entry.client_id)) {
+                    logging.warn("tuner: auto-unsubscribing client {d}: its track is gone", .{entry.client_id});
+                    ctx.shared_state.sendToClient(entry.client_id, comptime tunerErrorJson("TUNER_NOT_FOUND"));
+                    tuner_subs.unsubscribe(entry.client_id, ctx.backend);
+                }
+            },
+            .event => |json| {
+                tuner_subs.resetFailures(entry.client_id);
+                if (tuner_subs.checkChanged(entry.slot, tuner_generator.hashTunerEvent(json))) {
+                    ctx.shared_state.sendToClient(entry.client_id, json);
+                }
+            },
+            .none => {},
         }
     }
 }
