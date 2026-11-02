@@ -304,7 +304,7 @@ fn doInitialization() !void {
     g_trackfxparam_subs = trackfxparam_subs;
     commands.g_ctx.trackfxparam_subs = trackfxparam_subs;
 
-    // Create tuner subscriptions state (chromatic tuner via JSFX)
+    // Create tuner subscriptions state (chromatic tuner on the audio hook)
     const tuner_subs = try g_allocator.create(tuner_subscriptions.TunerSubscriptions);
     tuner_subs.* = tuner_subscriptions.TunerSubscriptions.init(g_allocator);
     g_tuner_subs = tuner_subs;
@@ -851,7 +851,7 @@ fn doProcessing() !void {
             try subscription_polling.pollTrackFxParamSubscriptions(&poll_ctx, trackfxparam_subs);
         }
 
-        // Poll tuner subscriptions (chromatic tuner via JSFX)
+        // Poll tuner subscriptions (chromatic tuner on the audio hook)
         if (g_tuner_subs) |tuner_subs| {
             try subscription_polling.pollTunerSubscriptions(&poll_ctx, tuner_subs);
         }
@@ -1087,7 +1087,7 @@ fn shutdown() void {
     if (g_tuner_subs) |subs| {
         logging.debug("cleaning up tuner subscriptions", .{});
         commands.g_ctx.tuner_subs = null;
-        // Remove all clients (cleans up JSFXs)
+        // Remove all clients (stops the tuners, lets go of the audio hook)
         if (g_api) |*api| {
             var backend = reaper.RealBackend{ .inner = api };
             subs.removeAllClients(&backend);

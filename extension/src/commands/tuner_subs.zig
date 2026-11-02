@@ -1,10 +1,11 @@
 /// Tuner subscription command handlers.
 ///
 /// Commands:
-/// - tuner/subscribe: Subscribe to tuner on a track (inserts JSFX if first
-///   subscriber) or on the master (opens the native analyser if first)
-/// - tuner/unsubscribe: Unsubscribe from tuner (removes JSFX or closes the
-///   analyser if last subscriber)
+/// - tuner/subscribe: Subscribe to tuner on a track (the native analyser on
+///   the track's hardware input, opened by the first phone on that input) or
+///   on the master (the analyser on the post-master output)
+/// - tuner/unsubscribe: Unsubscribe from tuner (the last phone on a source
+///   closes its analyser)
 /// - tuner/setParam: Set tuner parameter (reference Hz or threshold dB)
 ///
 /// Single track per client - subscribing auto-unsubscribes from previous track.
@@ -22,22 +23,30 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 /// Response:
 /// { "type": "response", "id": "1", "success": true, "payload": {
 ///     "trackGuid": "{AAA...}",
-///     "fxGuid": "{BBB...}",
+///     "fxGuid": "",
 ///     "trackName": "Guitar",
 ///     "reference": 440.0,
-///     "threshold": -60.0
+///     "threshold": -90.0
 /// }}
 ///
-/// With "trackGuid": "master", fxGuid is "" (no plugin is inserted) and
-/// threshold is the analyser's default, -90. Its events add settling,
-/// stable, multiple and starting (a new note's name is held back for its
-/// first ~0.1 s) to the fields a track tuner's carry. The master tuner hears the
-/// device's hardware outputs 1/2, post master fader and mute
+/// fxGuid is "": no plugin is inserted. A track tuner reads the hardware
+/// input the track's record input names, armed or not
+/// (subscriptions/input_tuners.zig); phones on tracks on the same input
+/// share its analyser and settings. A track whose record input can't be
+/// tuned is refused with INPUT_NONE, INPUT_MIDI, INPUT_NOT_ON_DEVICE or
+/// INPUT_NOT_SUPPORTED (ReaRoute, loopback, multichannel), each with a
+/// message for the phone to show. The master ("master") hears the device's
+/// hardware outputs 1/2, post master fader and mute
 /// (subscriptions/master_tuner.zig): a muted or faded-down master reads as
 /// silence.
 ///
 /// After subscribing, the client receives "tuner" events at 30Hz
-/// containing pitch detection data.
+/// containing pitch detection data, with settling, stable, multiple and
+/// starting (a new note's name is held back for its first ~0.1 s), and
+/// state: "listening", "deviceClosed" (REAPER has closed the audio device
+/// while stopped: no audio until it reopens), or "cantTune" with code and
+/// message, when a track's record input changes to one that can't be tuned
+/// (the phone stays on the track, and tuning resumes when it can).
 pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
     const subs = mod.g_ctx.tuner_subs orelse {
         response.err("NOT_INITIALIZED", "Tuner subscriptions not initialized");
@@ -67,10 +76,15 @@ pub fn handleSubscribe(api: anytype, cmd: protocol.CommandMessage, response: *mo
             },
             error.TooManyTuners => response.err("TOO_MANY_TUNERS", "Maximum tuner track limit reached"),
             error.OutOfMemory => response.err("OUT_OF_MEMORY", "Not enough memory for the tuner"),
-            error.ThreadFailed => response.err("THREAD_FAILED", "Couldn't start the master tuner's thread"),
+            error.ThreadFailed => response.err("THREAD_FAILED", "Couldn't start the tuner's thread"),
             error.AudioHookFailed => {
-                logging.warn("tuner: REAPER refused the audio hook the master tuner reads", .{});
-                response.err("AUDIO_HOOK_FAILED", "REAPER refused the audio hook the master tuner reads");
+                logging.warn("tuner: REAPER refused the audio hook the tuner reads", .{});
+                response.err("AUDIO_HOOK_FAILED", "REAPER refused the audio hook the tuner reads");
+            },
+            error.InputNone, error.InputMidi, error.InputNotOnDevice, error.InputReaRoute, error.InputMultichannel => {
+                const why = tuner_subscriptions.cantTuneOf(err).?;
+                logging.debug("tuner: track {f} can't be tuned: {s}", .{ logging.untrusted(track_guid), why.code() });
+                response.err(why.code(), why.message());
             },
         }
         return;

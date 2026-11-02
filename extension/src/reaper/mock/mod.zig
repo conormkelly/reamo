@@ -216,6 +216,9 @@ pub const MockBackend = struct {
     audio_hook_unregisters: u32 = 0,
     /// Make registerAudioHook fail, as a REAPER without the API would.
     audio_hook_refuse: bool = false,
+    /// Whether the audio device is open; false as when REAPER closes it
+    /// while stopped.
+    audio_running: bool = true,
 
     pub fn registerAudioHook(self: *MockBackend, reg: *raw.AudioHookRegister) bool {
         if (self.audio_hook_refuse) return false;
@@ -227,6 +230,10 @@ pub const MockBackend = struct {
     pub fn unregisterAudioHook(self: *MockBackend, reg: *raw.AudioHookRegister) void {
         if (self.audio_hook == reg) self.audio_hook = null;
         self.audio_hook_unregisters += 1;
+    }
+
+    pub fn isAudioRunning(self: *const MockBackend) bool {
+        return self.audio_running;
     }
 
     // =========================================================================

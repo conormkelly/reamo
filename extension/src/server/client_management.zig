@@ -159,7 +159,7 @@ pub fn cleanupDisconnectedClients(ctx: *const ClientContext) void {
         if (ctx.routing_subs) |subs| subs.removeClient(client_id);
         if (ctx.trackfx_subs) |subs| subs.removeClient(client_id);
         if (ctx.trackfxparam_subs) |subs| subs.removeClient(client_id);
-        // Tuner subscriptions need API backend for JSFX cleanup
+        // Tuner subscriptions need the API backend to let go of the audio hook
         if (ctx.tuner_subs) |subs| {
             var backend = reaper.RealBackend{ .inner = ctx.api };
             subs.removeClient(client_id, &backend);

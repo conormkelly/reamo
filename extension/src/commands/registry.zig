@@ -290,7 +290,7 @@ pub const all = .{
     // Track FX Parameter Control (set param values)
     .{ "trackFxParams/set", trackfxparam.handleSetParam },
 
-    // Tuner Subscriptions (chromatic tuner via JSFX)
+    // Tuner Subscriptions (chromatic tuner: track inputs and the master, on the audio hook)
     .{ "tuner/subscribe", tuner_subs.handleSubscribe },
     .{ "tuner/unsubscribe", tuner_subs.handleUnsubscribe },
     .{ "tuner/setParam", tuner_subs.handleSetParam },
