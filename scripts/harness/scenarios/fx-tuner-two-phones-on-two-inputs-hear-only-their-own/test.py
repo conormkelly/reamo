@@ -86,6 +86,9 @@ with Client() as a, Client() as b, Feeder() as f:
             check(pa, fb, problems)
             check(pb, fg, problems)
             check(pc, fg, problems)
+            # The phones are read in turn, so a poll's events can reach C
+            # inside the window and B just after it: read B a little longer.
+            pb.pump(0.2)
             seen_by_b = {(p["freq"], p["cents"]) for p in pb.pitched()}
             not_b = [(p["freq"], p["cents"]) for p in pc.pitched() if (p["freq"], p["cents"]) not in seen_by_b]
             print(f"C's pitched readings not among B's: {len(not_b)} of {len(pc.pitched())}")
