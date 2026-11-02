@@ -161,15 +161,33 @@ REAPER_HOME = "/tmp/reaper"
 FIXTURE_READY = "/tmp/harness_fixture_ready"
 
 
+def _set_ini(path, values):
+    """Set `values` in the [REAPER] section of the ini file at `path`,
+    replacing any line already there for a name."""
+    with open(path) as f:
+        lines = f.read().splitlines()
+    start = lines.index("[REAPER]") + 1
+    end = next((i for i in range(start, len(lines)) if lines[i].startswith("[")), len(lines))
+    names = {f"{k}=" for k in values}
+    kept = [line for line in lines[start:end] if not any(line.startswith(n) for n in names)]
+    lines[start:end] = [f"{k}={v}" for k, v in values.items()] + kept
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def _reaper_running():
     return subprocess.run(["pgrep", "-x", "reaper"], capture_output=True).returncode == 0
 
 
-def restart_reaper(timeout=30.0):
+def restart_reaper(timeout=30.0, ini=None):
     """Quit REAPER as a user does (File: Quit REAPER) and start it again the
     way boot.sh did. Returns once the fixture has run again and REAmo's
     server accepts connections. The new run has a new session token.
-    Linux container only."""
+    Linux container only.
+
+    `ini` ({name: value}) sets preferences in reaper.ini's [REAPER] section
+    while REAPER is down (REAPER writes the file as it quits, so a change
+    made while it runs would be lost), e.g. {"audioclosestop": 1}."""
     global _rpc_ids
     if WINDOWS:
         raise RuntimeError("restart_reaper runs in the Linux container only")
@@ -180,6 +198,8 @@ def restart_reaper(timeout=30.0):
             screenshot("quit-timeout")
             raise TimeoutError(f"REAPER did not quit within {timeout} s; windows: {windows()}")
         time.sleep(0.1)
+    if ini:
+        _set_ini(os.path.join(REAPER_HOME, "reaper.ini"), ini)
 
     # The new REAPER's harness.lua serves RPC chunks from number 1 again.
     os.remove(FIXTURE_READY)

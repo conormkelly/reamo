@@ -296,6 +296,9 @@ token. Linux only.
 - It needs a clean project: a dirty one raises the save prompt, and the quit times out.
 - The restarted REAPER isn't under gdb, even with `HARNESS_GDB=1`.
 - The scenario's `startup.lua` runs again in the new REAPER.
+- `restart_reaper(ini={"audioclosestop": 1})` sets preferences in
+  `reaper.ini` while REAPER is down (it writes the file as it quits, so a
+  change made while it runs is lost).
 
 ### Every supported REAPER
 
