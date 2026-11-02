@@ -35,9 +35,9 @@ import {
 export interface UseTunerReturn {
   /**
    * Subscribe to the tuner on a track or the master. Once REAPER confirms,
-   * sends the settings saved on this phone that differ from the tuner's;
-   * if REAPER refuses (a track whose record input can't be tuned), keeps
-   * why in `problem`.
+   * sends the settings saved on this phone that differ from the tuner's.
+   * If REAPER refuses a track whose record input can't be tuned, keeps why
+   * in `problem` and sends every saved setting, for when it can be.
    */
   subscribe: (trackGuid: string) => Promise<void>;
   /** Unsubscribe from the tuner. */
@@ -116,20 +116,24 @@ export function useTuner(): UseTunerReturn {
         return; // not connected, or no answer: the page re-subscribes on reconnect
       }
       if (useReaperStore.getState().tunerSubscribedGuid !== trackGuid) return;
-      if (!response?.success) {
+      let current: { referenceHz: number; thresholdDb: number };
+      if (response?.success) {
+        const reported = response.payload;
+        if (typeof reported?.reference !== 'number' || typeof reported?.threshold !== 'number') return;
+        current = { referenceHz: reported.reference, thresholdDb: reported.threshold };
+      } else {
         const code = response?.error?.code;
         const message = response?.error?.message;
         if (code && message) setTunerProblem({ code, message });
-        return;
+        // Refused for its record input (INPUT_*), the phone still follows the
+        // track, and REAPER keeps its settings for when the input can be
+        // tuned: send every saved one, as REAPER says none of its own.
+        if (!code?.startsWith('INPUT_')) return;
+        current = { referenceHz: NaN, thresholdDb: NaN };
       }
-      const reported = response.payload;
-      if (typeof reported?.reference !== 'number' || typeof reported?.threshold !== 'number') return;
 
       // 3. The saved settings that differ from the tuner's
-      for (const [param, value] of savedSettingsToSend(tunerKind(trackGuid), {
-        referenceHz: reported.reference,
-        thresholdDb: reported.threshold,
-      })) {
+      for (const [param, value] of savedSettingsToSend(tunerKind(trackGuid), current)) {
         if (param === 'reference') setTunerReferenceHz(value);
         else setTunerThresholdDb(value);
         sendCommand(tuner.setParam(trackGuid, param, value));

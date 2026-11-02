@@ -11,6 +11,9 @@ REAPER runs on JACK with 2 inputs. tuner/subscribe on each track refuses:
   REAPER keeps those values on this device (they are read back first).
 Each refusal has a message, opens no input tap and adds no FX.
 
+A phone refused on "No input" still follows it: a reference it sends
+then (as a page sends its saved A4) holds once the track is given input 1.
+
 Then Guitar (input 2) is tuned and its record input changed in REAPER
 while it is: to None, the phone's events say cantTune with INPUT_NONE;
 to input 5, INPUT_NOT_ON_DEVICE; back to input 2, listening, and a pluck
@@ -73,6 +76,24 @@ with Client() as c, Feeder() as f:
             problems.append(f"{t['n']}: an input tap opened for a refused track")
     if reaper(FX) != 0:
         problems.append("a refused subscribe added an FX")
+
+    # A phone refused for the track's input still follows it, and a setting
+    # it sends then (as a page sends its saved A4) holds once the user gives
+    # the track an input.
+    none_idx = next(i for i, t in enumerate(tracks) if t["n"] == "No input")
+    follower = Phone(c, "No input's phone")
+    r = follower.subscribe(tracks[none_idx]["g"])
+    assert not r["success"] and r["error"]["code"] == "INPUT_NONE", r
+    r = c.command("tuner/setParam", trackGuid=tracks[none_idx]["g"], param="reference", value=442.0)
+    if not r["success"]:
+        problems.append(f"setParam on a refused, followed track: {r}")
+    follower.wait_state("cantTune", code="INPUT_NONE")
+    set_input(none_idx, 0)
+    p = follower.wait_state("listening")
+    print("No input given input 1:", p["state"], p["referenceHz"])
+    if p["referenceHz"] != 442.0:
+        problems.append(f"the 442 Hz sent while refused didn't hold once the input was set: {p['referenceHz']}")
+    set_input(none_idx, -1)
 
     gtr_idx = next(i for i, t in enumerate(tracks) if t["n"] == "Guitar")
     phone = Phone(c, "Guitar's phone")

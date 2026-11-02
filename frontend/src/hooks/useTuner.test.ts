@@ -125,6 +125,34 @@ describe('useTuner', () => {
     expect(localStorage.getItem('tuner-threshold')).toBeNull();
   });
 
+  it("sends the saved settings after a refusal for the track's input, which the phone still follows", async () => {
+    localStorage.setItem('tuner-reference', '442');
+    localStorage.setItem('tuner-threshold-track', '-70');
+    const respond = pendingSubscribe();
+    const { result } = renderHook(() => useTuner());
+    act(() => {
+      void result.current.subscribe(TRACK);
+    });
+    await respond({ success: false, error: { code: 'INPUT_NONE', message: 'No record input.' } });
+    // Tuning starts at 442 once the user gives the track an input.
+    expect(setParams()).toEqual([
+      ['reference', 442],
+      ['threshold', -70],
+    ]);
+    expect(useReaperStore.getState().tunerReferenceHz).toBe(442);
+  });
+
+  it('sends nothing after a refusal that leaves the phone on no tuner', async () => {
+    localStorage.setItem('tuner-reference', '442');
+    const respond = pendingSubscribe();
+    const { result } = renderHook(() => useTuner());
+    act(() => {
+      void result.current.subscribe(TRACK);
+    });
+    await respond({ success: false, error: { code: 'TRACK_NOT_FOUND', message: 'Track GUID not found in cache' } });
+    expect(setParams()).toEqual([]);
+  });
+
   it("keeps a refusal's code and message for the screen to show", async () => {
     const respond = pendingSubscribe();
     const { result } = renderHook(() => useTuner());
