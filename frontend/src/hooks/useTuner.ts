@@ -42,9 +42,9 @@ export interface UseTunerReturn {
   subscribe: (trackGuid: string) => Promise<void>;
   /** Unsubscribe from the tuner. */
   unsubscribe: () => void;
-  /** Whether currently subscribed to a track's tuner */
+  /** Whether currently subscribed to a tuner */
   isSubscribed: boolean;
-  /** GUID of the currently subscribed track (null if not subscribed) */
+  /** GUID of the subscribed track, "master" for the master output (null if not subscribed) */
   subscribedGuid: string | null;
   /** Current tuner data */
   freq: number;
@@ -53,7 +53,13 @@ export interface UseTunerReturn {
   octave: number;
   cents: number;
   conf: number;
+  /** The backend's in-tune window; show it as in tune only when `stable` too */
   inTune: boolean;
+  /** The analyser's flags for the reading (tunerSlice.ts) */
+  starting: boolean;
+  settling: boolean;
+  stable: boolean;
+  multiple: boolean;
   /** What the tuner can hear (null before the first event) */
   state: TunerState | null;
   /** Why the chosen track can't be tuned, for the screen to show */
@@ -84,6 +90,10 @@ export function useTuner(): UseTunerReturn {
   const cents = useReaperStore((s) => s.tunerCents);
   const conf = useReaperStore((s) => s.tunerConf);
   const inTune = useReaperStore((s) => s.tunerInTune);
+  const starting = useReaperStore((s) => s.tunerStarting);
+  const settling = useReaperStore((s) => s.tunerSettling);
+  const stable = useReaperStore((s) => s.tunerStable);
+  const multiple = useReaperStore((s) => s.tunerMultiple);
   const state = useReaperStore((s) => s.tunerState);
   const problem = useReaperStore((s) => s.tunerProblem);
   const referenceHz = useReaperStore((s) => s.tunerReferenceHz);
@@ -193,6 +203,10 @@ export function useTuner(): UseTunerReturn {
     cents,
     conf,
     inTune,
+    starting,
+    settling,
+    stable,
+    multiple,
     state,
     problem,
     referenceHz,

@@ -27,6 +27,11 @@ function event(overrides: Partial<TunerEventPayload> = {}): TunerEventPayload {
   };
 }
 
+function flags() {
+  const t = useReaperStore.getState();
+  return { starting: t.tunerStarting, settling: t.tunerSettling, stable: t.tunerStable, multiple: t.tunerMultiple };
+}
+
 describe('tunerSlice', () => {
   beforeEach(() => {
     useReaperStore.getState().clearTunerSubscription();
@@ -60,6 +65,41 @@ describe('tunerSlice', () => {
   it('ignores events for a tuner the phone has left', () => {
     useReaperStore.getState().handleTunerEvent(event({ trackGuid: '{OTHER}', state: 'deviceClosed' }));
     expect(useReaperStore.getState().tunerState).toBeNull();
+  });
+
+  it("carries the analyser's starting, settling, stable and multiple flags of each reading", () => {
+    const s = useReaperStore.getState();
+    s.handleTunerEvent(event({ starting: true }));
+    expect(flags()).toEqual({ starting: true, settling: false, stable: false, multiple: false });
+    s.handleTunerEvent(event({ freq: 82.4, note: 40, noteName: 'E', octave: 2, settling: true, multiple: true }));
+    expect(flags()).toEqual({ starting: false, settling: true, stable: false, multiple: true });
+    s.handleTunerEvent(event({ freq: 82.4, note: 40, noteName: 'E', octave: 2, stable: true }));
+    expect(flags()).toEqual({ starting: false, settling: false, stable: true, multiple: false });
+  });
+
+  it('takes a reading without flags as never stable, so it is never shown in tune', () => {
+    const s = useReaperStore.getState();
+    s.handleTunerEvent(event({ freq: 440, note: 69, noteName: 'A', octave: 4, inTune: true, stable: true }));
+    const { settling: _a, stable: _b, multiple: _c, starting: _d, ...noFlags } = event({
+      freq: 440, note: 69, noteName: 'A', octave: 4, inTune: true,
+    });
+    s.handleTunerEvent(noFlags);
+    expect(flags()).toEqual({ starting: false, settling: false, stable: false, multiple: false });
+  });
+
+  it('forgets the flags when the subscription changes or ends, so another source never inherits stable', () => {
+    const s = useReaperStore.getState();
+    const stableA = event({ freq: 440, note: 69, noteName: 'A', octave: 4, inTune: true, stable: true, multiple: true });
+    s.handleTunerEvent(stableA);
+    s.setTunerSubscription('master');
+    expect(flags()).toEqual({ starting: false, settling: false, stable: false, multiple: false });
+    s.handleTunerEvent({ ...stableA, trackGuid: 'master' });
+    s.clearTunerSubscription();
+    expect(flags()).toEqual({ starting: false, settling: false, stable: false, multiple: false });
+    s.setTunerSubscription(TRACK);
+    s.handleTunerEvent(stableA);
+    s.handleTunerError('TUNER_NOT_FOUND');
+    expect(flags()).toEqual({ starting: false, settling: false, stable: false, multiple: false });
   });
 
   it('forgets the state and any problem when the subscription changes or ends', () => {
