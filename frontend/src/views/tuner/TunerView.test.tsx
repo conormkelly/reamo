@@ -210,4 +210,50 @@ describe('TunerView', () => {
       expect(note().textContent).toContain('F');
     });
   });
+
+  describe('source sheet', () => {
+    it("keeps the saved track while the track list hasn't arrived", async () => {
+      localStorage.setItem('tuner-track', GUITAR);
+      useReaperStore.setState({ trackSkeleton: [] });
+      sendCommandAsync.mockResolvedValue({ success: true, payload: { reference: 440, threshold: -90 } });
+      render(<TunerView />);
+      await act(async () => {});
+      expect(subscribes()).toEqual([GUITAR]);
+      expect(localStorage.getItem('tuner-track')).toBe(GUITAR);
+    });
+
+    it('offers the master output first, then every track, and tunes the master when chosen', async () => {
+      sendCommandAsync.mockResolvedValue({ success: true, payload: { reference: 440, threshold: -90 } });
+      render(<TunerView />);
+      await act(async () => {});
+      fireEvent.click(screen.getByRole('button', { name: /Keys/ }));
+      const sheet = screen.getByRole('dialog');
+      const options = Array.from(sheet.querySelectorAll('button')).map((b) => b.textContent);
+      expect(options[0]).toContain('Master output');
+      expect(options.slice(1).map((t) => t?.replace('✓', ''))).toEqual(['Keys', 'Guitar']);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Master output/ }));
+      });
+      expect(subscribes()).toEqual([KEYS, 'master']);
+      const header = screen.getAllByRole('button').find((b) => b.getAttribute('aria-haspopup') === 'dialog');
+      expect(header?.textContent).toContain('Master output');
+      expect(localStorage.getItem('tuner-track')).toBe('master');
+    });
+
+    it('opens on the master output when that was the last choice', async () => {
+      localStorage.setItem('tuner-track', 'master');
+      sendCommandAsync.mockResolvedValue({ success: true, payload: { reference: 440, threshold: -90 } });
+      render(<TunerView />);
+      await act(async () => {});
+      expect(subscribes()).toEqual(['master']);
+    });
+
+    it('tunes the master output when the project has no tracks', async () => {
+      useReaperStore.setState({ trackSkeleton: [track('master', 'MASTER', false)] });
+      sendCommandAsync.mockResolvedValue({ success: true, payload: { reference: 440, threshold: -90 } });
+      render(<TunerView />);
+      await act(async () => {});
+      expect(subscribes()).toEqual(['master']);
+    });
+  });
 });

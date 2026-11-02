@@ -1,15 +1,16 @@
 /**
  * TunerView - Chromatic tuner for instrument tuning
  *
- * Subscribes to the tuner on a track (REAPER reads the hardware input the
- * track records from, armed or not). Shows:
+ * Tunes one source at a time: the master output, or a track (REAPER reads
+ * the hardware input the track records from, armed or not). Shows:
  * - Note name and octave (large display)
  * - Cents deviation meter (-50 to +50)
  * - Frequency, or what stands in for it: why the track's input can't be
  *   tuned (REAPER's own message), that REAPER's audio device isn't
  *   running, that several notes sound, or that a note is starting
- * - Track selector (defaults to the first track); choosing the track
- *   already chosen asks REAPER again, after the user has fixed its input
+ * - Source selector: the master output, then the tracks (defaults to the
+ *   first track). Choosing the source already chosen asks REAPER again,
+ *   after the user has fixed its input.
  *
  * The analyser's flags decide what shows (tunerDisplay.ts): green only for
  * a stable reading in the in-tune window.
@@ -30,7 +31,11 @@ import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
 import { holdNote, tunerDisplay, type HeldNote } from './tunerDisplay';
 
-// Load selected track GUID from localStorage
+/** The GUID the master output is tuned by (and its entry in the track skeleton). */
+const MASTER = 'master';
+const MASTER_LABEL = 'Master output';
+
+// Load the chosen source's GUID from localStorage
 function loadSelectedTrack(): string | null {
   try {
     return localStorage.getItem('tuner-track') || null;
@@ -39,7 +44,7 @@ function loadSelectedTrack(): string | null {
   }
 }
 
-// Save selected track GUID to localStorage
+// Save the chosen source's GUID to localStorage
 function saveSelectedTrack(guid: string | null): void {
   try {
     if (guid) {
@@ -50,6 +55,10 @@ function saveSelectedTrack(guid: string | null): void {
   } catch {
     // Ignore quota exceeded errors
   }
+}
+
+function trackLabel(guid: string, name: string): string {
+  return name || `Track ${guid.slice(1, 8)}`;
 }
 
 export function TunerView(): ReactElement {
@@ -75,7 +84,7 @@ export function TunerView(): ReactElement {
     setThresholdDb,
   } = useTuner();
 
-  // Track selection state - initialize from localStorage to survive orientation changes
+  // Source selection state - initialize from localStorage to survive orientation changes
   const [selectedTrackGuid, setSelectedTrackGuid] = useState<string | null>(() => loadSelectedTrack());
   const [showTrackSelector, setShowTrackSelector] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -99,32 +108,37 @@ export function TunerView(): ReactElement {
     deviceClosed: state === 'deviceClosed',
   });
 
-  // Get track skeleton for track selection
+  // The track skeleton always holds the master once it has arrived
   const tracks = useReaperStore((s) => s.trackSkeleton ?? EMPTY_SKELETON);
+  const skeletonLoaded = tracks.length > 0;
 
-  // Filter to non-master tracks
-  const trackList = tracks.filter((t) => t.g !== 'master');
+  // The tracks; the master is offered apart, first, as the master output
+  const trackList = tracks.filter((t) => t.g !== MASTER);
 
-  // Get track name for current selection
+  // Name of the current selection
   const selectedTrack = trackList.find((t) => t.g === selectedTrackGuid);
-  const trackName = selectedTrack?.n || 'Select Track';
+  const sourceName =
+    selectedTrackGuid === MASTER
+      ? MASTER_LABEL
+      : selectedTrack
+        ? trackLabel(selectedTrack.g, selectedTrack.n)
+        : 'Select source';
 
-  // Auto-select track on mount (prefer saved track, then first track)
+  // Choose a source: the saved one while it is still there, else the first
+  // track, else the master output. Waits for the track list, so a saved
+  // track isn't taken for gone before the list arrives.
   useEffect(() => {
-    if (trackList.length === 0) return;
-
-    // Check if current selection is still valid
-    const currentValid = selectedTrackGuid && trackList.some((t) => t.g === selectedTrackGuid);
+    if (!skeletonLoaded) return;
+    const currentValid =
+      selectedTrackGuid === MASTER || (selectedTrackGuid !== null && trackList.some((t) => t.g === selectedTrackGuid));
     if (currentValid) return;
 
-    const defaultTrack = trackList[0]?.g ?? null;
-    if (defaultTrack) {
-      setSelectedTrackGuid(defaultTrack);
-      saveSelectedTrack(defaultTrack);
-    }
-  }, [selectedTrackGuid, trackList]);
+    const fallback = trackList[0]?.g ?? MASTER;
+    setSelectedTrackGuid(fallback);
+    saveSelectedTrack(fallback);
+  }, [selectedTrackGuid, trackList, skeletonLoaded]);
 
-  // Subscribe/unsubscribe when selected track changes
+  // Subscribe/unsubscribe when the chosen source changes
   useEffect(() => {
     if (!selectedTrackGuid) return;
 
@@ -135,7 +149,7 @@ export function TunerView(): ReactElement {
     };
   }, [selectedTrackGuid, subscribe, unsubscribe]);
 
-  // Handle track selection. The track already chosen is asked for again:
+  // Handle source selection. The source already chosen is asked for again:
   // REAPER may have refused it, and the user fixed its input since.
   const handleTrackSelect = useCallback(
     (guid: string) => {
@@ -175,12 +189,13 @@ export function TunerView(): ReactElement {
       header={
         <div className="p-3">
           <ViewHeader currentView="tuner">
-            {/* Track selector button */}
+            {/* Source selector button */}
             <button
               onClick={() => setShowTrackSelector(true)}
+              aria-haspopup="dialog"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-elevated hover:bg-bg-hover transition-colors text-sm font-medium"
             >
-              <span className="truncate max-w-[120px]">{trackName}</span>
+              <span className="truncate max-w-[140px]">{sourceName}</span>
               <ChevronDown size={16} className="text-text-tertiary shrink-0" />
             </button>
           </ViewHeader>
@@ -218,38 +233,59 @@ export function TunerView(): ReactElement {
         </div>
       </div>
 
-      {/* Track selector bottom sheet */}
-      <BottomSheet
-        isOpen={showTrackSelector}
-        onClose={() => setShowTrackSelector(false)}
-        ariaLabel="Select Track"
-      >
-        <h2 className="text-lg font-semibold text-text-primary px-4 pb-3">Select Track</h2>
+      {/* Source selector bottom sheet */}
+      <BottomSheet isOpen={showTrackSelector} onClose={() => setShowTrackSelector(false)} ariaLabel="Tune">
+        <h2 className="text-lg font-semibold text-text-primary px-4 pb-3">Tune</h2>
         <div className="max-h-[60dvh] overflow-y-auto">
-          {trackList.length === 0 ? (
-            <p className="text-center text-text-tertiary py-8">No tracks available</p>
-          ) : (
-            <div className="flex flex-col">
-              {trackList.map((track) => (
-                <button
+          <div className="flex flex-col">
+            <SourceOption
+              label={MASTER_LABEL}
+              selected={selectedTrackGuid === MASTER}
+              onSelect={() => handleTrackSelect(MASTER)}
+            />
+            <div className="mx-4 my-1 border-t border-border-muted" role="separator" />
+            {trackList.length === 0 ? (
+              <p className="text-center text-text-tertiary py-6">No tracks</p>
+            ) : (
+              trackList.map((track) => (
+                <SourceOption
                   key={track.g}
-                  onClick={() => handleTrackSelect(track.g)}
-                  className={`flex items-center justify-between px-4 py-3 hover:bg-bg-hover transition-colors ${
-                    track.g === selectedTrackGuid ? 'bg-bg-elevated' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="truncate">{track.n || `Track ${track.g.slice(1, 8)}`}</span>
-                  </div>
-                  {track.g === selectedTrackGuid && (
-                    <span className="text-primary">✓</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+                  label={trackLabel(track.g, track.n)}
+                  selected={track.g === selectedTrackGuid}
+                  onSelect={() => handleTrackSelect(track.g)}
+                />
+              ))
+            )}
+          </div>
         </div>
       </BottomSheet>
     </ViewLayout>
+  );
+}
+
+function SourceOption({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}): ReactElement {
+  return (
+    <button
+      onClick={onSelect}
+      aria-current={selected ? 'true' : undefined}
+      className={`flex items-center justify-between px-4 py-3 hover:bg-bg-hover transition-colors ${
+        selected ? 'bg-bg-elevated' : ''
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      {selected && (
+        <span className="text-primary" aria-hidden="true">
+          ✓
+        </span>
+      )}
+    </button>
   );
 }
