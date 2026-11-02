@@ -33,7 +33,7 @@ export function TunerNote({ noteName, octave, look }: TunerNoteProps): ReactElem
         <span className="font-bold text-text-muted" style={NAME_SIZE}>
           {starting ? '–' : 'A'}
         </span>
-        {/* Same height as an octave, so the layout doesn't move */}
+        {/* Keeps the name where it is with an octave; the name sets the height */}
         <span className="font-medium text-text-muted" style={OCTAVE_SIZE}>
           {starting ? ' ' : '4'}
         </span>

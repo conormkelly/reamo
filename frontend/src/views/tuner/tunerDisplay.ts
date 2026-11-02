@@ -58,7 +58,10 @@ export const NO_INPUT_TEXT = 'No input detected';
 
 /** A stable reading this close (in cents) but not in tune shows as close; further, as off. */
 const CLOSE_CENTS = 10;
-/** The backend's in-tune window (tuner_generator.zig), checked again on the cents shown. */
+/**
+ * The backend's in-tune window (tuner_generator.zig), checked again on the
+ * cents as the meter shows them, to the tenth: "+2.0¢" is never green.
+ */
 const IN_TUNE_CENTS = 2;
 
 export function tunerDisplay(r: DisplayInput): TunerDisplay {
@@ -83,7 +86,7 @@ export function tunerDisplay(r: DisplayInput): TunerDisplay {
   const toTuneBy = r.stable && !r.settling && !r.multiple;
   if (!toTuneBy) return { note: 'shown', needle: 'moving', message, announcement: null };
 
-  const inTune = r.inTune && Math.abs(r.cents) < IN_TUNE_CENTS;
+  const inTune = r.inTune && Math.abs(Math.round(r.cents * 10) / 10) < IN_TUNE_CENTS;
   if (inTune) return { note: 'inTune', needle: 'inTune', message, announcement: 'In tune' };
   return {
     note: 'shown',
@@ -122,8 +125,10 @@ const NOTE_SWITCH_CENTS = 40;
 
 /**
  * The note to show for a reading, given the one shown before: the same
- * note, with cents from it, until the pitch is clearly another's. Nothing
- * is held across silence or from one source to another.
+ * note, with cents from it, while the pitch is near the boundary with its
+ * neighbour. Only a neighbour: a pitch near a note further off (a slide, a
+ * legato change) is that note. Nothing is held across silence or from one
+ * source to another.
  */
 export function holdNote(
   held: HeldNote | null,
@@ -133,7 +138,7 @@ export function holdNote(
   const shown = { noteName: r.noteName, octave: r.octave, cents: r.cents };
   if (!(r.freq > 0) || !r.noteName || source === null) return { held: null, ...shown };
   const own: HeldNote = { source, noteName: r.noteName, octave: r.octave, midiNote: r.note };
-  if (!held || held.source !== source || held.midiNote === r.note || Math.abs(r.cents) < NOTE_SWITCH_CENTS) {
+  if (!held || held.source !== source || Math.abs(r.note - held.midiNote) !== 1 || Math.abs(r.cents) < NOTE_SWITCH_CENTS) {
     return { held: own, ...shown };
   }
   // Cents from the held note: the pitch in semitones, less the held note.

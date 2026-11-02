@@ -41,6 +41,7 @@ describe('tunerDisplay', () => {
     ['the reading is stable but outside the window', { inTune: false, cents: 3 }],
     ['the backend window says in tune but the shown cents are a held note’s', { cents: 45 }],
     ['there is no pitch', { freq: 0 }],
+    ['the cents round to the 2.0 shown at the window’s edge', { cents: 1.96 }],
   ])('never shows green when %s', (_why, overrides) => {
     const d = tunerDisplay(reading(overrides));
     expect(d.note).not.toBe('inTune');
@@ -129,6 +130,18 @@ describe('holdNote', () => {
     const inside = after(atBoundary.held, 'A', F2);
     expect(inside.noteName).toBe('F');
     expect(inside.cents).toBe(-10);
+  });
+
+  it('holds only across the boundary to a neighbouring note, never onto a note further off', () => {
+    const first = after(null, 'A', E2);
+    // G2 at -45 cents: a slide of three semitones, not E2 +255
+    const g2 = after(first.held, 'A', { freq: 95.5, note: 43, noteName: 'G', octave: 2, cents: -45 });
+    expect(g2.noteName).toBe('G');
+    expect(g2.cents).toBe(-45);
+    // D#2 at +45 cents, below: a neighbour, so E2 -55 is held
+    const below = after(first.held, 'A', { freq: 79.9, note: 39, noteName: 'D#', octave: 2, cents: 45 });
+    expect(below.noteName).toBe('E');
+    expect(below.cents).toBeCloseTo(-55);
   });
 
   it('holds nothing across silence', () => {
