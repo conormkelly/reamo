@@ -6,7 +6,8 @@ REAPER runs on JACK with 2 inputs: Bass records from input 1, Guitar from
 input 2. Phone A tunes Bass, phone B Guitar. E1 (the bass's open E) and G3
 (the guitar's open G) are plucked together, three times:
 - A reads only E1 and B only G3, each with stable readings within 1 cent
-  of the frequency fed: no crosstalk either way;
+  of the frequency fed, no reading of the other's note (an octave either
+  side included) and none flagged multiple: no crosstalk either way;
 - the hook has one input tap per instrument (audio/status inputTaps 2).
 Then phone C opens the tuner on Guitar too:
 - it joins B's analyser (still 2 taps) and is told B's settings;
@@ -40,10 +41,11 @@ def pluck_both(f, phones):
 
 def check(phone, freq, problems):
     # A phone is sent a reading only when it changes, so a held note is a
-    # few events, not 30 a second. No reading may name the other
-    # instrument's note, or an octave either side of it.
+    # few events, not 30 a second. At least one stable reading, and every
+    # stable one, is its own note; no reading names the other instrument's
+    # note or an octave either side of it, and none is flagged multiple.
     n = midi_note(G3 if freq < 100 else E1)
-    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12))
+    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12), alone=True)
 
 
 def taps(c):

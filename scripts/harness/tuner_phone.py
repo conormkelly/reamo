@@ -81,20 +81,23 @@ def watch(phones, seconds):
             p.pump(0.02)
 
 
-def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=()):
+def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=(), alone=False):
     """Since mark(): every stable reading (the reading to tune by) names the
     note of `freq` within `max_cents`, and no reading at all names a note in
-    `never` (another input's, for crosstalk). An unstable reading of some
-    other note is reported, not failed: the analyser shows a few on a
-    plucked E1 (F1 and around 22 Hz, never stable; cause not traced), and
-    jackd runs here without realtime scheduling, so a late block leaves a
-    gap in the input. Problems are appended."""
+    `never` (another input's, for crosstalk); with `alone`, no reading is
+    flagged `multiple` (the analyser hearing several notes). An unstable reading of some
+    other note is reported, not failed: jackd runs here without realtime
+    scheduling, and a 256-sample block it drops (an xrun) is a gap in the
+    input that the analyser can briefly read as another note, as it does on
+    a plucked E1 (F1, or around 22 Hz; never stable). On clean input it
+    doesn't. Problems are appended."""
     got = phone.pitched()
     want = midi_note(freq)
     stable = [p for p in got if p.get("stable")]
     wrong = [p for p in stable if p["note"] != want]
     stray = [(p["note"], p["freq"]) for p in got if p["note"] != want and not p.get("stable")]
     heard = [(p["note"], p["freq"]) for p in got if p["note"] in never]
+    several = [(p["note"], p["freq"]) for p in phone.since if p.get("multiple")] if alone else []
     off = [round(cents_off(p["freq"], freq), 2) for p in stable if abs(cents_off(p["freq"], freq)) > max_cents]
     print(f"{phone.name}: {len(got)} pitched readings, {len(stable)} stable, notes "
           f"{sorted({p['note'] for p in got})} (want {want}), stable cents off "
@@ -108,6 +111,8 @@ def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=()):
                         f"{[(p['note'], p['freq']) for p in wrong[:5]]}")
     if heard:
         problems.append(f"{phone.name}: readings of another input's note {list(never)}: {heard[:5]}")
+    if several:
+        problems.append(f"{phone.name}: {len(several)} readings flagged multiple, hearing more than its own: {several[:5]}")
     if not stable:
         problems.append(f"{phone.name}: no stable reading of {freq:.2f} Hz")
     if off:
