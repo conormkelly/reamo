@@ -7,6 +7,14 @@
 //! whole and counted. The reader, seeing the count move, throws away what is
 //! left unread, so after a stall the analyser hears the audio from then on,
 //! never audio that has gone out of date while it waited.
+//!
+//! A ring the hook hands from one input to another (a track tuner's tap)
+//! is tagged: the producer writes each block under the tag it read with
+//! the tap's channels, and marks where a new tag's samples start. A reader
+//! on a tag (`readTagged`) reads only samples written under it, so the
+//! block the audio thread may still be writing for the old input when the
+//! main thread hands the tap over never reaches the new input's analyser.
+//! `write` and `read` are tag 0, for a ring that never changes hands.
 const std = @import("std");
 
 /// Samples held: 1.36 s at 48 kHz, 0.34 s at 192 kHz, against the 33 ms
@@ -24,6 +32,10 @@ pub const MonoRing = struct {
     dropped: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
     /// The sample rate of the latest block written, as f64 bits; 0 before any.
     rate_bits: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+    /// The tag of the latest block written, and the write position its
+    /// samples start at. Producer-owned.
+    tag: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
+    tag_from: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
     /// `dropped` as the consumer last saw it. Consumer-only.
     seen_dropped: u64 = 0,
 
@@ -40,12 +52,24 @@ pub const MonoRing = struct {
     /// A block whose sample rate isn't finite and positive is ignored.
     /// Real-time safe: no allocation, no lock, no I/O.
     pub fn write(self: *MonoRing, left: [*]const f64, right: [*]const f64, len: usize, sample_rate: f64) void {
+        self.writeTagged(left, right, len, sample_rate, 0);
+    }
+
+    /// Producer (audio thread). As `write`, under `tag`: the first block
+    /// under a new tag marks where that tag's samples start.
+    pub fn writeTagged(self: *MonoRing, left: [*]const f64, right: [*]const f64, len: usize, sample_rate: f64, tag: u32) void {
         if (!(sample_rate > 0 and sample_rate < std.math.inf(f64))) return;
         const w = self.write_count.raw;
         const r = self.read_count.load(.acquire);
         if (w - r + len > capacity) {
             _ = self.dropped.fetchAdd(1, .monotonic);
             return;
+        }
+        if (tag != self.tag.raw) {
+            // Where the new tag starts, then the tag: a reader that sees
+            // the tag sees where it starts.
+            self.tag_from.store(w, .release);
+            self.tag.store(tag, .release);
         }
         self.rate_bits.store(@bitCast(sample_rate), .monotonic);
         for (0..len) |i| {
@@ -65,13 +89,34 @@ pub const MonoRing = struct {
 
     /// Consumer. Copies the oldest unread samples into `out`.
     pub fn read(self: *MonoRing, out: []f32) Read {
+        return self.readTagged(out, 0);
+    }
+
+    /// Consumer. As `read`, of the samples written under `tag` only; any
+    /// others unread are thrown away.
+    pub fn readTagged(self: *MonoRing, out: []f32, tag: u32) Read {
         const d = self.dropped.load(.acquire);
         if (d != self.seen_dropped) {
             self.discard();
             return .{ .n = 0, .skipped = true };
         }
         const w = self.write_count.load(.acquire);
-        const r = self.read_count.raw;
+        var r = self.read_count.raw;
+        // The tag is at least as new as the samples up to w (it is stored
+        // before they are published), and may be newer.
+        if (self.tag.load(.acquire) != tag) {
+            // The latest block isn't this reader's: what is unread belongs
+            // to an earlier tag, or this reader's tag has yet to start.
+            self.read_count.store(w, .release);
+            return .{ .n = 0, .skipped = false };
+        }
+        const from = self.tag_from.load(.acquire);
+        if (from > r) {
+            // Samples before this tag's start: skip them. A start past w is
+            // a block not yet published; skip to w for now.
+            r = @min(from, w);
+            self.read_count.store(r, .release);
+        }
         const n: usize = @intCast(@min(w - r, out.len));
         for (0..n) |i| out[i] = self.samples[@intCast((r + i) & mask)];
         self.read_count.store(r + n, .release);
@@ -96,6 +141,8 @@ pub const MonoRing = struct {
         self.read_count.store(0, .release);
         self.dropped.store(0, .release);
         self.rate_bits.store(0, .release);
+        self.tag.store(0, .release);
+        self.tag_from.store(0, .release);
         self.seen_dropped = 0;
     }
 };
@@ -229,6 +276,54 @@ test "discard drops what is unread and keeps what comes after" {
     try testing.expectEqual(@as(usize, 10), ring.read(&out).n);
     try testing.expectEqual(@as(f32, 0.2), out[0]);
     try testing.expectEqual(@as(f64, 96000), ring.sampleRate());
+}
+
+test "a reader on a tag gets only what was written under that tag" {
+    const ring = try testing.allocator.create(MonoRing);
+    defer testing.allocator.destroy(ring);
+    ring.* = .{};
+    var out: [64]f32 = undefined;
+    writeTaggedConst(ring, 0.25, 16, 7);
+    // Not this reader's samples: thrown away, nothing read.
+    try testing.expectEqual(MonoRing.Read{ .n = 0, .skipped = false }, ring.readTagged(&out, 8));
+    try testing.expectEqual(@as(usize, 0), ring.available());
+    writeTaggedConst(ring, 0.5, 4, 8);
+    try testing.expectEqual(@as(usize, 4), ring.readTagged(&out, 8).n);
+    try testing.expectEqual(@as(f32, 0.5), out[0]);
+}
+
+test "samples under an old tag left unread when the tag changes are skipped" {
+    // The audio thread may write one last block for a tap's old input
+    // after the main thread hands the tap to a new one; the new input's
+    // reader must never see it, whether it reads before or after.
+    const ring = try testing.allocator.create(MonoRing);
+    defer testing.allocator.destroy(ring);
+    ring.* = .{};
+    var out: [64]f32 = undefined;
+    writeTaggedConst(ring, 0.25, 16, 1); // the old input
+    writeTaggedConst(ring, 0.25, 16, 1); // its last block, after the handover
+    writeTaggedConst(ring, 0.75, 8, 2); // the new input
+    const got = ring.readTagged(&out, 2);
+    try testing.expectEqual(@as(usize, 8), got.n);
+    for (out[0..8]) |x| try testing.expectEqual(@as(f32, 0.75), x);
+    try testing.expectEqual(@as(usize, 0), ring.available());
+}
+
+test "untagged writes and reads behave as tag 0" {
+    const ring = try testing.allocator.create(MonoRing);
+    defer testing.allocator.destroy(ring);
+    ring.* = .{};
+    var out: [8]f32 = undefined;
+    writeConst(ring, 0.5, 0.5, 4, 48000);
+    try testing.expectEqual(@as(usize, 4), ring.readTagged(&out, 0).n);
+    writeTaggedConst(ring, 0.5, 4, 0);
+    try testing.expectEqual(@as(usize, 4), ring.read(&out).n);
+}
+
+fn writeTaggedConst(ring: *MonoRing, v: f64, len: usize, tag: u32) void {
+    var buf: [256]f64 = undefined;
+    @memset(buf[0..len], v);
+    ring.writeTagged(&buf, &buf, len, 48000, tag);
 }
 
 test "the reader sees every sample a concurrent writer publishes, in order" {

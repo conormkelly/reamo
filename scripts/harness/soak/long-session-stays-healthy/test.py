@@ -14,8 +14,9 @@ repeat while phones do what phones do, for SOAK_MINUTES:
   sleep), and connect again;
 - page loads (GET / and an asset) arrive alongside.
 
-The tuner is left out unless SOAK_OPS has "+tuner": opening and closing it
-leaves undo points in REAPER (RV1-165), so with it in the run fails.
+The tuner is left out unless SOAK_OPS has "+tuner": a track tuner reads the
+track's hardware input, and on the dummy device, which has none, every
+subscribe is refused, so the run fails. With HARNESS_AUDIO=jack it passes.
 
 Nothing a phone does here is an edit, so the run must leave REAPER's undo
 history as it found it: an undo point would be an edit the user never
@@ -471,7 +472,8 @@ class Phone:
 
 
 # Ops a run leaves out unless SOAK_OPS opts them in with "+<word>", and why.
-OPT_IN = {"tuner": "opening and closing the tuner leaves undo points in REAPER (RV1-165)"}
+OPT_IN = {"tuner": "track tuners read hardware inputs: on the dummy device, which has none, "
+                    "every subscribe is refused (run with HARNESS_AUDIO=jack)"}
 
 
 # What a phone does while connected: (relative weight, name, op). Each op

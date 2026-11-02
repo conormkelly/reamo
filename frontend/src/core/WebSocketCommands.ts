@@ -1107,8 +1107,11 @@ export const fxPlugin = {
 
 export const tuner = {
   /**
-   * Subscribe to tuner on a track. Inserts JSFX if first subscriber.
-   * Each client can only subscribe to one track at a time.
+   * Subscribe to the tuner on a track (its hardware record input) or the
+   * master ("master"). Each client can only subscribe to one at a time. A
+   * track whose record input can't be tuned is refused with a code and a
+   * message to show (INPUT_NONE, INPUT_MIDI, INPUT_NOT_ON_DEVICE,
+   * INPUT_NOT_SUPPORTED).
    *
    * @param trackGuid - GUID of the track to tune
    */
@@ -1117,7 +1120,7 @@ export const tuner = {
     params: { trackGuid },
   }),
 
-  /** Unsubscribe from tuner. Removes JSFX if last subscriber. */
+  /** Unsubscribe from the tuner. */
   unsubscribe: (): WSCommand => ({
     command: 'tuner/unsubscribe',
   }),

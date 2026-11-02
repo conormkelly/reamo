@@ -2858,15 +2858,19 @@ Sent when the subscribed FX can no longer be found (deleted, track removed, etc.
 
 ## Tuner Commands
 
-Chromatic tuner via JSFX pitch detection. Inserts a PitchDetect JSFX into a track's Input FX chain and polls slider values at 30Hz.
+Chromatic tuner on REAmo's own pitch analyser, reading audio through REAPER's audio hook. Nothing is inserted into REAPER: no FX, no undo point, no change to the project.
+
+- A **track** tuner reads the hardware input the track's record input (`I_RECINPUT`) names, whether or not the track is armed, the transport stopped or playing. A mono input reads that channel; a stereo pair is mixed to mono as (L + R) / 2.
+- The **master** tuner (`"master"`) reads hardware outputs 1/2, after the master's FX, fader and mute.
+- One analyser per tuned source: phones tuning tracks on the same input share its analyser and its settings; tracks on different inputs are independent. Each phone tunes one source at a time.
 
 ### `tuner/subscribe`
 
-Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
+Subscribe to the tuner on a track, or on the master.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackGuid` | string | Yes | Track GUID (`"master"` for the master track) |
+| `trackGuid` | string | Yes | Track GUID (`"master"` for the master) |
 
 ```json
 {"type": "command", "command": "tuner/subscribe", "trackGuid": "{AAA}", "id": "1"}
@@ -2881,24 +2885,36 @@ Subscribe to tuner on a track. Inserts JSFX if first subscriber to this track.
   "success": true,
   "payload": {
     "trackGuid": "{AAA}",
-    "fxGuid": "{BBB}",
+    "fxGuid": "",
     "trackName": "Guitar",
     "reference": 440.0,
-    "threshold": -60.0
+    "threshold": -90.0
   }
 }
 ```
 
 **Notes:**
 
-- Each client can subscribe to one track's tuner at a time; subscribing auto-unsubscribes from previous
-- Multiple clients can share a single track's JSFX (ref-counted)
-- JSFX is inserted at position 0 in Input FX chain. On the master track that chain is REAPER's monitoring FX, which is not stored in the project.
-- After subscribing, receive `tuner` events at 30Hz (see below)
+- Each client can subscribe to one tuner at a time; subscribing auto-unsubscribes from the previous one. Subscribing again to the same track keeps the tuner and its settings.
+- `fxGuid` is always `""` (no plugin is inserted); kept for older pages.
+- `reference` and `threshold` are the source's current settings: the defaults (440, -90) for a new one, another phone's for a shared one.
+- After subscribing, receive `tuner` events at 30Hz (see below). Each poll checks the track's record input again: a phone follows its track to a new input.
+
+**Errors** (a track whose record input can't be tuned; each with a message for the phone to show). After an `INPUT_*` refusal the client still follows the track: its `tuner` events say `cantTune` with the reason, and tuning starts when the track's input can be tuned. The other errors leave the client unsubscribed:
+
+| Code | When |
+|------|------|
+| `INPUT_NONE` | The record input is None |
+| `INPUT_MIDI` | The record input is MIDI |
+| `INPUT_NOT_ON_DEVICE` | The input channel (or a stereo pair's second) isn't on the current audio device. Not checked while REAPER has the device closed |
+| `INPUT_NOT_SUPPORTED` | A ReaRoute or loopback input (512 and up), or a multichannel input: not supported yet |
+| `TRACK_NOT_FOUND` | No track has that GUID |
+| `TOO_MANY_TUNERS` | Every input tap is in use (one per connected phone) |
+| `AUDIO_HOOK_FAILED`, `THREAD_FAILED`, `OUT_OF_MEMORY` | REAPER refused the audio hook, or the analyser couldn't start |
 
 ### `tuner/unsubscribe`
 
-Unsubscribe from tuner. Removes JSFX if this was the last subscriber, on the master track as on any other.
+Unsubscribe from the tuner. The last phone on a source stops its analyser; the audio hook is released once nothing else holds it.
 
 ```json
 {"type": "command", "command": "tuner/unsubscribe", "id": "1"}
@@ -2906,18 +2922,20 @@ Unsubscribe from tuner. Removes JSFX if this was the last subscriber, on the mas
 
 ### `tuner/setParam`
 
-Set tuner parameter (reference frequency or silence threshold).
+Set a tuner parameter, for every phone on the same source.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackGuid` | string | Yes | Track GUID |
+| `trackGuid` | string | Yes | Track GUID, or `"master"` |
 | `param` | string | Yes | "reference" or "threshold" |
 | `value` | float | Yes | Parameter value |
 
 **Parameters:**
 
-- `reference`: A4 reference frequency in Hz (typically 400-480, default 440.0)
-- `threshold`: Silence threshold in dB (typically -96 to 0, default -60.0)
+- `reference`: A4 reference frequency in Hz, 400-480 (default 440.0)
+- `threshold`: silence threshold in dB, -90 to -30 (default -90, which leaves the gating to the analyser's learned noise floor)
+
+Values outside the range are held to it; a value that isn't a finite number is refused with `INVALID_PARAM`. `NOT_SUBSCRIBED` when no phone tunes that track.
 
 ```json
 {"type": "command", "command": "tuner/setParam", "trackGuid": "{AAA}", "param": "reference", "value": 442.0, "id": "1"}
@@ -2939,36 +2957,53 @@ Sent to subscribed clients at 30Hz with pitch detection data.
     "octave": 4,
     "cents": -2.5,
     "conf": 0.95,
-    "inTune": false
+    "clarity": 0.95,
+    "inTune": false,
+    "settling": false,
+    "stable": true,
+    "multiple": false,
+    "starting": false,
+    "state": "listening",
+    "referenceHz": 440.0,
+    "thresholdDb": -90
   }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `trackGuid` | string | Track GUID |
-| `freq` | float | Detected frequency in Hz |
+| `trackGuid` | string | Track GUID, or `"master"` |
+| `freq` | float | Detected frequency in Hz; 0 for no pitch |
 | `note` | int | MIDI note number (69 = A4) |
 | `noteName` | string | Note name ("C", "C#", "D", etc.) |
 | `octave` | int | Octave number (4 for A4) |
 | `cents` | float | Deviation from note in cents (-50 to +50) |
-| `conf` | float | Detection confidence (0-1) |
-| `inTune` | bool | True if |cents| < 2 |
+| `clarity` | float | How periodic the input is at the detected period (0-1) |
+| `conf` | float | The same as `clarity`, under its older name |
+| `inTune` | bool | True if there is a pitch and \|cents\| < 2 |
+| `settling` | bool | A note's attack: the note is known, the cents not yet |
+| `stable` | bool | The pitch has held still: the reading to tune by |
+| `multiple` | bool | Several notes sound; the reading is one of them |
+| `starting` | bool | A new note's name is held back (its first ~0.1 s): no pitch yet, but not silence |
+| `state` | string | `"listening"`: audio arrives. `"deviceClosed"`: REAPER's audio device isn't running (`Audio_IsRunning()` is 0), so no audio arrives: REAPER closed it while stopped (Preferences > Audio, close the device when stopped), and play reopens it; or the device failed or was unplugged. `"cantTune"`: the track's record input has changed to one that can't be tuned; `code` and `message` say why, as `tuner/subscribe`'s errors do. The phone stays on the track, and tuning resumes when its input can be tuned |
+| `code`, `message` | string | With `"cantTune"` only |
+| `referenceHz`, `thresholdDb` | float | The source's settings, for phones sharing it |
 
 **Notes:**
 
 - Events are only sent when data changes (hash-based change detection)
-- Low confidence values indicate weak or no signal
+- No reading is sent while `state` is `"deviceClosed"` or `"cantTune"`
 
 ### `tunerError` Event
 
-Sent when the tuner can no longer function (track deleted, JSFX removed, etc.). Client is auto-unsubscribed.
+Sent when the tuner can no longer function: its track was deleted, or is in another project tab. The client is auto-unsubscribed.
 
 ```json
 {
   "type": "event",
   "event": "tunerError",
-  "error": "TUNER_NOT_FOUND"
+  "error": "TUNER_NOT_FOUND",
+  "payload": {"error": "TUNER_NOT_FOUND"}
 }
 ```
 

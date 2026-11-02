@@ -1,11 +1,14 @@
 /**
  * TunerView - Chromatic tuner for instrument tuning
  *
- * Subscribes to a track's tuner JSFX and displays real-time pitch detection:
+ * Subscribes to the tuner on a track (REAPER reads the hardware input the
+ * track records from, armed or not) and displays real-time pitch detection:
  * - Note name and octave (large display)
  * - Cents deviation meter (-50 to +50)
- * - Frequency display
- * - Track selector (defaults to first armed track)
+ * - Frequency display, or why there is none: the track's input can't be
+ *   tuned (REAPER's own message), or REAPER's audio device isn't running
+ * - Track selector (defaults to the first track); choosing the track
+ *   already chosen asks REAPER again, after the user has fixed its input
  *
  * Uses ViewLayout for proper responsive layout handling.
  */
@@ -21,6 +24,13 @@ import { EMPTY_SKELETON } from '../../store/stableRefs';
 import { TunerMeter } from './TunerMeter';
 import { TunerNote } from './TunerNote';
 import { TunerSettings } from './TunerSettings';
+
+/**
+ * What shows while REAPER's audio device isn't running: true whether REAPER
+ * closed it while stopped (its preferences can say to; play reopens it) or
+ * the device failed or was unplugged, which REAPER doesn't tell apart.
+ */
+const DEVICE_CLOSED_TEXT = "REAPER's audio device isn't running. If it closes when stopped, press play.";
 
 // Hysteresis threshold: only switch notes when within this many cents of the new note
 // This prevents flickering at the ±50 cent boundary between adjacent notes
@@ -58,6 +68,8 @@ export function TunerView(): ReactElement {
     octave,
     cents,
     inTune,
+    state,
+    problem,
     referenceHz,
     setReferenceHz,
     thresholdDb,
@@ -112,14 +124,11 @@ export function TunerView(): ReactElement {
   // Filter to non-master tracks
   const trackList = tracks.filter((t) => t.g !== 'master');
 
-  // Get armed tracks (prefer for auto-selection)
-  const armedTracks = trackList.filter((t) => t.r);
-
   // Get track name for current selection
   const selectedTrack = trackList.find((t) => t.g === selectedTrackGuid);
   const trackName = selectedTrack?.n || 'Select Track';
 
-  // Auto-select track on mount (prefer saved track, then armed track, then first track)
+  // Auto-select track on mount (prefer saved track, then first track)
   useEffect(() => {
     if (trackList.length === 0) return;
 
@@ -127,13 +136,12 @@ export function TunerView(): ReactElement {
     const currentValid = selectedTrackGuid && trackList.some((t) => t.g === selectedTrackGuid);
     if (currentValid) return;
 
-    // Select: armed track > first track
-    const defaultTrack = armedTracks[0]?.g ?? trackList[0]?.g ?? null;
+    const defaultTrack = trackList[0]?.g ?? null;
     if (defaultTrack) {
       setSelectedTrackGuid(defaultTrack);
       saveSelectedTrack(defaultTrack);
     }
-  }, [selectedTrackGuid, trackList, armedTracks]);
+  }, [selectedTrackGuid, trackList]);
 
   // Subscribe/unsubscribe when selected track changes
   useEffect(() => {
@@ -146,12 +154,17 @@ export function TunerView(): ReactElement {
     };
   }, [selectedTrackGuid, subscribe, unsubscribe]);
 
-  // Handle track selection
-  const handleTrackSelect = useCallback((guid: string) => {
-    setSelectedTrackGuid(guid);
-    saveSelectedTrack(guid);
-    setShowTrackSelector(false);
-  }, []);
+  // Handle track selection. The track already chosen is asked for again:
+  // REAPER may have refused it, and the user fixed its input since.
+  const handleTrackSelect = useCallback(
+    (guid: string) => {
+      if (guid === selectedTrackGuid) void subscribe(guid);
+      setSelectedTrackGuid(guid);
+      saveSelectedTrack(guid);
+      setShowTrackSelector(false);
+    },
+    [selectedTrackGuid, subscribe]
+  );
 
   // Handle reference Hz change
   const handleReferenceChange = useCallback(
@@ -175,6 +188,13 @@ export function TunerView(): ReactElement {
 
   // No signal state
   const hasSignal = freq > 0;
+  const statusText = problem
+    ? problem.message
+    : state === 'deviceClosed'
+      ? DEVICE_CLOSED_TEXT
+      : hasSignal
+        ? `${freq.toFixed(1)} Hz`
+        : 'No input detected';
 
   return (
     <ViewLayout
@@ -220,8 +240,8 @@ export function TunerView(): ReactElement {
             disabled={!hasSignal}
           />
           <TunerMeter cents={displayCents} inTune={inTune} disabled={!hasSignal} />
-          <div className="text-text-muted text-sm">
-            {hasSignal ? `${freq.toFixed(1)} Hz` : 'No input detected'}
+          <div className="text-text-muted text-sm text-center max-w-xs" role="status">
+            {statusText}
           </div>
         </div>
       </div>
@@ -248,11 +268,6 @@ export function TunerView(): ReactElement {
                 >
                   <div className="flex items-center gap-3">
                     <span className="truncate">{track.n || `Track ${track.g.slice(1, 8)}`}</span>
-                    {track.r && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-error/20 text-error">
-                        Armed
-                      </span>
-                    )}
                   </div>
                   {track.g === selectedTrackGuid && (
                     <span className="text-primary">✓</span>

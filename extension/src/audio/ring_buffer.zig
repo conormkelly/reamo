@@ -23,7 +23,9 @@ pub const AudioRingBuffer = struct {
     read_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
     /// Current sample rate from audio thread (updated every callback).
-    sample_rate: std.atomic.Value(u32) = std.atomic.Value(u32).init(48000),
+    /// 0 until the hook has seen audio. Zero by default, as every field of
+    /// the hook that holds this ring must be (audio_hook.Hook).
+    sample_rate: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
 
     /// Number of samples dropped due to overflow (diagnostic).
     overflow_count: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
@@ -260,7 +262,7 @@ test "overflow drops newest: buffer full, write discarded" {
 
 test "sample_rate atomic store and load" {
     var rb = AudioRingBuffer{};
-    try std.testing.expectEqual(@as(u32, 48000), rb.sample_rate.load(.acquire));
+    try std.testing.expectEqual(@as(u32, 0), rb.sample_rate.load(.acquire));
 
     rb.sample_rate.store(44100, .release);
     try std.testing.expectEqual(@as(u32, 44100), rb.sample_rate.load(.acquire));

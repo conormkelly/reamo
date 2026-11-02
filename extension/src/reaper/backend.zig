@@ -282,6 +282,7 @@ pub fn validateBackend(comptime T: type) void {
         // Audio hardware hook (audio/audio_hook.zig)
         "registerAudioHook",
         "unregisterAudioHook",
+        "isAudioRunning",
 
         // Fixed Lanes (swipe comping)
         "getNumFixedLanes",

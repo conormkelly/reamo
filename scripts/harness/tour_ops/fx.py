@@ -551,75 +551,68 @@ end
 # ----------------------------------------------------------------------------
 # Tuner
 
+def tuner_refusal(rec_input, device_inputs, device_open):
+    """The code tuner/subscribe refuses a track with, from its record input
+    (I_RECINPUT) and the device, or None if it can be tuned. As
+    input_tuners.classify decides."""
+    if rec_input < 0:
+        return "INPUT_NONE"
+    if rec_input & 4096:
+        return "INPUT_MIDI"
+    if rec_input & 2048 or (rec_input & 1023) >= 512:
+        return "INPUT_NOT_SUPPORTED"
+    last = (rec_input & 1023) + (1 if rec_input & 1024 else 0)
+    if device_open and last >= device_inputs:
+        return "INPUT_NOT_ON_DEVICE"
+    return None
+
+
 def tuner_round(t, g, label):
     """Open the tuner on a track, set reference and threshold, close it.
-    The tuner is a JSFX the extension puts first in the track's input FX
-    and takes away again, leaving the project as it was. Adding and
-    removing it are REAPER's own two undo steps ("Add FX", "Remove FX"),
-    as the tuner is meant to work. (The master's tuner is REAmo's own
-    analyser: master_tuner_round.)"""
-    start = t.digest()
+    It is REAmo's analyser on the hardware input the track records from:
+    nothing goes into REAPER, so the project and its undo history are as
+    they were throughout. A track whose record input can't be tuned on this
+    device (on the dummy device, which has no inputs, none can) is refused
+    with the reason's code and a message, and leaves the project alone too."""
+    t.digest()
     undo_before = dict(t.d["undo"])
-    n_in = len(chain(t, g, rec=True))
+    rec_input, device_inputs, device_open = reaper(
+        f"return reaper.GetMediaTrackInfo_Value({track_expr(g)}, 'I_RECINPUT'), "
+        "reaper.GetNumAudioInputs(), reaper.Audio_IsRunning()")
+    refusal = tuner_refusal(int(rec_input), device_inputs, device_open != 0)
+    where = f"{label} (I_RECINPUT {rec_input:.0f}, {device_inputs} inputs)"
     mark = since(t.c)
     r = t.send("tuner/subscribe", trackGuid=g)
-    if r is None or not r.get("success"):
-        raise Mismatch(f"tuner/subscribe on {label}: {r}")
-    p = r["payload"]
-    t.expect({f"tracks.{g}.infx.*": ANY})
-    rec = chain(t, g, rec=True)
-    if len(rec) != n_in + 1 or rec[0][0] != p["fxGuid"] or "Pitch" not in rec[0][1]["name"]:
-        raise Mismatch(f"tuner/subscribe on {label} -> {p}; REAPER input FX {[(k, v['name']) for k, v in rec]}")
-    # The name REAPER shows for the track ("MASTER" for the master).
-    want_name = reaper(f"return select(2, reaper.GetTrackName({track_expr(g)}))")
-    if (p["trackGuid"], p["trackName"], p["reference"], p["threshold"]) != (g, want_name, 440.0, -60.0):
-        raise Mismatch(f"tuner/subscribe payload {p}")
-    ev = wait_payload(t.c, "tuner", mark, lambda pl: pl.get("trackGuid") == g)
-    if (ev["referenceHz"], ev["thresholdDb"]) != (440.0, -60.0):
-        raise Mismatch(f"tuner event {ev}")
-
-    t.ok("tuner/setParam", trackGuid=g, param="reference", value=442)
-    t.ok("tuner/setParam", trackGuid=g, param="threshold", value=-50)
-    jsfx = "reaper.TrackFX_GetParam(tr, 0x1000000, %d)"
-    got = reaper(f"local tr = {track_expr(g)}; return {{{jsfx % 4}, {jsfx % 6}}}")
-    if abs(got[0] - 442) > 0.05 or abs(got[1] + 50) > 0.5:
-        raise Mismatch(f"tuner/setParam on {label}: the JSFX reads reference {got[0]}, threshold {got[1]}; sent 442, -50")
-    mark = since(t.c)
-    ev = wait_payload(t.c, "tuner", mark, lambda pl: pl.get("trackGuid") == g and abs(pl["referenceHz"] - 442) < 0.05,
-                      what="tuner event showing the new reference")
-    if abs(ev["thresholdDb"] + 50) > 0.5:
-        raise Mismatch(f"tuner event after setParam {ev}")
-
+    if r is None:
+        raise Mismatch(f"tuner/subscribe on {label}: no answer")
+    if refusal:
+        err = r.get("error") or {}
+        if r.get("success") or err.get("code") != refusal or not err.get("message"):
+            raise Mismatch(f"tuner/subscribe on {where}: want {refusal} with a message, got {r}")
+    else:
+        if not r.get("success"):
+            raise Mismatch(f"tuner/subscribe on {where}: {r}")
+        p = r["payload"]
+        # The name REAPER shows for the track.
+        want_name = reaper(f"return select(2, reaper.GetTrackName({track_expr(g)}))")
+        if (p["trackGuid"], p["fxGuid"], p["trackName"], p["reference"], p["threshold"]) != (g, "", want_name, 440.0, -90.0):
+            raise Mismatch(f"tuner/subscribe payload {p}")
+        t.expect({})  # no plugin anywhere
+        ev = wait_payload(t.c, "tuner", mark, lambda pl: pl.get("trackGuid") == g)
+        if (ev["referenceHz"], ev["thresholdDb"]) != (440.0, -90) or ev.get("state") not in ("listening", "deviceClosed"):
+            raise Mismatch(f"tuner event {ev}")
+        t.ok("tuner/setParam", trackGuid=g, param="reference", value=442)
+        t.ok("tuner/setParam", trackGuid=g, param="threshold", value=-50)
+        mark = since(t.c)
+        ev = wait_payload(t.c, "tuner", mark, lambda pl: pl.get("trackGuid") == g and abs(pl["referenceHz"] - 442) < 0.05,
+                          what="tuner event showing the new reference")
+        if ev["thresholdDb"] != -50:
+            raise Mismatch(f"tuner event after setParam {ev}")
     t.ok("tuner/unsubscribe")
-    t._wait_equal(start, f"closing the tuner on {label} left REAPER's input FX changed")
-    t.digest()
-    # Exactly two steps: undoing "Remove FX" puts the tuner back, undoing
-    # "Add FX" takes it away again, and then the history is as before.
-    top = t.d["undo"]["can_undo"]
-    if not top.startswith("Remove FX"):
-        raise Mismatch(f"closing the tuner on {label} left undo step {top!r}, not REAPER's \"Remove FX\"")
-    reaper("reaper.Undo_DoUndo2(0)")
-    t.digest()
-    if not t.d["undo"]["can_undo"].startswith("Add FX"):
-        raise Mismatch(f"before the tuner's \"Remove FX\" on {label}: {t.d['undo']['can_undo']!r}, not \"Add FX\"")
-    reaper("reaper.Undo_DoUndo2(0)")
-    t._wait_equal(start, f"undoing the tuner's two steps on {label} did not return the project to how it was")
+    t.expect({})
     if t.d["undo"]["can_undo"] != undo_before["can_undo"]:
-        raise Mismatch(f"the tuner on {label} left more than its two undo steps: Ctrl+Z now offers "
+        raise Mismatch(f"the tuner on {label} left undo history: Ctrl+Z now offers "
                        f"{t.d['undo']['can_undo']!r} (before the tuner: {undo_before['can_undo']!r})")
-
-
-def remove_tuners(g):
-    """Take any tuner JSFX out of the track's input FX (cleanup after a failure)."""
-    return reaper(f"""
-local tr = {track_expr(g)}
-local n = 0
-for i = reaper.TrackFX_GetRecCount(tr) - 1, 0, -1 do
-  local _, name = reaper.TrackFX_GetFXName(tr, 0x1000000 + i, "")
-  if name:find("Pitch Detector", 1, true) then reaper.TrackFX_Delete(tr, 0x1000000 + i); n = n + 1 end
-end
-return n
-""")
 
 
 @op("tuner on a track (the guitar)", "tuner/subscribe", "tuner/unsubscribe", "tuner/setParam")
@@ -629,7 +622,6 @@ def _(t):
         tuner_round(t, g, tr["name"] or "an unnamed track")
     finally:
         t.send("tuner/unsubscribe")
-        remove_tuners(g)
 
 
 def master_tuner_round(t):

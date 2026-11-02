@@ -34,7 +34,9 @@ pub const PluginInfo = extern struct {
 pub const AudioHookRegister = extern struct {
     /// Called twice per audio buffer: isPost=false (before processing), isPost=true (after).
     /// REAL-TIME THREAD — no allocations, no locks, no I/O.
-    OnAudioBuffer: *const fn (isPost: bool, len: c_int, srate: f64, reg: *AudioHookRegister) callconv(.c) void,
+    /// Null until set, which it must be before registering: optional so a
+    /// registration can start as all zeros (audio_hook.zig's g_hook).
+    OnAudioBuffer: ?*const fn (isPost: bool, len: c_int, srate: f64, reg: *AudioHookRegister) callconv(.c) void = null,
     userdata1: ?*anyopaque = null,
     userdata2: ?*anyopaque = null,
     /// Set by host — number of input/output channels available.
@@ -2647,9 +2649,11 @@ pub const Api = struct {
         if (self.audioRegHardwareHook) |f| _ = f(false, reg);
     }
 
-    /// Check if the audio engine is currently running.
+    /// Check if the audio engine is currently running. A REAPER without
+    /// Audio_IsRunning can't say, and is taken as running: the tuners would
+    /// otherwise report the device closed and show nothing, for ever.
     pub fn isAudioRunning(self: *const Api) bool {
-        return if (self.audioIsRunning) |f| f() != 0 else false;
+        return if (self.audioIsRunning) |f| f() != 0 else true;
     }
 
     /// Get maximum MIDI input device index (iterate 0..maxMidiInputs()-1).

@@ -417,7 +417,9 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       const p = message.payload as TunerEventPayload;
       get().handleTunerEvent(p);
     } else if (isTunerErrorEvent(message)) {
-      get().handleTunerError(message.payload.error);
+      // An older extension sends the code beside the payload, not in it.
+      const legacy = (message as { error?: string }).error;
+      get().handleTunerError(message.payload?.error ?? legacy ?? 'TUNER_NOT_FOUND');
     } else if (message.event === 'reload') {
       // Hot reload - extension detected file change
       console.log('[Store] Reload event received, refreshing page...');

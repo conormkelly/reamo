@@ -1163,6 +1163,12 @@ pub const RealBackend = struct {
         self.inner.unregisterAudioHook(reg);
     }
 
+    /// Whether REAPER has its audio device open (Audio_IsRunning): false
+    /// while "close audio device when stopped" has it closed.
+    pub fn isAudioRunning(self: *const RealBackend) bool {
+        return self.inner.isAudioRunning();
+    }
+
     pub fn audioOutputName(self: *const RealBackend, channel: c_int) ?[*:0]const u8 {
         return self.inner.audioOutputName(channel);
     }

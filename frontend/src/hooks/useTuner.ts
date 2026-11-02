@@ -21,6 +21,8 @@
 
 import { useCallback } from 'react';
 import { useReaperStore } from '../store';
+import type { TunerProblem } from '../store/slices/tunerSlice';
+import type { TunerState } from '../core/WebSocketTypes';
 import { useReaper } from './useReaper';
 import { tuner } from '../core/WebSocketCommands';
 import {
@@ -32,12 +34,13 @@ import {
 
 export interface UseTunerReturn {
   /**
-   * Subscribe to tuner on a track (inserts JSFX if first subscriber) or the
-   * master. Once REAPER confirms, sends the settings saved on this phone
-   * that differ from the tuner's.
+   * Subscribe to the tuner on a track or the master. Once REAPER confirms,
+   * sends the settings saved on this phone that differ from the tuner's.
+   * If REAPER refuses a track whose record input can't be tuned, keeps why
+   * in `problem` and sends every saved setting, for when it can be.
    */
   subscribe: (trackGuid: string) => Promise<void>;
-  /** Unsubscribe from tuner. Removes JSFX if last subscriber. */
+  /** Unsubscribe from the tuner. */
   unsubscribe: () => void;
   /** Whether currently subscribed to a track's tuner */
   isSubscribed: boolean;
@@ -51,6 +54,10 @@ export interface UseTunerReturn {
   cents: number;
   conf: number;
   inTune: boolean;
+  /** What the tuner can hear (null before the first event) */
+  state: TunerState | null;
+  /** Why the chosen track can't be tuned, for the screen to show */
+  problem: TunerProblem | null;
   /** Reference frequency in Hz */
   referenceHz: number;
   /** Set reference frequency (sends command to backend) */
@@ -77,6 +84,8 @@ export function useTuner(): UseTunerReturn {
   const cents = useReaperStore((s) => s.tunerCents);
   const conf = useReaperStore((s) => s.tunerConf);
   const inTune = useReaperStore((s) => s.tunerInTune);
+  const state = useReaperStore((s) => s.tunerState);
+  const problem = useReaperStore((s) => s.tunerProblem);
   const referenceHz = useReaperStore((s) => s.tunerReferenceHz);
   const thresholdDb = useReaperStore((s) => s.tunerThresholdDb);
 
@@ -85,6 +94,7 @@ export function useTuner(): UseTunerReturn {
   const clearTunerSubscription = useReaperStore((s) => s.clearTunerSubscription);
   const setTunerReferenceHz = useReaperStore((s) => s.setTunerReferenceHz);
   const setTunerThresholdDb = useReaperStore((s) => s.setTunerThresholdDb);
+  const setTunerProblem = useReaperStore((s) => s.setTunerProblem);
 
   // Subscribe to tuner on a track, then apply the settings saved on this
   // phone: before REAPER confirms, a setParam would be refused (the tuner
@@ -95,27 +105,41 @@ export function useTuner(): UseTunerReturn {
       setTunerSubscription(trackGuid);
 
       // 2. Send subscribe command
-      let response: { success?: boolean; payload?: { reference?: number; threshold?: number } };
+      let response: {
+        success?: boolean;
+        payload?: { reference?: number; threshold?: number };
+        error?: { code?: string; message?: string };
+      };
       try {
         response = (await sendCommandAsync(tuner.subscribe(trackGuid))) as typeof response;
       } catch {
         return; // not connected, or no answer: the page re-subscribes on reconnect
       }
-      if (!response?.success || useReaperStore.getState().tunerSubscribedGuid !== trackGuid) return;
-      const reported = response.payload;
-      if (typeof reported?.reference !== 'number' || typeof reported?.threshold !== 'number') return;
+      if (useReaperStore.getState().tunerSubscribedGuid !== trackGuid) return;
+      let current: { referenceHz: number; thresholdDb: number };
+      if (response?.success) {
+        const reported = response.payload;
+        if (typeof reported?.reference !== 'number' || typeof reported?.threshold !== 'number') return;
+        current = { referenceHz: reported.reference, thresholdDb: reported.threshold };
+      } else {
+        const code = response?.error?.code;
+        const message = response?.error?.message;
+        if (code && message) setTunerProblem({ code, message });
+        // Refused for its record input (INPUT_*), the phone still follows the
+        // track, and REAPER keeps its settings for when the input can be
+        // tuned: send every saved one, as REAPER says none of its own.
+        if (!code?.startsWith('INPUT_')) return;
+        current = { referenceHz: NaN, thresholdDb: NaN };
+      }
 
       // 3. The saved settings that differ from the tuner's
-      for (const [param, value] of savedSettingsToSend(tunerKind(trackGuid), {
-        referenceHz: reported.reference,
-        thresholdDb: reported.threshold,
-      })) {
+      for (const [param, value] of savedSettingsToSend(tunerKind(trackGuid), current)) {
         if (param === 'reference') setTunerReferenceHz(value);
         else setTunerThresholdDb(value);
         sendCommand(tuner.setParam(trackGuid, param, value));
       }
     },
-    [sendCommand, sendCommandAsync, setTunerSubscription, setTunerReferenceHz, setTunerThresholdDb]
+    [sendCommand, sendCommandAsync, setTunerSubscription, setTunerReferenceHz, setTunerThresholdDb, setTunerProblem]
   );
 
   // Unsubscribe from tuner
@@ -169,6 +193,8 @@ export function useTuner(): UseTunerReturn {
     cents,
     conf,
     inTune,
+    state,
+    problem,
     referenceHz,
     setReferenceHz,
     thresholdDb,
