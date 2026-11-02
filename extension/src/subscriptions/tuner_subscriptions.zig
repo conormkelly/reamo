@@ -19,6 +19,7 @@ const constants = @import("../core/constants.zig");
 const project = @import("../state/project.zig");
 const audio_hook = @import("../audio/audio_hook.zig");
 const master_tuner = @import("master_tuner.zig");
+const tuner_worker = @import("tuner_worker.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -570,8 +571,8 @@ pub const TunerSubscriptions = struct {
     pub fn heldToRange(param: TunerParam, value: f64) ?f64 {
         if (!std.math.isFinite(value)) return null;
         return switch (param) {
-            .reference => std.math.clamp(value, master_tuner.reference_min_hz, master_tuner.reference_max_hz),
-            .threshold => std.math.clamp(value, master_tuner.silence_min_db, master_tuner.silence_max_db),
+            .reference => std.math.clamp(value, tuner_worker.reference_min_hz, tuner_worker.reference_max_hz),
+            .threshold => std.math.clamp(value, tuner_worker.silence_min_db, tuner_worker.silence_max_db),
             else => null,
         };
     }
@@ -787,7 +788,7 @@ test "two phones on the master share it; it stays open until both leave" {
     try std.testing.expectEqual(@as(u8, 2), rig.subs.master.subscribers);
     try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
     try rig.subs.setParam(MASTER_GUID, .threshold, -50, &rig.cache, &rig.api);
-    try std.testing.expectEqual(@as(f64, -50), rig.subs.master.settings.silence_db);
+    try std.testing.expectEqual(@as(f64, -50), rig.subs.master.snapshot().settings.silence_db);
 
     // Phone 1 subscribing again to the master is a resubscribe, not a third phone.
     _ = try rig.sub(1);
@@ -795,7 +796,7 @@ test "two phones on the master share it; it stays open until both leave" {
 
     rig.subs.removeClient(1, &rig.api); // phone 1's connection drops
     try std.testing.expect(rig.subs.master.isOpen() and rig.hook.holds(.tuner));
-    try std.testing.expectEqual(@as(f64, -50), rig.subs.master.settings.silence_db);
+    try std.testing.expectEqual(@as(f64, -50), rig.subs.master.snapshot().settings.silence_db);
     rig.subs.unsubscribe(2, &rig.api);
     try std.testing.expect(!rig.subs.master.isOpen() and !rig.hook.registered);
 }
@@ -854,10 +855,10 @@ test "a phone subscribing again to the master it is on keeps the tuner and its s
 
     _ = try rig.sub(1);
     try rig.subs.setParam(MASTER_GUID, .reference, 442, &rig.cache, &rig.api);
-    const analysis = rig.subs.master.analysis;
+    const analysis = rig.subs.master.worker.analysis;
     const r = try rig.sub(1); // the page re-sends its subscribe, e.g. after a re-render
     try std.testing.expectEqual(@as(f32, 442), r.reference_hz);
-    try std.testing.expectEqual(analysis, rig.subs.master.analysis);
+    try std.testing.expectEqual(analysis, rig.subs.master.worker.analysis);
     try std.testing.expectEqual(@as(u8, 1), rig.subs.master.subscribers);
     try std.testing.expectEqual(@as(u32, 1), rig.api.audio_hook_registers);
     try std.testing.expectEqual(@as(u32, 0), rig.api.audio_hook_unregisters);
