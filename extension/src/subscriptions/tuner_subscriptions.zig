@@ -1456,6 +1456,62 @@ test "the master and track tuners on inputs share the one hook registration" {
     try std.testing.expect(!rig.hook.registered);
 }
 
+/// A mock method that changes REAPER (FX, tracks, items, transport, the
+/// undo history, the project), by its name: only reads are left out.
+fn writesToReaper(name: []const u8) bool {
+    const prefixes = [_][]const u8{ "set", "clear", "insert", "delete", "undo", "do", "csurf", "toggle", "run", "add", "update", "move", "create", "remove", "send", "markDirty", "midiEditorOnCommand" };
+    for (prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
+    const infixes = [_][]const u8{ "Set", "Delete", "Add", "Copy", "Navigate", "Toggle" };
+    for (infixes) |i| if (std.mem.indexOf(u8, name, i) != null) return true;
+    return false;
+}
+
+test "no tuner path changes REAPER: no FX, no undo point, no project change, whatever the phones do" {
+    const Method = @import("../reaper/mock/state.zig").Method;
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    _ = try rig.sub(1, "{T1}");
+    _ = try rig.sub(1, "{T1}"); // the page re-sends its subscribe
+    try rig.subs.setParam("{T1}", .reference, 442, &rig.cache, &rig.api);
+    try rig.subs.setParam("{T1}", .threshold, -60, &rig.cache, &rig.api);
+    _ = try rig.sub(2, "{T2}");
+    _ = try rig.sub(3, "{T3}"); // shares the guitar's input
+    _ = try rig.sub(4, MASTER_GUID);
+    try rig.subs.setParam(MASTER_GUID, .reference, 441, &rig.cache, &rig.api);
+    rig.subs.beginPoll();
+    for ([_]usize{ 1, 2, 3, 4 }) |client| _ = try polledPayload(&rig, client, arena.allocator());
+    rig.setInput(1, 3); // the bass moves input
+    _ = rig.refresh(1);
+    rig.setInput(1, 4096); // then to MIDI
+    _ = rig.refresh(1);
+    rig.setInput(1, -1);
+    try std.testing.expectError(error.InputNone, rig.sub(1, "{T1}"));
+    rig.setInput(1, 0);
+    _ = rig.refresh(1);
+    _ = try rig.sub(2, MASTER_GUID); // a phone moves from a track to the master
+    _ = try rig.sub(4, "{T2}"); // and one from the master to a track
+    rig.subs.unsubscribe(3, &rig.api);
+    rig.subs.removeClient(2, &rig.api); // a connection drops
+    rig.subs.removeAllClients(&rig.api); // REAPER quits
+
+    try std.testing.expect(rig.api.call_count < @import("../reaper/mock/mod.zig").MAX_CALLS); // every call was logged
+    inline for (@typeInfo(Method).@"enum".fields) |f| {
+        if (writesToReaper(f.name)) {
+            const n = rig.api.getCallCount(@field(Method, f.name));
+            if (n != 0) std.debug.print("the tuner called {s} {d} times\n", .{ f.name, n });
+            try std.testing.expectEqual(@as(usize, 0), n);
+        }
+    }
+    // The name filter catches the calls an FX in the project would need.
+    try std.testing.expect(writesToReaper("trackFxAddByName") and writesToReaper("trackFxDelete") and
+        writesToReaper("trackFxCopyToTrack") and writesToReaper("trackFxSetParamNormalized") and writesToReaper("undoBeginBlock"));
+    try std.testing.expect(!writesToReaper("getTrackRecInput") and !writesToReaper("trackFxGetGuid"));
+}
+
 test "a phone moving from a track to the master leaves its input" {
     var rig: InputRig = undefined;
     try rig.init();
