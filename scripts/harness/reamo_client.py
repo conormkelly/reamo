@@ -63,11 +63,10 @@ def skip_before_lanes(c, command, **params):
 
 
 # What a run was built from: the extension binary and the installer
-# (EXT_DIR), the frontend (WEB_DIR) and REAmo's effects (EFFECTS_DIR).
+# (EXT_DIR) and the frontend (WEB_DIR).
 # The container mounts them; the Windows runner stages them and says where.
 EXT_DIR = os.environ.get("HARNESS_EXT", "/ext")
 WEB_DIR = os.environ.get("HARNESS_WEB", "/reamo")
-EFFECTS_DIR = os.environ.get("HARNESS_EFFECTS", "/effects")
 BINARY_NAME = "reaper_reamo.dll" if WINDOWS else "reaper_reamo.so"
 
 HOST = "127.0.0.1"

@@ -71,7 +71,7 @@ fi
 
 docker run -d --name "$name" --network none --label reamo.harness=v1 \
     -v "$OUT/harness:/harness:ro" -v "$OUT:/ext:ro" -v "$ROOT/reamo:/reamo:ro" \
-    -v "$ROOT/extension/effects:/effects:ro" -v "$ROOT/test-fixtures:/fixtures:ro" \
+    -v "$ROOT/test-fixtures:/fixtures:ro" \
     -v "$HERE/out:/out" ${lic_mount[@]+"${lic_mount[@]}"} \
     -e HARNESS_SCENARIO_DIR=/harness/ws-integration -e HARNESS_OUT_DIR=ws-integration \
     "$image" bash /harness/boot.sh ws-integration >/dev/null

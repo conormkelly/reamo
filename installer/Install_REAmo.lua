@@ -283,20 +283,8 @@ else
   errors[#errors + 1] = "Web frontend folder not found.\n(Expected at: " .. web_src .. ")"
 end
 
--- 3. JSFX tuner → Effects/REAmo/
-local jsfx_src = script_dir .. sep .. "effects" .. sep .. "REAmo" .. sep .. "PitchDetect.jsfx"
-local jsfx_dst_dir = resource_path .. sep .. "Effects" .. sep .. "REAmo"
-local jsfx_data = read_file(jsfx_src)
-if jsfx_data then
-  ensure_dir(jsfx_dst_dir)
-  if write_file(jsfx_dst_dir .. sep .. "PitchDetect.jsfx", jsfx_data) then
-    installed[#installed + 1] = "Tuner JSFX: PitchDetect.jsfx"
-  else
-    errors[#errors + 1] = "Cannot write " .. jsfx_dst_dir .. sep .. "PitchDetect.jsfx"
-  end
-else
-  errors[#errors + 1] = "Tuner JSFX not found.\n(Expected at: " .. jsfx_src .. ")"
-end
+-- Effects/REAmo/PitchDetect.jsfx, the tuner of versions before 0.9.0, is
+-- left where it is: projects saved while that tuner was open still load it.
 
 ------------------------------------------------------------------------
 -- Results

@@ -157,7 +157,7 @@ test-e2e: ## Frontend E2E tests (Playwright; starts Vite on 5173, or reuses one 
 test-extension: zig-version ## Extension unit tests (zig build test)
 	cd extension && "$(ZIG)" build test $(ZIG_TEST_OPTIMIZE)
 
-tuner-bench: zig-version ## Tuner pitch analyser on synthetic signals: accuracy and CPU, against the JSFX (ReleaseFast)
+tuner-bench: zig-version ## Tuner pitch analyser on synthetic signals: accuracy and CPU, against the old tuner JSFX (ported) (ReleaseFast)
 	cd extension && "$(ZIG)" build tuner-bench -Doptimize=ReleaseFast
 
 tuner-targets: zig-version ## Tuner pitch analyser against its accuracy targets on strings with known first partials (ReleaseFast)

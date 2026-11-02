@@ -49,17 +49,17 @@ Option B: Manual uninstall
   WINDOWS:
     C:\Users\<you>\AppData\Roaming\REAPER\UserPlugins\reaper_reamo.dll
     C:\Users\<you>\AppData\Roaming\REAPER\reaper_www_root\reamo\
-    C:\Users\<you>\AppData\Roaming\REAPER\Effects\REAmo\
+    C:\Users\<you>\AppData\Roaming\REAPER\Effects\REAmo\   (versions before 0.9.0)
 
   macOS:
     ~/Library/Application Support/REAPER/UserPlugins/reaper_reamo.dylib
     ~/Library/Application Support/REAPER/reaper_www_root/reamo/
-    ~/Library/Application Support/REAPER/Effects/REAmo/
+    ~/Library/Application Support/REAPER/Effects/REAmo/   (versions before 0.9.0)
 
   LINUX:
     ~/.config/REAPER/UserPlugins/reaper_reamo.so
     ~/.config/REAPER/reaper_www_root/reamo/
-    ~/.config/REAPER/Effects/REAmo/
+    ~/.config/REAPER/Effects/REAmo/   (versions before 0.9.0)
 
   PORTABLE INSTALL (any OS):
     Same paths, but inside your portable REAPER folder.

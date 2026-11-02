@@ -130,10 +130,9 @@ jobs:
           EXT_DEST: ${{ matrix.ext_dest }}
         run: |
           DIR="REAmo-v${VERSION}-${PLATFORM}"
-          mkdir -p "${DIR}/reamo" "${DIR}/effects/REAmo"
+          mkdir -p "${DIR}/reamo"
           cp "extension/zig-out/${EXT_DIR}/${EXT_LIB}" "${DIR}/${EXT_DEST}"
           cp -r reamo/* "${DIR}/reamo/"
-          cp extension/effects/REAmo/PitchDetect.jsfx "${DIR}/effects/REAmo/"
           cp installer/Install_REAmo.lua "${DIR}/"
           cp installer/Uninstall_REAmo.lua "${DIR}/"
           cp installer/README.txt "${DIR}/"
