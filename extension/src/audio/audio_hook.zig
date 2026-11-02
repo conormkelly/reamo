@@ -77,9 +77,13 @@ pub const TapHandle = struct { index: u8, tag: u32 };
 
 pub const OpenTapError = error{ NoFreeTap, AudioHookFailed };
 
+/// Every field's default is zero, so g_hook, about 5 MB of rings, is
+/// zero-fill and adds nothing to the extension's file; a non-zero default
+/// anywhere in it puts the whole of it in the file's data.
 pub const Hook = struct {
-    /// The registration REAPER holds a pointer to while registered.
-    reg: raw.AudioHookRegister = .{ .OnAudioBuffer = onAudioBuffer },
+    /// The registration REAPER holds a pointer to while registered. Its
+    /// callback is set as it is registered.
+    reg: raw.AudioHookRegister = .{},
     /// The users holding the hook, as a set of `User` bits. Written on the
     /// main thread, read by the audio thread at each post callback.
     users: std.atomic.Value(u8) = std.atomic.Value(u8).init(0),
@@ -114,6 +118,7 @@ pub const Hook = struct {
             self.tuner_ring.reset();
             for (&self.taps) |*tap| tap.ring.reset();
             self.users.store(held | bit, .release);
+            self.reg.OnAudioBuffer = onAudioBuffer;
             if (!api.registerAudioHook(&self.reg)) {
                 self.users.store(held, .release);
                 return false; // the caller logs it, with its context
@@ -380,10 +385,10 @@ pub const FakeDevice = struct {
         for (&in, 0..) |*ch, i| {
             if (i < ins.len) @memcpy(ch[0..len], ins[i]) else @memset(ch[0..len], 0);
         }
-        hook.reg.OnAudioBuffer(false, @intCast(len), srate, &hook.reg);
+        onAudioBuffer(false, @intCast(len), srate, &hook.reg);
         @memset(out[0][0..len], 0);
         @memset(out[1][0..len], 0);
-        hook.reg.OnAudioBuffer(true, @intCast(len), srate, &hook.reg);
+        onAudioBuffer(true, @intCast(len), srate, &hook.reg);
     }
 
     /// One audio block as REAPER runs it: the pre callback, the mixer
@@ -391,10 +396,10 @@ pub const FakeDevice = struct {
     pub fn block(hook: *Hook, left: []const f64, right: []const f64, srate: f64) void {
         hook.reg.GetBuffer = getBuffer;
         const len: c_int = @intCast(left.len);
-        hook.reg.OnAudioBuffer(false, len, srate, &hook.reg);
+        onAudioBuffer(false, len, srate, &hook.reg);
         @memcpy(out[0][0..left.len], left);
         @memcpy(out[1][0..right.len], right);
-        hook.reg.OnAudioBuffer(true, len, srate, &hook.reg);
+        onAudioBuffer(true, len, srate, &hook.reg);
     }
 };
 
@@ -550,7 +555,7 @@ test "the pre callback zeroes outputs 0/1 before the mixer runs" {
     hook.reg.GetBuffer = FakeDevice.getBuffer;
     @memset(&FakeDevice.out[0], 0.9);
     @memset(&FakeDevice.out[1], 0.9);
-    hook.reg.OnAudioBuffer(false, 16, 48000, &hook.reg);
+    onAudioBuffer(false, 16, 48000, &hook.reg);
     for (FakeDevice.out[0][0..16]) |s| try testing.expectEqual(@as(f64, 0), s);
     for (FakeDevice.out[1][0..16]) |s| try testing.expectEqual(@as(f64, 0), s);
 }

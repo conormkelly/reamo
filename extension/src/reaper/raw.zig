@@ -34,7 +34,9 @@ pub const PluginInfo = extern struct {
 pub const AudioHookRegister = extern struct {
     /// Called twice per audio buffer: isPost=false (before processing), isPost=true (after).
     /// REAL-TIME THREAD — no allocations, no locks, no I/O.
-    OnAudioBuffer: *const fn (isPost: bool, len: c_int, srate: f64, reg: *AudioHookRegister) callconv(.c) void,
+    /// Null until set, which it must be before registering: optional so a
+    /// registration can start as all zeros (audio_hook.zig's g_hook).
+    OnAudioBuffer: ?*const fn (isPost: bool, len: c_int, srate: f64, reg: *AudioHookRegister) callconv(.c) void = null,
     userdata1: ?*anyopaque = null,
     userdata2: ?*anyopaque = null,
     /// Set by host — number of input/output channels available.
