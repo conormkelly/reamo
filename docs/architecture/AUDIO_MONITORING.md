@@ -8,7 +8,7 @@ Code: `extension/src/audio/` (`audio_hook.zig`, `ring_buffer.zig`, `stream.zig`,
 
 - **Audio thread:** `Audio_RegHardwareHook` callback (`audio_hook.zig`). On `isPost=true` it reads `GetBuffer(true, 0)` and `GetBuffer(true, 1)` (non-interleaved f64), converts to interleaved i16 and writes to a lock-free SPSC ring buffer. No allocation, locks, I/O or logging.
 - **Ring buffer:** 24000 stereo pairs (~500 ms at 48 kHz). When full, the whole new block is dropped (never a partial write, never moving the reader) and `overflow_count` goes up.
-- **Network thread** (`stream.zig`): spawned with the first subscriber, joined when the last one leaves; the hook is registered and unregistered with it. Waits for at least 5 ms of audio, reads up to 10 ms, and sends one binary frame to each subscriber.
+- **Network thread** (`stream.zig`): spawned with the first subscriber, joined when the last one leaves; it holds the hook meanwhile. The hook is shared with the tuners (the master's on outputs 0/1, each track tuner's input tap in the pre callback) and registered while any of them holds it. Waits for at least 5 ms of audio, reads up to 10 ms, and sends one binary frame to each subscriber.
 - **Frame:** 5-byte header (type byte `0x01`, u32 LE sequence) then interleaved i16 stereo. No per-frame position or sample rate: `audio/startStream`'s response carries the sample rate.
 - **Silence gate:** a frame whose samples all stay below 8/32768 (~-72 dBFS) isn't sent; the client's jitter buffer drains and plays true silence.
 - **Limits:** `MAX_AUDIO_CLIENTS = 4`.
@@ -28,6 +28,8 @@ Code: `extension/src/audio/` (`audio_hook.zig`, `ring_buffer.zig`, `stream.zig`,
 - The hook keeps firing when the transport is stopped. The pre-callback zeroes the output buffers so a stopped transport gives silence rather than stale data repeating as a buzz; live input monitoring still comes through.
 - It survives device, sample-rate and buffer-size changes without re-registering: read `len`, `srate` and channel counts on every call, never cache them.
 - Only call `GetBuffer` inside the callback. REAPER may not set `output_nch` in the struct, so the code asks for channels 0 and 1 and null-checks instead.
+- `GetBuffer(false, i)` gives hardware input i, live, in both callbacks, whether a track is armed or not, stopped or playing; none at or past `GetNumAudioInputs()`. `input_nch` is 0. A track's mono record input n (`I_RECINPUT`) is input n; a stereo pair (1024 + n) is n and n + 1. Measured on 7.83 under JACK; ReaRoute, loopback and multichannel inputs are untested.
+- With "close audio device when stopped" on, there are no callbacks at all while stopped, and `Audio_IsRunning()` and `GetNumAudioInputs()` read 0 (7.83 under JACK).
 - Struct definition: `docs/reaper_plugin.h` (`audio_hook_register_t`).
 
 ## Deliberately not done
