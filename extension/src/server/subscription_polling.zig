@@ -291,7 +291,9 @@ fn tunerErrorJson(comptime code: []const u8) []const u8 {
 /// Poll tuner subscriptions and broadcast pitch detection data.
 /// Per-client single-track subscriptions with auto-unsubscribe on failure.
 /// The master tuner, and a track tuner on its input, send the latest reading
-/// their analysis thread published, with what the tuner can hear (`state`).
+/// their analysis thread published, with what the tuner can hear (`state`):
+/// a change at once, and a reading that holds again every
+/// tuner_subscriptions.resend_interval_ms (TunerSubscriptions.shouldSend).
 pub fn pollTunerSubscriptions(
     ctx: *const PollingContext,
     tuner_subs: *tuner_subscriptions.TunerSubscriptions,
@@ -302,6 +304,7 @@ pub fn pollTunerSubscriptions(
     // shows would be true.
     const device_open = ctx.backend.isAudioRunning();
     tuner_subs.beginPoll();
+    const now_ms = tuner_subs.nowMs();
 
     var iter = tuner_subs.activeSubscriptions();
     while (iter.next()) |entry| {
@@ -318,7 +321,7 @@ pub fn pollTunerSubscriptions(
             },
             .event => |json| {
                 tuner_subs.resetFailures(entry.client_id);
-                if (tuner_subs.checkChanged(entry.slot, tuner_generator.hashTunerEvent(json))) {
+                if (tuner_subs.shouldSend(entry.slot, tuner_generator.hashTunerEvent(json), now_ms)) {
                     ctx.shared_state.sendToClient(entry.client_id, json);
                 }
             },

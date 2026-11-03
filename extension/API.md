@@ -2898,7 +2898,7 @@ Subscribe to the tuner on a track, or on the master.
 - Each client can subscribe to one tuner at a time; subscribing auto-unsubscribes from the previous one. Subscribing again to the same track keeps the tuner and its settings.
 - `fxGuid` is always `""` (no plugin is inserted); kept for older pages.
 - `reference` and `threshold` are the source's current settings: the defaults (440, -90) for a new one, another phone's for a shared one.
-- After subscribing, receive `tuner` events at 30Hz (see below). Each poll checks the track's record input again: a phone follows its track to a new input.
+- After subscribing, receive `tuner` events (see below): each change at once, and a reading that holds again every 250 ms. Each poll checks the track's record input again: a phone follows its track to a new input.
 
 **Errors** (a track whose record input can't be tuned; each with a message for the phone to show). After an `INPUT_*` refusal the client still follows the track: its `tuner` events say `cantTune` with the reason, and tuning starts when the track's input can be tuned. The other errors leave the client unsubscribed:
 
@@ -2943,7 +2943,7 @@ Values outside the range are held to it; a value that isn't a finite number is r
 
 ### `tuner` Event
 
-Sent to subscribed clients at 30Hz with pitch detection data.
+Sent to subscribed clients with pitch detection data: each change at the next poll (30 Hz), and a reading that holds again every 250 ms.
 
 ```json
 {
@@ -2991,7 +2991,7 @@ Sent to subscribed clients at 30Hz with pitch detection data.
 
 **Notes:**
 
-- Events are only sent when data changes (hash-based change detection)
+- A change is sent at the next poll (30 Hz). A reading that holds (silence, a steady tone, a state) is sent again every 250 ms, so a client can tell it from a connection or a REAPER that has stopped sending.
 - No reading is sent while `state` is `"deviceClosed"` or `"cantTune"`
 
 ### `tunerError` Event
