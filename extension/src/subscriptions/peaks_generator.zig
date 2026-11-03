@@ -120,7 +120,6 @@ fn fetchItemPeaksViaTakePeaksAPI(
     // Allocate output buffers
     const data_size = peaks_to_use * actual_channels;
     const peak_min = allocator.alloc(f64, data_size) catch return null;
-    errdefer allocator.free(peak_min);
 
     const peak_max = allocator.alloc(f64, data_size) catch {
         allocator.free(peak_min);
@@ -134,7 +133,7 @@ fn fetchItemPeaksViaTakePeaksAPI(
     // The min block starts at num_peaks * request_channels, the count asked for,
     // even when REAPER returns fewer peaks (an item past its audio, loop off);
     // the slots between the returned maxes and the min block stay unwritten.
-    // Measured on REAPER 6.0 and 7.83 (harness: peaks-item-past-its-source-end-matches-reaper).
+    // Measured on REAPER 6.0 and 7.83 on Linux (harness: peaks-item-past-its-source-end-matches-reaper).
     const reaper_block_size = num_peaks * request_channels;
     for (0..peaks_to_use) |p| {
         for (0..actual_channels) |ch| {
