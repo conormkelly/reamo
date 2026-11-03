@@ -6,7 +6,8 @@ armed and monitor their input, so both reach the master while stopped. One
 phone tunes the master; the transport stays stopped and the device running
 throughout.
 - Guitar alone: A3 plucked on input 2 reads A3 on the master, with stable
-  readings within 1 cent of the frequency fed, nothing flagged multiple.
+  readings within 1 cent of the frequency fed, nothing flagged multiple
+  but through a gap an xrun left in the input (tuner_phone.check_note).
 - Guitar not monitoring (I_RECMON 0): the same pluck reaches no output, and
   the master shows no note. So the readings above came through REAPER's
   monitoring and the master, not from the input itself.
@@ -54,14 +55,17 @@ def stopped_and_running(when):
 
 def pluck(f, phone, when):
     """Pluck A3 on Guitar's input and read the master for 2.4 s, then
-    silence the input; returns the frequency plucked."""
+    silence the input; returns the frequency plucked and the feeder's
+    xruns meanwhile."""
     stopped_and_running(when)
     phone.mark()
+    xruns = f.stats()["xruns"]
     fed = f.pluck(1, 220.0, 0.8, decay=2.0)
     watch([phone], 2.4)
+    xruns = f.stats()["xruns"] - xruns
     f.silence(1)
     stopped_and_running(when)
-    return fed
+    return fed, xruns
 
 
 def monitor_guitar(on):
@@ -81,10 +85,10 @@ with Client() as c, Feeder() as f:
 
     for k in range(2):
         when = f"Guitar alone, pluck {k + 1}"
-        fed = pluck(f, master, when)
-        print(f"--- {when}: A3 {fed:.4f} Hz on input 2")
+        fed, xruns = pluck(f, master, when)
+        print(f"--- {when}: A3 {fed:.4f} Hz on input 2, {xruns} xruns")
         before = len(problems)
-        check_note(master, fed, problems, alone=True)
+        check_note(master, fed, problems, alone=True, xruns=xruns)
         problems[before:] = [f"{when}: {p}" for p in problems[before:]]
 
     # Each pluck's input is silenced once it has been read, so switching

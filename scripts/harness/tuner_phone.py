@@ -12,6 +12,12 @@ import math
 import time
 
 A4 = 440.0
+# The most readings one 256-sample block missing from a single note's input
+# flags `multiple`. Measured by replaying the analyser's input, captured
+# from these scenarios, with one block cut out every 1024 samples from onset
+# to tail: of 233 places in an A3 and an E1 pluck, 16 flagged none, 169 one
+# and 48 two.
+GAP_MULTIPLE = 2
 
 
 def midi_note(freq, ref=A4):
@@ -87,16 +93,23 @@ def watch(phones, seconds):
             p.pump(0.02)
 
 
-def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=(), alone=False):
+def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=(), alone=False, xruns=0):
     """Since mark(): every stable reading (the reading to tune by) names the
     note of `freq` within `max_cents`, and no reading at all names a note in
     `never` (another input's, for crosstalk); with `alone`, no reading is
-    flagged `multiple` (the analyser hearing several notes). An unstable reading of some
-    other note is reported, not failed: jackd runs here without realtime
-    scheduling, and a 256-sample block it drops (an xrun) is a gap in the
-    input that the analyser can briefly read as another note, as it does on
-    a plucked E1 (F1, or around 22 Hz; never stable). On clean input it
-    doesn't. Problems are appended."""
+    flagged `multiple` (the analyser hearing several notes). Problems are
+    appended.
+
+    jackd runs here without realtime scheduling, and a 256-sample block it
+    drops (an xrun) is a gap in the input. Through a gap the analyser can
+    briefly read another note, as it does on a plucked E1 (F1, or around
+    22 Hz; never stable), so an unstable reading of another note is
+    reported, not failed. A gap also flags `multiple` on up to
+    GAP_MULTIPLE readings, with the note or with none, almost wherever it
+    lands in a note; on clean input nothing is flagged. So with `alone`,
+    pass `xruns`, the feeder's xruns since mark() (stats()["xruns"]): up to
+    GAP_MULTIPLE flagged readings per xrun are reported, not failed, and
+    more than that fail."""
     got = phone.pitched()
     want = midi_note(freq)
     stable = [p for p in got if p.get("stable")]
@@ -117,8 +130,12 @@ def check_note(phone, freq, problems, min_readings=5, max_cents=1.0, never=(), a
                         f"{[(p['note'], p['freq']) for p in wrong[:5]]}")
     if heard:
         problems.append(f"{phone.name}: readings of another input's note {list(never)}: {heard[:5]}")
-    if several:
-        problems.append(f"{phone.name}: {len(several)} readings flagged multiple, hearing more than its own: {several[:5]}")
+    if several and len(several) <= GAP_MULTIPLE * xruns:
+        print(f"{phone.name}: {len(several)} readings flagged multiple, with {xruns} xruns in the "
+              f"window (not failed): {several[:5]}")
+    elif several:
+        problems.append(f"{phone.name}: {len(several)} readings flagged multiple, hearing more than its own "
+                        f"({xruns} xruns in the window): {several[:5]}")
     if not stable:
         problems.append(f"{phone.name}: no stable reading of {freq:.2f} Hz")
     if off:

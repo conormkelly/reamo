@@ -30,22 +30,23 @@ E1, G3 = 41.2034, 195.9977
 
 def pluck_both(f, phones):
     """E1 and G3 plucked together, each left to ring out (60 dB down in
-    2 s), then 0.6 s of silence before the next."""
+    2 s), then 0.6 s of silence before the next. Returns the frequencies
+    plucked and the feeder's xruns meanwhile."""
     for p in phones:
         p.mark()
+    xruns = f.stats()["xruns"]
     fb = f.pluck(0, E1, 0.8, decay=2.0)
     fg = f.pluck(1, G3, 0.8, decay=2.0)
     watch(phones, 2.6)
-    return fb, fg
+    return fb, fg, f.stats()["xruns"] - xruns
 
 
-def check(phone, freq, problems):
-    # A phone is sent a reading only when it changes, so a held note is a
-    # few events, not 30 a second. At least one stable reading, and every
-    # stable one, is its own note; no reading names the other instrument's
-    # note or an octave either side of it, and none is flagged multiple.
+def check(phone, freq, problems, xruns):
+    # At least one stable reading, and every stable one, is its own note; no
+    # reading names the other instrument's note or an octave either side of
+    # it, and none is flagged multiple but through a gap an xrun left.
     n = midi_note(G3 if freq < 100 else E1)
-    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12), alone=True)
+    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12), alone=True, xruns=xruns)
 
 
 def taps(c):
@@ -71,10 +72,10 @@ with Client() as a, Client() as b, Feeder() as f:
     watch([pa, pb], 1.0)
 
     for k in range(3):
-        fb, fg = pluck_both(f, [pa, pb])
-        print(f"--- pluck {k + 1}: E1 {fb:.4f} Hz on input 1, G3 {fg:.4f} Hz on input 2")
-        check(pa, fb, problems)
-        check(pb, fg, problems)
+        fb, fg, xruns = pluck_both(f, [pa, pb])
+        print(f"--- pluck {k + 1}: E1 {fb:.4f} Hz on input 1, G3 {fg:.4f} Hz on input 2, {xruns} xruns")
+        check(pa, fb, problems, xruns)
+        check(pb, fg, problems, xruns)
 
     with Client() as c:
         pc = Phone(c, "C (Guitar)")
@@ -85,11 +86,11 @@ with Client() as a, Client() as b, Feeder() as f:
         if n != 2:
             problems.append(f"{n} input taps after C joined Guitar, want 2")
         for k in range(2):
-            fb, fg = pluck_both(f, [pa, pb, pc])
-            print(f"--- pluck with C {k + 1}")
-            check(pa, fb, problems)
-            check(pb, fg, problems)
-            check(pc, fg, problems)
+            fb, fg, xruns = pluck_both(f, [pa, pb, pc])
+            print(f"--- pluck with C {k + 1}, {xruns} xruns")
+            check(pa, fb, problems, xruns)
+            check(pb, fg, problems, xruns)
+            check(pc, fg, problems, xruns)
             # Against everything B has had: the phones are read in turn, so
             # a poll's events can reach one inside a window and the other
             # just outside it.
