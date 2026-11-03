@@ -2991,7 +2991,7 @@ Sent to subscribed clients with pitch detection data: each change at the next po
 
 **Notes:**
 
-- A change is sent at the next poll (30 Hz). A reading that holds (silence, a steady tone, a state) is sent again every 250 ms, so a client can tell it from a connection or a REAPER that has stopped sending.
+- A change is sent at the next poll (30 Hz). A reading that holds (silence, a steady tone, a state) is sent again every 250 ms, so a client can tell it from a connection or a REAPER that has stopped sending: the web UI takes a reading as gone after 750 ms without an event, and shows "Waiting for REAPER…" in its place.
 - No reading is sent while `state` is `"deviceClosed"` or `"cantTune"`
 
 ### `tunerError` Event

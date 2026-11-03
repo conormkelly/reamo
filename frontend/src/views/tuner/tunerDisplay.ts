@@ -12,6 +12,9 @@
  *   dimmed with no name, and there is no needle, as there is no pitch.
  * - settling: the note's attack; its name is known, the cents not yet.
  * - multiple: several notes sound; the reading, if any, is one of them.
+ *
+ * A reading no longer arriving (`stale`) shows nothing of it: no note, no
+ * needle, no verdict. Nor does the time before the first event (`heard`).
  */
 
 export interface DisplayInput {
@@ -29,6 +32,10 @@ export interface DisplayInput {
   problem: string | null;
   /** REAPER's audio device isn't running */
   deviceClosed: boolean;
+  /** An event has come since subscribing */
+  heard: boolean;
+  /** No event has come for a while: the reading may no longer be true */
+  stale: boolean;
 }
 
 /** How the note shows: no note, a note on its way (dimmed, no name), a note, a note in tune. */
@@ -61,6 +68,8 @@ export const DEVICE_CLOSED_TEXT = "REAPER's audio device isn't running. If it cl
 export const SEVERAL_NOTES_TEXT = 'Several notes — let one string ring';
 export const STARTING_TEXT = 'Hearing a note…';
 export const NO_INPUT_TEXT = 'No input detected';
+/** True whether the connection or REAPER's main thread has stalled. */
+export const WAITING_TEXT = 'Waiting for REAPER…';
 
 /** A stable reading this close (in cents) but not in tune shows as close; further, as off. */
 const CLOSE_CENTS = 10;
@@ -76,22 +85,27 @@ export function tunerDisplay(r: DisplayInput): TunerDisplay {
   return { ...shown, spoken: shown.message !== null && !passing ? shown.message : (shown.announcement ?? '') };
 }
 
+const NOTHING = { note: 'none', needle: 'hidden', announcement: null } as const;
+
 function looks(r: DisplayInput): Omit<TunerDisplay, 'spoken'> {
+  // REAPER's reason, from a refused subscribe or the last event, stays.
+  if (r.problem) return { ...NOTHING, message: r.problem };
+  if (r.stale) return { ...NOTHING, message: WAITING_TEXT };
+  if (!r.heard) return { ...NOTHING, message: '' };
+
   const pitched = r.freq > 0;
-  const message = r.problem
-    ? r.problem
-    : r.deviceClosed
-      ? DEVICE_CLOSED_TEXT
-      : r.multiple
-        ? SEVERAL_NOTES_TEXT
-        : r.starting && !pitched
-          ? STARTING_TEXT
-          : pitched
-            ? null
-            : NO_INPUT_TEXT;
+  const message = r.deviceClosed
+    ? DEVICE_CLOSED_TEXT
+    : r.multiple
+      ? SEVERAL_NOTES_TEXT
+      : r.starting && !pitched
+        ? STARTING_TEXT
+        : pitched
+          ? null
+          : NO_INPUT_TEXT;
 
   if (!pitched) {
-    const starting = r.starting && !r.problem && !r.deviceClosed;
+    const starting = r.starting && !r.deviceClosed;
     return { note: starting ? 'starting' : 'none', needle: 'hidden', message, announcement: null };
   }
 

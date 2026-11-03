@@ -7,7 +7,8 @@
  * - Cents deviation meter (-50 to +50)
  * - Frequency, or what stands in for it: why the track's input can't be
  *   tuned (REAPER's own message), that REAPER's audio device isn't
- *   running, that several notes sound, or that a note is starting
+ *   running, that several notes sound, that a note is starting, or that
+ *   readings have stopped arriving
  * - Source selector: the master output, then the tracks (defaults to the
  *   first track). Choosing the source already chosen asks REAPER again,
  *   after the user has fixed its input.
@@ -80,6 +81,8 @@ export function TunerView(): ReactElement {
     stable,
     multiple,
     state,
+    heard,
+    stale,
     problem,
     referenceHz,
     setReferenceHz,
@@ -109,6 +112,8 @@ export function TunerView(): ReactElement {
     multiple,
     problem: problem?.message ?? null,
     deviceClosed: state === 'deviceClosed',
+    heard,
+    stale,
   });
 
   const spoken = useSettled(display.spoken, SPOKEN_SETTLE_MS);
@@ -229,7 +234,7 @@ export function TunerView(): ReactElement {
               A screen reader is told only what tunerDisplay says to speak,
               once it has held (useSettled): not the frequency, which
               changes 30 times a second, nor a verdict wavering at an edge. */}
-          <div className="text-text-muted text-sm text-center max-w-xs">
+          <div className="text-text-muted text-sm text-center max-w-xs min-h-5">
             {display.message ?? <span className="tabular-nums">{freq.toFixed(2)} Hz</span>}
             <div role="status" className="sr-only">
               {spoken}

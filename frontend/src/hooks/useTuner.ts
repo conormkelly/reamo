@@ -19,10 +19,10 @@
  * ```
  */
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useReaperStore } from '../store';
 import type { TunerProblem } from '../store/slices/tunerSlice';
-import type { TunerState } from '../core/WebSocketTypes';
+import { TUNER_RESEND_MS, type TunerState } from '../core/WebSocketTypes';
 import { useReaper } from './useReaper';
 import { tuner } from '../core/WebSocketCommands';
 import {
@@ -31,6 +31,17 @@ import {
   saveThresholdDb,
   tunerKind,
 } from '../views/tuner/tunerStorage';
+
+/**
+ * How long without a tuner event before the reading is taken as gone: three
+ * of the backend's resends of a reading that holds. Shorter, and Wi-Fi
+ * power saving, which can hold a phone's packets for a few hundred ms,
+ * would blank a steady screen; longer, and a stalled REAPER or connection
+ * keeps a reading, green included, on screen for longer. A sounding note
+ * is sent at up to 30 Hz, so a green reading is taken as gone after about
+ * 22 missed events.
+ */
+export const TUNER_STALE_MS = 3 * TUNER_RESEND_MS;
 
 export interface UseTunerReturn {
   /**
@@ -62,6 +73,14 @@ export interface UseTunerReturn {
   multiple: boolean;
   /** What the tuner can hear (null before the first event) */
   state: TunerState | null;
+  /** Whether an event has come since subscribing: until one has, the reading is no one's */
+  heard: boolean;
+  /**
+   * No event has come for TUNER_STALE_MS (since the last, or since
+   * subscribing): the connection or REAPER has stopped sending, and the
+   * reading may no longer be true.
+   */
+  stale: boolean;
   /** Why the chosen track can't be tuned, for the screen to show */
   problem: TunerProblem | null;
   /** Reference frequency in Hz */
@@ -96,6 +115,8 @@ export function useTuner(): UseTunerReturn {
   const multiple = useReaperStore((s) => s.tunerMultiple);
   const state = useReaperStore((s) => s.tunerState);
   const problem = useReaperStore((s) => s.tunerProblem);
+  const heard = useReaperStore((s) => s.tunerHeard);
+  const eventSeq = useReaperStore((s) => s.tunerEventSeq);
   const referenceHz = useReaperStore((s) => s.tunerReferenceHz);
   const thresholdDb = useReaperStore((s) => s.tunerThresholdDb);
 
@@ -105,6 +126,17 @@ export function useTuner(): UseTunerReturn {
   const setTunerReferenceHz = useReaperStore((s) => s.setTunerReferenceHz);
   const setTunerThresholdDb = useReaperStore((s) => s.setTunerThresholdDb);
   const setTunerProblem = useReaperStore((s) => s.setTunerProblem);
+
+  // The event the stale timer last ran out on: stale while it is still the
+  // latest. A new event, or a change of subscription, moves eventSeq on, so
+  // the reading is fresh again in the same render.
+  const [expiredAt, setExpiredAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (subscribedGuid === null) return;
+    const timer = setTimeout(() => setExpiredAt(eventSeq), TUNER_STALE_MS);
+    return () => clearTimeout(timer);
+  }, [subscribedGuid, eventSeq]);
+  const stale = subscribedGuid !== null && expiredAt === eventSeq;
 
   // Subscribe to tuner on a track, then apply the settings saved on this
   // phone: before REAPER confirms, a setParam would be refused (the tuner
@@ -208,6 +240,8 @@ export function useTuner(): UseTunerReturn {
     stable,
     multiple,
     state,
+    heard,
+    stale,
     problem,
     referenceHz,
     setReferenceHz,
