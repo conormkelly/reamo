@@ -159,10 +159,27 @@ pub const Worker = struct {
     settings: pitch.Settings = .{},
     /// The latest reading; written by the worker, under `lock`.
     reading: pitch.Reading = .none,
+    /// When the worker last published, on the monotonic clock (null before
+    /// its first tick, or with no clock); written by the worker, under `lock`.
+    published: ?std.time.Instant = null,
     /// Written by the worker, read by anyone.
     outputs_reported: std.atomic.Value(OutputsReport) = std.atomic.Value(OutputsReport).init(.ok),
 
-    pub const Snapshot = struct { reading: pitch.Reading, settings: pitch.Settings };
+    pub const Snapshot = struct {
+        reading: pitch.Reading,
+        settings: pitch.Settings,
+        /// When the reading was published (Worker.published).
+        published: ?std.time.Instant = null,
+
+        /// Whether the worker published this reading more than `limit_ns`
+        /// before `now`: its thread has stopped ticking. False if either
+        /// time is unknown.
+        pub fn olderThan(self: Snapshot, now: ?std.time.Instant, limit_ns: u64) bool {
+            const at = self.published orelse return false;
+            const n = now orelse return false;
+            return n.order(at) == .gt and n.since(at) > limit_ns;
+        }
+    };
 
     /// Allocate the analyser and start the thread reading `source`, from
     /// `settings` and no reading. The ring must hold nothing this worker
@@ -214,7 +231,7 @@ pub const Worker = struct {
     pub fn snapshot(self: *Worker) Snapshot {
         self.lock.lock();
         defer self.lock.unlock();
-        return .{ .reading = self.reading, .settings = self.settings };
+        return .{ .reading = self.reading, .settings = self.settings, .published = self.published };
     }
 
     /// `s` with both settings held to the tuner's range (a non-finite one
@@ -245,8 +262,10 @@ pub const Worker = struct {
 
             const reading = analysis.tick(source.ring, source.tag, settings);
 
+            const published = std.time.Instant.now() catch null;
             self.lock.lock();
             self.reading = reading;
+            self.published = published;
             self.lock.unlock();
 
             // Keep to the 30 Hz grid; after an overrun, start a new one.

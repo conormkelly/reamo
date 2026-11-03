@@ -136,7 +136,8 @@ pub const open_retry_polls = 30;
 /// a phone couldn't tell it from a connection, or a REAPER, that has
 /// stopped sending: it would keep showing that reading, green included,
 /// until the heartbeat let the connection go. The page takes a reading as
-/// gone after a few intervals without an event (useTuner.ts). A tuner
+/// gone after a few intervals without an event (useTuner.ts). A resend
+/// goes at the first 30 Hz poll once due, so about 267 ms apart. A tuner
 /// event is about 330 bytes: about 1.3 KB/s per phone while nothing
 /// changes, against up to 10 KB/s while a note sounds and each poll's
 /// reading differs.
@@ -179,6 +180,14 @@ pub const TunerSubscriptions = struct {
 
     /// The poll's monotonic clock; null if the OS has none.
     clock: ?std.time.Timer,
+
+    /// A reading its analysis thread published longer ago than this isn't
+    /// sent (tuner_generator.analyserEvent): the thread has stopped
+    /// ticking, and resending its last reading every resend_interval_ms
+    /// would keep it, green included, fresh on the phone. 15 of the
+    /// worker's 30 Hz ticks; an overrun starts a new tick at once. Tests
+    /// shorten it.
+    worker_stall_ns: u64 = 500 * std.time.ns_per_ms,
 
     /// Free list for slot recycling
     free_slots: [MAX_CLIENTS]usize,
@@ -1420,6 +1429,35 @@ test "every phone on a source is sent the same reading in a poll, though the wor
     try std.testing.expectEqual(@as(f64, 111), (try polledPayload(&rig, 3, arena.allocator())).get("freq").?.float);
 }
 
+test "a reading from an analysis thread that has stopped publishing isn't sent, so the phone's screen goes stale" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Workers that tick once, at start, then wait: a stalled thread.
+    rig.subs.inputs.tick_ns = 60 * std.time.ns_per_s;
+    rig.subs.master.worker.tick_ns = 60 * std.time.ns_per_s;
+    rig.subs.worker_stall_ns = 20 * std.time.ns_per_ms;
+    _ = try rig.sub(1, "{T1}");
+    _ = try rig.sub(2, MASTER_GUID);
+    std.Thread.sleep(5 * std.time.ns_per_ms); // the first tick is done, and fresh
+    rig.subs.beginPoll();
+    _ = try polledPayload(&rig, 1, arena.allocator());
+    _ = try polledPayload(&rig, 2, arena.allocator());
+    std.Thread.sleep(40 * std.time.ns_per_ms);
+    rig.subs.beginPoll();
+    for ([_]usize{ 1, 2 }) |client| {
+        const slot = rig.subs.client_id_to_slot.get(client).?;
+        const out = tuner_generator.analyserEvent(arena.allocator(), &rig.subs, slot, &rig.cache, &rig.api, true);
+        try std.testing.expect(out == .none);
+    }
+    // With the device closed nothing of the reading is sent, so the event is.
+    rig.subs.beginPoll();
+    const slot = rig.subs.client_id_to_slot.get(1).?;
+    try std.testing.expect(tuner_generator.analyserEvent(arena.allocator(), &rig.subs, slot, &rig.cache, &rig.api, false) == .event);
+}
+
 test "a source closed and opened again in one poll isn't sent the closed one's snapshot" {
     var rig: InputRig = undefined;
     try rig.init();
@@ -1505,7 +1543,7 @@ test "with no clock, a poll sends every reading rather than none again" {
     try std.testing.expect(rig.subs.shouldSend(slot, 7, null));
 }
 
-test "the poll's clock reads milliseconds that never go back" {
+test "the poll's clock moves on in milliseconds" {
     var subs = TunerSubscriptions.init(std.testing.allocator);
     defer subs.deinit();
     const a = subs.nowMs() orelse return error.SkipZigTest;

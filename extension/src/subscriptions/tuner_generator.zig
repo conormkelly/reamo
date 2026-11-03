@@ -79,8 +79,8 @@ pub const error_capacity = 512;
 
 /// The tunerError event, about the phone's tuner on `track_guid` (a track's
 /// GUID, or "master"): a phone that has since chosen another source ignores
-/// it. The code is in the payload, where pages read it, and beside it,
-/// where the extension long sent it alone.
+/// it. The code is in the payload, where pages read it, and beside it, for
+/// pages that read it there.
 pub fn writeError(w: anytype, comptime code: []const u8, track_guid: []const u8) !void {
     try w.writeAll("{\"type\":\"event\",\"event\":\"tunerError\",\"error\":\"" ++ code ++
         "\",\"payload\":{\"error\":\"" ++ code ++ "\",\"trackGuid\":\"");
@@ -120,15 +120,18 @@ pub const AnalyserOutcome = union(enum) {
     event: []const u8,
     /// The phone's track can't be found.
     gone,
-    /// The event couldn't be built (out of scratch memory).
+    /// No event: it couldn't be built (out of scratch memory), or the
+    /// analysis thread has stopped publishing.
     none,
 };
 
 /// The poll's event for a phone on the master tuner, or on a track tuner on
 /// its input (after following the track to its record input now:
 /// TunerSubscriptions.refreshTrack). With the device closed no reading is
-/// shown, as none can be true. `device_open` is api.isAudioRunning(), once
-/// per poll. Main thread.
+/// shown, as none can be true. A reading the analysis thread published
+/// longer ago than subs.worker_stall_ns isn't sent at all (`none`): its
+/// thread has stopped, and the phone, sent nothing, stops showing it.
+/// `device_open` is api.isAudioRunning(), once per poll. Main thread.
 pub fn analyserEvent(
     allocator: Allocator,
     subs: *tuner_subscriptions.TunerSubscriptions,
@@ -153,6 +156,7 @@ pub fn analyserEvent(
             break :s got;
         },
     };
+    if (device_open and snap.olderThan(std.time.Instant.now() catch null, subs.worker_stall_ns)) return .none;
     const reading = if (device_open) snap.reading else pitch.Reading.none;
     return outcome(generateReadingEvent(allocator, track_guid, reading, snap.settings, heard));
 }
@@ -277,7 +281,7 @@ test "a tunerError names the source it is about, for a phone that has moved on t
     defer parsed.deinit();
     const msg = parsed.value.object;
     try std.testing.expectEqualStrings("tunerError", msg.get("event").?.string);
-    // Beside the payload too, where the extension long sent the code alone.
+    // Beside the payload too, for pages that read it there.
     try std.testing.expectEqualStrings("TUNER_NOT_FOUND", msg.get("error").?.string);
     const p = msg.get("payload").?.object;
     try std.testing.expectEqualStrings("TUNER_NOT_FOUND", p.get("error").?.string);
