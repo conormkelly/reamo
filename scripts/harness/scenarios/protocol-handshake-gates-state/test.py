@@ -22,8 +22,11 @@ def close_code(c, seconds=2):
 problems = []
 token = fetch_token()
 
-# 1. A socket that never says hello, while REAPER's state changes.
+# 1. A socket that never says hello, while REAPER's state changes. The
+# server ends such a socket 10 s after it first sees it (4003), so all of
+# this has to happen well inside that.
 with Client(hello=False) as lurker, Client() as phone:
+    lurker_opened = time.time()
     phone.wait_event("markers")
     for i in range(3):
         reaper(f'reaper.AddProjectMarker2(0, false, {i + 1}, 0, "Secret marker {i}", -1, 0); reaper.UpdateTimeline()')
@@ -42,6 +45,8 @@ with Client(hello=False) as lurker, Client() as phone:
     after = reaper("return ({reaper.CountProjectMarkers(0)})[2]")
     if after != before:
         problems.append("a command sent before hello ran")
+    took = time.time() - lurker_opened
+    assert took < 8, f"the lurker checks took {took:.1f} s: the hello deadline may have ended it first"
 
 # 2. Wrong token, and a token-less hello: refused with 4001.
 for label, hello in [("wrong token", {"type": "hello", "token": "0" * 32, "protocolVersion": 1}),
