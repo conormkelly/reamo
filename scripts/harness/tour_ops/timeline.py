@@ -689,7 +689,9 @@ def _(t):
     g, tr = t.track_for("Guitar", lambda g, tr: tr["freemode"] != 2 and tr["depth"] <= 0 and not any(
         it["track"] == g and it["pos"] < 2.4 for it in t.d["items"].values()), role="free to record the first 2.4 s on")
     # REAPER's dummy audio device has no inputs, so the track records its
-    # own output, a setting the user makes in REAPER's record menu.
+    # own output, a setting the user makes in REAPER's record menu. Tracks
+    # the project already has armed on a hardware input record too, on a
+    # device that has that input (JACK under HARNESS_AUDIO=jack).
     old_mode = reaper(f"""local tr
 for i = 0, reaper.CountTracks(0) - 1 do
   local x = reaper.GetTrack(0, i)
@@ -701,6 +703,11 @@ return m""")
     armed = [gg for gg, tt in t.tracks() if tt["arm"]]
 
     def restore_all():
+        # A failure between recording and undoing it leaves the take (selected,
+        # every other item unselected); undo it, or the ops after this one
+        # start from a project the tour didn't open.
+        if t.digest()["undo.can_undo"] == "Recorded media" != start["undo.can_undo"]:
+            t.send("undo/do", awaited=True)
         t.ok("track/setRecArm", trackGuid=g, arm=tr["arm"])
         reaper(f"""for i = 0, reaper.CountTracks(0) - 1 do
   local x = reaper.GetTrack(0, i)
@@ -750,6 +757,15 @@ end""")
                         and t.d["items"][n]["pos"] < it["pos"])
             if ahead:
                 changes[f"items.{ig}.idx"] = before[f"items.{ig}.idx"] + ahead
+            # A track in fixed lanes records into the lane that plays, and
+            # REAPER gives every item in that lane the new take's colour
+            # (transport-record-with-real-inputs-matches-reaper measures
+            # REAPER's own record action doing it).
+            if t.d["tracks"][it["track"]]["freemode"] == 2:
+                lane_colors = {t.d["items"][n]["color"] for n in new
+                               if t.d["items"][n]["track"] == it["track"] and t.d["items"][n]["lane"] == it["lane"]}
+                if lane_colors:
+                    changes[f"items.{ig}.color"] = lambda v, want=lane_colors: v in want
         t.expect(changes)
         t.undo_redo(before, t.flat)
         r = t.send("undo/do", awaited=True)
