@@ -34,7 +34,9 @@ import {
 
 /**
  * How long without a tuner event before the reading is taken as gone: three
- * of the backend's resends of a reading that holds. Shorter, and Wi-Fi
+ * of the backend's 250 ms resend intervals. A resend goes at its first 30 Hz
+ * poll once due, about 267 ms apart, so this allows two late or lost
+ * resends, or one held back about 480 ms. Shorter, and Wi-Fi
  * power saving, which can hold a phone's packets for a few hundred ms,
  * would blank a steady screen; longer, and a stalled REAPER or connection
  * keeps a reading, green included, on screen for longer. A sounding note
@@ -42,6 +44,16 @@ import {
  * 22 missed events.
  */
 export const TUNER_STALE_MS = 3 * TUNER_RESEND_MS;
+
+/**
+ * How long "several notes" holds after the last event flagging it. The
+ * analyser decides `multiple` afresh at each analysis, so with two strings
+ * ringing it can come and go from one event to the next; shown as it comes,
+ * the message line would flash between it and the reading. While held, no
+ * reading is shown as one to tune by (tunerDisplay.ts), so the hold can
+ * only keep green off, never put it on.
+ */
+export const SEVERAL_HOLD_MS = 400;
 
 export interface UseTunerReturn {
   /**
@@ -70,6 +82,7 @@ export interface UseTunerReturn {
   starting: boolean;
   settling: boolean;
   stable: boolean;
+  /** Several notes sound: the latest event says so, or one did within SEVERAL_HOLD_MS */
   multiple: boolean;
   /** What the tuner can hear (null before the first event) */
   state: TunerState | null;
@@ -112,7 +125,7 @@ export function useTuner(): UseTunerReturn {
   const starting = useReaperStore((s) => s.tunerStarting);
   const settling = useReaperStore((s) => s.tunerSettling);
   const stable = useReaperStore((s) => s.tunerStable);
-  const multiple = useReaperStore((s) => s.tunerMultiple);
+  const latestMultiple = useReaperStore((s) => s.tunerMultiple);
   const state = useReaperStore((s) => s.tunerState);
   const problem = useReaperStore((s) => s.tunerProblem);
   const heard = useReaperStore((s) => s.tunerHeard);
@@ -137,6 +150,20 @@ export function useTuner(): UseTunerReturn {
     return () => clearTimeout(timer);
   }, [subscribedGuid, eventSeq]);
   const stale = subscribedGuid !== null && expiredAt === eventSeq;
+
+  // "Several notes", held from the last event flagging it, for this source
+  // only. The timer starts when the flag drops, and a flag set again
+  // cancels it.
+  const [severalOn, setSeveralOn] = useState<string | null>(null);
+  useEffect(() => {
+    if (latestMultiple && subscribedGuid !== null) {
+      setSeveralOn(subscribedGuid);
+      return;
+    }
+    const timer = setTimeout(() => setSeveralOn(null), SEVERAL_HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [latestMultiple, subscribedGuid]);
+  const multiple = latestMultiple || (subscribedGuid !== null && severalOn === subscribedGuid);
 
   // Subscribe to tuner on a track, then apply the settings saved on this
   // phone: before REAPER confirms, a setParam would be refused (the tuner

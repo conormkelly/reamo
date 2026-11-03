@@ -19,7 +19,7 @@ vi.mock('./useReaper', () => ({
   })),
 }));
 
-import { useTuner, TUNER_STALE_MS } from './useTuner';
+import { useTuner, TUNER_STALE_MS, SEVERAL_HOLD_MS } from './useTuner';
 import { TUNER_RESEND_MS } from '../core/WebSocketTypes';
 import type { TunerEventPayload } from '../core/WebSocketTypes';
 import { useReaperStore } from '../store';
@@ -253,6 +253,50 @@ describe('useTuner', () => {
         send({ trackGuid: 'master' });
       }
       expect(result.current.stale).toBe(true);
+    });
+  });
+
+  describe('several notes', () => {
+    function event(overrides: Partial<TunerEventPayload> = {}): TunerEventPayload {
+      return {
+        trackGuid: TRACK, freq: 82.41, note: 40, noteName: 'E', octave: 2, cents: 0.5, clarity: 0.98, conf: 0.98,
+        inTune: true, referenceHz: 440, thresholdDb: -90, state: 'listening',
+        starting: false, settling: false, stable: true, multiple: false,
+        ...overrides,
+      };
+    }
+    const send = (overrides: Partial<TunerEventPayload> = {}) =>
+      act(() => useReaperStore.getState().handleTunerEvent(event(overrides)));
+    const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      return () => vi.useRealTimers();
+    });
+
+    it('holds for SEVERAL_HOLD_MS after the last event flagging it, so an analyser flipping each tick shows it steadily', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      for (let i = 0; i < 10; i++) {
+        send({ multiple: i % 2 === 0 || i === 9 });
+        expect(result.current.multiple).toBe(true);
+        advance(33);
+      }
+      send();
+      advance(SEVERAL_HOLD_MS - 1);
+      expect(result.current.multiple).toBe(true);
+      advance(1);
+      expect(result.current.multiple).toBe(false);
+    });
+
+    it('is not held over to another source', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      send({ multiple: true });
+      act(() => useReaperStore.getState().setTunerSubscription('master'));
+      expect(result.current.multiple).toBe(false);
+      send({ trackGuid: 'master' });
+      expect(result.current.multiple).toBe(false);
     });
   });
 });
