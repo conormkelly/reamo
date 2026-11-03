@@ -21,7 +21,12 @@ Server code is in `extension/src/server/` unless a path says otherwise.
 - **Security headers on `GET /`** (`http_server.zig` `setSecurityHeaders`): CSP with no `'unsafe-inline'` and `frame-ancestors 'none'` (`connect-src` allows `ws:`/`wss:` to any host), `X-Frame-Options: DENY`, `nosniff`, COOP and CORP `same-origin`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` denying camera, microphone, geolocation, payment, USB and Bluetooth. Static files send `nosniff` and CORP only.
 - **Static file paths**: any path containing `..` is refused; files are read only from the `reamo/` web directory, at most 4 MiB (`serveStatic`). httpz does not percent-decode, so `%2e%2e` stays literal.
 - **ExtState access**: the generic `extstate/*` commands read and write one project key, `Reamo/CustomBanks` (at most 16384 bytes); everything else gets `FORBIDDEN` (`extension/src/commands/extstate.zig`). Playlist commands also write their own `Reamo/*` project keys (`extension/src/state/playlist.zig`). No command writes global ExtState directly, so Allowed Hosts and the port can't be changed that way; a client that runs a ReaScript action can still do anything a script can (see Threat model).
-- **Timeouts and caps**: 5 s header-read and keep-alive timeouts, 64 HTTP connections, 64 WebSocket clients (close 4500 when full), 64 KiB WebSocket messages (websocket.zig default), 4096 queued commands or 8 MiB then `QUEUE_FULL` (`http_server.zig`, `ws_server.zig`). Short keep-alive stops a web page parking idle sockets to lock real clients out.
+- **Timeouts and caps** (`http_server.zig`, `ws_server.zig`):
+  - 64 connections in all, HTTP and WebSocket together (httpz `max_conn`). At the cap the server accepts nothing until one closes; new connections wait in the listen backlog.
+  - 5 s from connecting to send a whole request, and 5 s idle between keep-alive requests.
+  - 10 s for a WebSocket to send its `hello`, else it's closed with 4003 (`HELLO_DEADLINE_NS`). It counts from REAmo's first timer tick to see the socket, so it starts late while REAPER's main thread is held up. Other messages don't extend it.
+  - The HTTP timeouts stop a web page parking idle connections (a page can't open a WebSocket: the Origin check refuses it). The hello deadline frees slots held by sockets that never authenticate: a page that couldn't finish connecting, or a host on the network opening them on purpose. Neither stops a host on the network that keeps reconnecting, or that has the token (see Known gaps).
+  - 64 KiB WebSocket messages (websocket.zig default); 4096 queued commands or 8 MiB, then `QUEUE_FULL`.
 - **QR code carries only the URL**, never the token (**Extensions > REAmo > Show Connection QR Code**).
 - **Pinned dependencies**: httpz is pinned by commit and hash in `extension/build.zig.zon`, websocket.zig in httpz's own `build.zig.zon`.
 - **Installer** (`installer/Install_REAmo.lua`) copies files from the extracted zip only; it downloads nothing.
@@ -31,8 +36,9 @@ Server code is in `extension/src/server/` unless a path says otherwise.
 
 - **TLS**: public CAs won't issue certificates for LAN IPs or `.local`, and self-signed certificates mean a warning (or iOS profile install) on every device.
 - **Password or login**: the page is for the whole band in a rehearsal room; network presence is the authorization.
-- **"Lockdown" and "Open" network presets**: dropped. Refusing public source addresses (below) closes the gap they were meant to.
-- **Per-IP connection caps, message rate limits, WebSocket idle timeout**: not built; global caps cover the browser-driven case.
+- **"Lockdown" and "Open" network presets**: dropped. Refusing public source addresses (planned, below) is to close the gap they were meant to.
+- **Per-IP connection caps, message rate limits**: not built; global caps and the timeouts above cover the browser-driven case. A host that keeps reconnecting can still hold the slots (see Known gaps).
+- **Idle timeout for an authenticated WebSocket**: not built. A client with the token already controls REAPER.
 - **Rejecting clients with a public source IP**: planned, on by default; until then see the first gap below.
 - **Code signing and notarization** of the binaries: not done; attestations cover provenance.
 
@@ -40,6 +46,7 @@ Server code is in `extension/src/server/` unless a path says otherwise.
 
 - **Medium:** the server binds `0.0.0.0` (the `.address` setting in `extension/src/server/http_server.zig`) and only checks the Host header, which a non-browser client sets freely. If a router forwards the port, anyone on the internet can send `Host: 192.168.1.50`, fetch the token and take control. Use a VPN such as Tailscale and add its name under Allowed Hosts instead.
 - **Medium:** no TLS, so the token and all control traffic are readable on the LAN (accepted, see above).
+- **Low:** a host on the network can keep phones out by holding all 64 connection slots, since there is no per-IP cap. Without the token it has to keep reconnecting (64 sockets per 10 s), and keep its next connections waiting in the backlog ahead of the phone's. With the token (anyone on the network can read it from `GET /`), 64 authenticated idle sockets hold the slots until they close. Either host could control REAPER anyway (see Threat model).
 - **Low:** any web page can learn REAmo is running on a LAN address it guesses: a no-cors request gets a response even when it's refused. `GET /api/ping` also skips Host validation, so a rebinding page can read it, but the body is a constant `{"ok":true}`.
 - **Low:** static files have no CSP or frame headers. `/index.html` can be framed, but that copy has no token and can't connect.
 - **Low:** any `*.local` Host is accepted. On networks whose unicast DNS answers `.local` (some Active Directory setups) a name there could rebind.
