@@ -2,7 +2,8 @@
 -- /tmp/rec-session/rec.RPP, recording into /tmp/rec, with three tracks:
 --   "Guitar": armed on mono input 1, an item at 4 s;
 --   "Vox lanes": fixed lanes (REAPER 7), lane 0 playing, an item on each of
---     its two lanes at 4 s, armed on mono input 2;
+--     its two lanes at 4 s and one with a custom colour on lane 0 at 8 s,
+--     armed on mono input 2;
 --   "Keys": not armed, an item at 0 s, under where the takes land.
 -- The test opens the saved project afresh for each way of recording, so
 -- each starts from the same project and undo history.
@@ -24,6 +25,9 @@ for lane = 0, 1 do
   local it = harness.audio_item(vox, 4, wav)
   reaper.SetMediaItemInfo_Value(it, "I_FIXEDLANE", lane)
 end
+local coloured = harness.audio_item(vox, 8, wav)
+reaper.SetMediaItemInfo_Value(coloured, "I_FIXEDLANE", 0)
+reaper.SetMediaItemInfo_Value(coloured, "I_CUSTOMCOLOR", 0x1000000 | 0x3366CC)
 reaper.SetMediaTrackInfo_Value(vox, "C_LANEPLAYS:0", 1)
 reaper.SetMediaTrackInfo_Value(vox, "I_RECINPUT", 1)
 reaper.SetMediaTrackInfo_Value(vox, "I_RECARM", 1)

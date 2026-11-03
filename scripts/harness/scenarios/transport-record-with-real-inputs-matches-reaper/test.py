@@ -17,20 +17,29 @@ What each leaves is compared between the two: new items (track, lane,
 position, selection, source, whether coloured), every change to existing
 items and tracks (a colour REAPER gives existing items counts as "the new
 take's colour"), the undo history's top and the project's dirty flag, and
-how many files appear in the record path. Neither may differ.
+how many WAV files appear in the record path. Neither may differ.
+
+On REAPER 7, REAPER's own run must show what a fixed-lane track does: the
+take lands in the playing lane (0), each existing item in that lane with no
+colour of its own takes the take's colour, the one coloured beforehand keeps
+its colour, and the item on lane 1 is untouched. The tour's record op expects exactly this. REAPER 6
+has no fixed lanes; there the track records as any other, and only the
+comparison runs.
 
 The phone's run must also, on its own:
 - after 1: a take on each armed track at 0 s, about 1.5 s long, holding the
   fed tone (so the inputs really reached it), and nothing on "Keys";
-- after 2: the project exactly as before recording;
-- after 3: the project exactly as before recording, the same undo top and
-  dirty flag, no new file in the record path, and the phone's items event
-  showing REAPER's item count.
+- after 2: every item and track as before recording (the cursor and play
+  state aside, as below);
+- after 3: every item and track as before recording, the same undo top and
+  dirty flag, no new WAV file in the record path, and the latest items
+  event the phone holds counting REAPER's items. That event may predate
+  the recording: REAmo need send none for a project that ends as it began.
 """
 import os
 import time
 
-from reamo_client import Client, open_project, reaper, skip_unless_linux
+from reamo_client import Client, open_project, reaper, reaper_major, skip_unless_linux
 
 skip_unless_linux("REAPER's inputs come from the container's JACK server")
 
@@ -45,9 +54,14 @@ LEVEL = 0.5
 # Keys that move with the transport, not with the edit.
 MOVING = ("project.cursor", "project.play")
 
+# WAV files only: REAPER may write peak files later. Index -1 makes REAPER
+# reread the folder instead of serving its cached listing.
 FILES = """local dir, out, i = "/tmp/rec", {}, 0
+reaper.EnumerateFiles(dir, -1)
 while reaper.EnumerateFiles(dir, i) do out[#out + 1] = reaper.EnumerateFiles(dir, i); i = i + 1 end
-return out"""
+local wavs = {}
+for _, f in ipairs(out) do if f:lower():match("%.wav$") then wavs[#wavs + 1] = f end end
+return wavs"""
 
 # The loudest sample of each item's active take between 0.3 s and 1.0 s.
 PEAKS = """local out = {}
@@ -210,6 +224,17 @@ with Feeder() as f:
             c.drain(0.2)
         else:
             problems.append(f"after stopAndDelete the phone's items event shows {shown} items, REAPER {count}")
+
+        # What REAPER's own record does on a fixed-lane track.
+        if reaper_major() >= 7:
+            vox = [x for x in native["record"][0]["new"] if x["track"] == "Vox lanes"]
+            want = [("item on Vox lanes lane 0 at 4: color", 0, "the new take's colour")]
+            got = sorted(e for e in native["record"][0]["edits"] if e[0].startswith("item on Vox lanes") and e[0].endswith("color"))
+            if [x["lane"] for x in vox] != [0] or got != sorted(want):
+                problems.append(f"REAPER's own record on the fixed-lane track: takes {vox}, colour changes {got}; "
+                                f"the tour's record op expects one take on lane 0 and colour changes {want}")
+        else:
+            print("  REAPER 6 has no fixed lanes: only the comparison runs")
 
         # The phone against REAPER's own actions.
         for step in ("record", "undo", "stopAndDelete"):
