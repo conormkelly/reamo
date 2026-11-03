@@ -61,6 +61,67 @@ function harness.wav(path, seconds, freq, channels, rate)
   return path
 end
 
+-- Write an 8 s, 8 kHz, 16-bit WAV for checking waveforms: a 200 Hz square
+-- wave whose level is 0.1 in the first second and steps up by 0.1 each
+-- second, to 0.8 in the eighth. The steps show which part of the file an
+-- item plays, in which order and how fast. With `stereo`, the right
+-- channel holds 0.25 throughout.
+function harness.staircase_wav(path, stereo)
+  local rate, ch = 8000, stereo and 2 or 1
+  local n = rate * 8
+  local f = io.open(path, "wb")
+  f:write("RIFF", string.pack("<I4", 36 + n * 2 * ch), "WAVE")
+  f:write("fmt ", string.pack("<I4I2I2I4I4I2I2", 16, 1, ch, rate, rate * 2 * ch, 2 * ch, 16))
+  f:write("data", string.pack("<I4", n * 2 * ch))
+  local parts = {}
+  for i = 0, n - 1 do
+    local sign = ((i // 20) % 2 == 0) and 1 or -1
+    parts[#parts + 1] = string.pack("<i2", math.floor(sign * 0.1 * (i // rate + 1) * 32767))
+    if stereo then parts[#parts + 1] = string.pack("<i2", math.floor(sign * 0.25 * 32767)) end
+    if #parts >= 8192 then f:write(table.concat(parts)); parts = {} end
+  end
+  f:write(table.concat(parts))
+  f:close()
+  return path
+end
+
+-- A track named `name` with one item at `pos` playing `path` for `len`
+-- seconds, without fades or source looping (whatever REAPER's defaults for
+-- new items), its peaks built. Returns the item, take and track.
+function harness.waveform_item(name, path, pos, len)
+  local t = harness.track(name)
+  local it, take = harness.audio_item(t, pos, path, len)
+  for _, k in ipairs({"D_FADEINLEN", "D_FADEOUTLEN", "D_FADEINLEN_AUTO", "D_FADEOUTLEN_AUTO", "B_LOOPSRC"}) do
+    reaper.SetMediaItemInfo_Value(it, k, 0)
+  end
+  harness.build_peaks(reaper.GetMediaItemTake_Source(take))
+  return it, take, t
+end
+
+-- Play only `len` seconds of the item's file from `startpos` (Item
+-- Properties' "Section"): wraps the take's WAVE source in a SECTION source,
+-- the source type that option makes. Its other settings (OVERLAP) are 0
+-- here, not necessarily what REAPER's dialog writes.
+function harness.section(item, startpos, len)
+  local ok, chunk = reaper.GetItemStateChunk(item, "", false)
+  assert(ok, "GetItemStateChunk failed")
+  local n
+  chunk, n = chunk:gsub("<SOURCE WAVE(.-)>", function(body)
+    return string.format("<SOURCE SECTION\nLENGTH %.10g\nSTARTPOS %.10g\nOVERLAP 0\n<SOURCE WAVE%s>\n>", len, startpos, body)
+  end, 1)
+  assert(n == 1, "no WAVE source in the item")
+  assert(reaper.SetItemStateChunk(item, chunk, false), "SetItemStateChunk failed")
+end
+
+-- Reverse the item's active take the way a user does: select only it and
+-- run "Item properties: Toggle take reverse" (41051).
+function harness.reverse_take(item)
+  reaper.SelectAllMediaItems(0, false)
+  reaper.SetMediaItemSelected(item, true)
+  reaper.Main_OnCommand(41051, 0)
+  reaper.SelectAllMediaItems(0, false)
+end
+
 -- Add an item on `track` at `pos` playing the audio file at `path`.
 -- Extra takes: harness.add_take(item, path).
 function harness.audio_item(track, pos, path, len)
