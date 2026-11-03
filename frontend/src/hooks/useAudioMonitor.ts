@@ -166,7 +166,7 @@ export function useAudioMonitor(): UseAudioMonitorReturn {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [audioMonitorRequested, startPipeline, stopPipeline, setAudioMonitorState]);
 
-  // Restart pipeline when project sample rate changes while monitoring
+  // Restart the pipeline when the stream's sample rate (the audio device's) changes while monitoring
   const sampleRate = useReaperStore((s) => s.sampleRate);
   const prevSampleRateRef = useRef(sampleRate);
   useEffect(() => {

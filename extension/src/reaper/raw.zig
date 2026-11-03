@@ -2761,7 +2761,7 @@ test "audioDeviceSampleRate is 0 when no device is open or REAPER can't say" {
     try std.testing.expectEqual(@as(u32, 0), api.audioDeviceSampleRate());
 }
 
-test "audioDeviceSampleRate reads the digits REAPER writes and nothing after them" {
+test "audioDeviceSampleRate reads a rate followed by other text as its leading digits" {
     var api = Api{ .showConsoleMsg = undefined, .register = undefined };
     api.getAudioDeviceInfo = &fakeAudioDeviceInfo;
     defer fake_device_srate = null;

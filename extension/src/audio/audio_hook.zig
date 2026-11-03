@@ -315,6 +315,21 @@ pub fn getRingBuffer() *ring_buffer.AudioRingBuffer {
     return &g_hook.stream_ring;
 }
 
+/// The rate to tell a listener the stream is at, given the open device's
+/// rate (0 with no device open): that rate; with no device open, the rate
+/// the hook last ran at; before it has ever run, 48 kHz. audio/startStream
+/// and the project event both report this, so the rate a phone's player is
+/// built at and the rate it restarts on agree, and a device that reopens at
+/// another rate changes it.
+///
+/// An open device's rate wins over the hook's last one, which can predate a
+/// project switch that changed the device's rate.
+pub fn streamSampleRate(device_rate: u32) u32 {
+    if (device_rate > 0) return device_rate;
+    const last = g_hook.stream_ring.sample_rate.load(.acquire);
+    return if (last > 0) last else 48000;
+}
+
 /// Whether REAPER has the hook now.
 pub fn isRegistered() bool {
     return g_hook.registered;

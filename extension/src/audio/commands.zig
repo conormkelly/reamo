@@ -19,12 +19,9 @@ pub fn handleStartStream(api: anytype, _: protocol.CommandMessage, response: *mo
     }
 
     // The rate the frames are captured at, which the phone plays them at: the
-    // open device's. Not the project's rate setting, which a device may not
-    // follow (JACK can't). Read from REAPER, not from the ring, whose rate is
-    // the last block the hook saw and can predate a project switch that
-    // changed the device's rate.
-    const device_rate = api.audioDeviceSampleRate();
-    const sample_rate: u32 = if (device_rate > 0) device_rate else manager.getSampleRate();
+    // open device's, not the project's rate setting, which a device may not
+    // follow (JACK can't).
+    const sample_rate = audio_hook.streamSampleRate(api.audioDeviceSampleRate());
 
     var buf: [64]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"sampleRate\":{d}}}", .{sample_rate}) catch {
