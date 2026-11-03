@@ -435,6 +435,11 @@ pub const MockTake = struct {
     is_midi: bool = false,
     channel_count: c_int = 2,
     color: c_int = 0, // I_CUSTOMCOLOR: 0=theme default, or color|0x01000000 for custom
+    /// Seconds of audio the take plays from its item's start. Past it,
+    /// getMediaItemTakePeaks returns fewer peaks than asked for, as REAPER
+    /// does for an item that runs on past its audio with looping off.
+    /// null: the audio covers the whole item.
+    audio_length: ?f64 = null,
 
     pub fn setName(self: *MockTake, name: []const u8) void {
         const len = @min(name.len, self.name.len);

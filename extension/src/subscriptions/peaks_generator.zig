@@ -420,3 +420,64 @@ pub fn generateTilesForSubscriptionBinary(
     const result = allocator.realloc(buf, offset) catch buf;
     return result[0..offset];
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const mock = @import("../reaper/mock/mod.zig");
+const mock_state = @import("../reaper/mock/state.zig");
+const mockPeak = @import("../reaper/mock/tracks.zig").TracksMethods.mockPeak;
+
+fn expectPeaksMatchMock(result: *const ItemPeaksResult, num_peaks: usize, channels: usize) !void {
+    try std.testing.expectEqual(num_peaks, result.num_peaks);
+    try std.testing.expectEqual(channels, result.channels);
+    for (0..num_peaks) |p| {
+        for (0..channels) |ch| {
+            const i = p * channels + ch;
+            try std.testing.expectEqual(mockPeak(p, ch), result.peak_max[i]);
+            try std.testing.expectEqual(-mockPeak(p, ch), result.peak_min[i]);
+        }
+    }
+}
+
+test "an item past its audio gets REAPER's minimums, read where REAPER writes them for the count asked for" {
+    var api = mock.MockBackend{};
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].position = 1.0;
+    api.tracks[0].items[0].length = 12.0;
+    api.tracks[0].items[0].take_count = 1;
+    api.tracks[0].items[0].takes[0].audio_length = 8.0;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+
+    // 120 peaks asked for, 80 returned: the minimums start 240 slots in, not 160.
+    var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 1.0, 12.0, 10.0).?;
+    defer result.deinit();
+    try expectPeaksMatchMock(&result, 80, 2);
+}
+
+test "a mono item past its audio gets its channel's minimums out of REAPER's two-channel layout" {
+    var api = mock.MockBackend{};
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].length = 3.0;
+    api.tracks[0].items[0].take_count = 1;
+    api.tracks[0].items[0].takes[0].channel_count = 1;
+    api.tracks[0].items[0].takes[0].audio_length = 1.0;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+
+    var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 0.0, 3.0, 64.0).?;
+    defer result.deinit();
+    try expectPeaksMatchMock(&result, 64, 1);
+}
+
+test "an item whose audio covers it gets every peak asked for" {
+    var api = mock.MockBackend{};
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].length = 2.0;
+    api.tracks[0].items[0].take_count = 1;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+
+    var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 0.0, 2.0, 16.0).?;
+    defer result.deinit();
+    try expectPeaksMatchMock(&result, 32, 2);
+}

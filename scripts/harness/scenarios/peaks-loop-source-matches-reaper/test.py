@@ -4,7 +4,7 @@ A 12 s item on an 8 s file starts the file over at 8 s; one slipped 6 s in
 plays the file's last two seconds, then its start. REAPER draws the take's
 peaks from GetMediaItemTake_Peaks, which loops the source; REAmo asks the
 same API. (An item past its file's end with looping off is
-peaks-item-past-its-source-end-known-gap.)
+peaks-item-past-its-source-end-matches-reaper.)
 """
 from reamo_client import Client
 import peaks_check as pk

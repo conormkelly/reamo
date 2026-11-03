@@ -116,7 +116,7 @@ def reamo_profile(tiles, length, bin_s=0.5):
 # item, two channels. Returns the take's GUID, the item's length, the count
 # of peaks REAPER returned and asked for, and per-bin max/min per channel.
 # The minimum block starts after `n` (the count asked for) maximum peaks, not
-# after the count returned: see peaks-item-past-its-source-end-known-gap.
+# after the count returned: see peaks-item-past-its-source-end-matches-reaper.
 _REAPER_PROFILE = """
 local ti, rate, bin = %d, %f, %f
 local it = reaper.GetTrackMediaItem(reaper.GetTrack(0, ti), 0)
