@@ -88,7 +88,7 @@ pub const Method = enum {
     // Project
     projectLength,
     projectStateChangeCount,
-    getSampleRate,
+    audioDeviceSampleRate,
     isDirty,
     markDirty,
     getFrameRate,

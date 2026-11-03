@@ -2,6 +2,7 @@ const std = @import("std");
 const utf8 = @import("../core/utf8.zig");
 const reaper = @import("../reaper.zig");
 const protocol = @import("../core/protocol.zig");
+const audio_hook = @import("../audio/audio_hook.zig");
 
 /// Which project is open, as far as telling one project from another needs.
 pub const Identity = struct {
@@ -76,7 +77,7 @@ pub const State = struct {
     frame_rate: f64 = 30.0, // Project frame rate (e.g., 29.97, 24, 25)
     drop_frame: bool = false, // True for drop-frame timecode (29.97/59.94)
     record_mode: u8 = 0, // 0=normal, 1=time selection auto-punch, 2=selected items auto-punch
-    sample_rate: u32 = 48000, // Audio engine sample rate (Hz)
+    sample_rate: u32 = 48000, // Audio device's rate (Hz), the stream's; not the project's setting
 
     // Memory warning flag - set externally from tiered arena usage monitoring
     // When true, frontend should warn user about high memory utilization
@@ -159,13 +160,12 @@ pub const State = struct {
         else
             0; // normal
 
-        const api_rate = api.getSampleRate();
 
         var state = State{
             .load_count = api.projectLoadCount(),
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
-            .sample_rate = if (api_rate > 0) api_rate else 48000,
+            .sample_rate = audio_hook.streamSampleRate(api.audioDeviceSampleRate()),
             .repeat = api.getRepeat(),
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),
@@ -451,6 +451,38 @@ test "poll with MockBackend returns configured values" {
     try std.testing.expect(state.is_dirty);
     try std.testing.expect(@abs(state.frame_rate - 29.97) < 0.001);
     try std.testing.expect(state.drop_frame);
+}
+
+test "poll reports the open audio device's rate" {
+    var mock = MockBackend{ .audio_device_sample_rate = 44100 };
+    try std.testing.expectEqual(@as(u32, 44100), State.poll(&mock).sample_rate);
+}
+
+test "poll with no audio device open reports the rate the audio hook last ran at, as audio/startStream does" {
+    // A device closed while stopped must not flip the rate a phone plays at:
+    // the phone restarts its player only when this rate changes, so it has
+    // to agree with what audio/startStream told it, and change when the
+    // device reopens at another rate.
+    const rb = audio_hook.getRingBuffer();
+    const saved = rb.sample_rate.load(.acquire);
+    defer rb.sample_rate.store(saved, .release);
+
+    var mock = MockBackend{ .audio_device_sample_rate = 0 };
+    rb.sample_rate.store(44100, .release);
+    try std.testing.expectEqual(@as(u32, 44100), State.poll(&mock).sample_rate);
+    try std.testing.expectEqual(@as(u32, 44100), audio_hook.streamSampleRate(mock.audioDeviceSampleRate()));
+
+    // Before the hook has ever run: 48 kHz.
+    rb.sample_rate.store(0, .release);
+    try std.testing.expectEqual(@as(u32, 48000), State.poll(&mock).sample_rate);
+    try std.testing.expectEqual(@as(u32, 48000), audio_hook.streamSampleRate(mock.audioDeviceSampleRate()));
+
+    // An open device wins over the hook's last rate, which can predate a
+    // project switch that changed the device's rate.
+    rb.sample_rate.store(44100, .release);
+    mock.audio_device_sample_rate = 48000;
+    try std.testing.expectEqual(@as(u32, 48000), State.poll(&mock).sample_rate);
+    try std.testing.expectEqual(@as(u32, 48000), audio_hook.streamSampleRate(mock.audioDeviceSampleRate()));
 }
 
 test "poll with MockBackend returns undo/redo descriptions" {

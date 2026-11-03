@@ -3685,6 +3685,8 @@ Start sending this client binary audio frames. **Returns data.**
 {"type": "response", "id": "1", "success": true, "payload": {"sampleRate": 48000}}
 ```
 
+`sampleRate` is the audio device's rate, the rate the frames' samples are captured at, and so is the `project` event's `sampleRate`. It isn't the project's sample rate setting: REAPER asks the device for that, but a device that can't change rate, such as JACK, keeps its own. With no device open (REAPER can close it while stopped), both report the rate the device last ran at, or 48000 if it hasn't run since REAPER started.
+
 Each audio frame is a binary WebSocket message: a type byte `0x01`, a u32 little-endian sequence number, then interleaved stereo 16-bit little-endian PCM (at most 10 ms of audio). Frames whose samples are all near silence (below about -72 dBFS) are not sent. At most 4 clients stream at once.
 
 **Errors:** `NOT_INITIALIZED`, `STREAM_FAILED` (client limit reached, or the audio hook or network thread couldn't start).

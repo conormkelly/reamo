@@ -18,11 +18,10 @@ pub fn handleStartStream(api: anytype, _: protocol.CommandMessage, response: *mo
         return;
     }
 
-    // Query REAPER directly for current project sample rate (main thread safe).
-    // Uses canonical Cockos fallback: PROJECT_SRATE_USE → PROJECT_SRATE → GetAudioDeviceInfo.
-    // This avoids the race where the ring buffer hasn't been updated by the audio hook yet.
-    const api_rate = api.getSampleRate();
-    const sample_rate: u32 = if (api_rate > 0) api_rate else manager.getSampleRate();
+    // The rate the frames are captured at, which the phone plays them at: the
+    // open device's, not the project's rate setting, which a device may not
+    // follow (JACK can't).
+    const sample_rate = audio_hook.streamSampleRate(api.audioDeviceSampleRate());
 
     var buf: [64]u8 = undefined;
     const payload = std.fmt.bufPrint(&buf, "{{\"sampleRate\":{d}}}", .{sample_rate}) catch {

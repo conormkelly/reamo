@@ -61,7 +61,7 @@ pub fn validateBackend(comptime T: type) void {
 
         // Project info
         "projectLength",
-        "getSampleRate",
+        "audioDeviceSampleRate",
         "projectStateChangeCount",
         "isDirty",
         "markDirty",

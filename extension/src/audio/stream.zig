@@ -106,13 +106,6 @@ pub const AudioStreamManager = struct {
         return self.client_count.load(.acquire) > 0;
     }
 
-    /// The sample rate the hook last saw, or 48 kHz before it has seen any.
-    pub fn getSampleRate(self: *const AudioStreamManager) u32 {
-        _ = self;
-        const sr = audio_hook.getRingBuffer().sample_rate.load(.acquire);
-        return if (sr > 0) sr else 48000;
-    }
-
     // ========================================================================
     // Private
     // ========================================================================
