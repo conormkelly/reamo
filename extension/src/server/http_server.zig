@@ -83,6 +83,10 @@ pub const HttpServer = struct {
                 // set above what one browser can hold idle against us (~6 sockets
                 // per host and pool across 127.0.0.1, localhost, [::1] and the LAN
                 // IP), so a hostile page can't lock real clients out.
+                // HTTP and WebSocket share it, and a WebSocket holds its slot
+                // until it closes: one that doesn't say hello in time is
+                // ended (ws_server.HELLO_DEADLINE_NS). At the cap new
+                // connections wait in the listen backlog.
                 .max_conn = 64,
                 // Connections preallocated up front (httpz defaults this to
                 // max_conn); keeps the idle footprint at what 16 cost.
@@ -383,7 +387,7 @@ const WsHandler = struct {
         };
 
         const id = ctx.state.addClient(conn) orelse {
-            conn.close(.{ .code = 4500, .reason = "Server at capacity" }) catch {};
+            conn.close(.{ .code = 4500, .reason = "Server out of memory" }) catch {};
             return error.OutOfMemory;
         };
 
@@ -425,6 +429,8 @@ const WsHandler = struct {
                     }
                 }
 
+                // Too late: the hello deadline has ended this connection.
+                if (!self.authenticated and !self.state.takeHelloInTime(self.id)) return;
                 self.authenticated = true;
                 logging.info("Client {d} connected", .{self.id});
                 var buf: [256]u8 = undefined;

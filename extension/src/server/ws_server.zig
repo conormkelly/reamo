@@ -11,8 +11,30 @@ const Thread = std.Thread;
 // at once; past these limits a command is refused, never dropped silently.
 const MAX_COMMAND_QUEUE = 4096;
 const MAX_QUEUED_COMMAND_BYTES = 8 * 1024 * 1024;
-// Maximum concurrent clients for broadcast buffer
-const MAX_CLIENTS = 64;
+
+/// How long a WebSocket has to complete its hello before it is ended with
+/// HELLO_TIMEOUT_CODE. Every connection, HTTP or WebSocket, holds one of the
+/// server's connection slots (http_server.zig's max_conn), so sockets that
+/// upgrade and then say nothing could otherwise hold them all and lock every
+/// phone out.
+///
+/// The web app sends its hello the moment the socket opens, and abandons the
+/// attempt itself if the socket isn't open within its CONNECT_TIMEOUT (5 s)
+/// or the hello isn't answered within its HELLO_TIMEOUT (5 s, from the open;
+/// both in frontend/src/core/websocketMachine.ts). The deadline counts from
+/// the main thread's first tick to see the socket, which is no earlier than
+/// the server sending the 101. The 101 reached the phone within 5 s of that
+/// or the phone gave up; the hello then reached the server within 5 s or the
+/// phone gave up waiting for the answer. So in 10 s the deadline never ends
+/// a socket the web app would still have kept, however slow its network. A
+/// page frozen in the background before it can send its hello reconnects
+/// when it wakes, as after any other close.
+///
+/// While REAPER's main thread is held up (a modal dialog run by a command),
+/// no tick sees new sockets, so the deadline starts only once it runs again.
+pub const HELLO_DEADLINE_NS: u64 = 10 * std.time.ns_per_s;
+pub const HELLO_TIMEOUT_CODE: u16 = 4003;
+
 // Session token length (hex string = 32 chars for 16 bytes)
 const TOKEN_HEX_LENGTH = 32;
 
@@ -116,6 +138,16 @@ pub const SharedState = struct {
     // Protected by client_rwlock.
     handshaken_clients: std.AutoArrayHashMap(usize, void),
 
+    // Clients that haven't said hello yet, each with when the main thread
+    // first saw it (null until then). endClientsPastHelloDeadline ends those
+    // past the deadline. Every instant comes from the main thread, so they
+    // never run backwards against its `now`. Protected by client_rwlock.
+    awaiting_hello: std.AutoArrayHashMap(usize, ?std.time.Instant),
+    // Main thread only: hello-deadline closes not yet logged, and when the
+    // last were. A host reconnecting in a loop would otherwise fill the log.
+    hello_timeouts_unlogged: usize = 0,
+    hello_timeouts_logged_at: ?std.time.Instant = null,
+
     // Clients that need initial state snapshot (set by WS thread after hello, consumed by main thread)
     // Protected by client_rwlock since closely related to client lifecycle
     clients_needing_snapshot: std.AutoArrayHashMap(usize, void),
@@ -145,6 +177,7 @@ pub const SharedState = struct {
             .clients = std.AutoArrayHashMap(usize, *websocket.Conn).init(allocator),
             .clients_needing_snapshot = std.AutoArrayHashMap(usize, void).init(allocator),
             .handshaken_clients = std.AutoArrayHashMap(usize, void).init(allocator),
+            .awaiting_hello = std.AutoArrayHashMap(usize, ?std.time.Instant).init(allocator),
             .disconnected_clients = std.AutoArrayHashMap(usize, void).init(allocator),
         };
     }
@@ -230,7 +263,17 @@ pub const SharedState = struct {
         self.clients.deinit();
         self.clients_needing_snapshot.deinit();
         self.handshaken_clients.deinit();
+        self.awaiting_hello.deinit();
         self.disconnected_clients.deinit();
+    }
+
+    /// Called by the WebSocket thread on a valid hello, before answering it.
+    /// True if it beat the deadline: the client no longer has one. False if
+    /// the deadline has already ended the connection, so the hello is too late.
+    pub fn takeHelloInTime(self: *SharedState, client_id: usize) bool {
+        self.client_rwlock.lock();
+        defer self.client_rwlock.unlock();
+        return self.awaiting_hello.swapRemove(client_id);
     }
 
     // Called by WebSocket thread after successful hello: the client may now
@@ -262,7 +305,8 @@ pub const SharedState = struct {
         return count;
     }
 
-    // Called by WebSocket thread to register a new client
+    // Called by WebSocket thread to register a new client, which then has
+    // until the hello deadline to say hello.
     // Returns null if allocation fails (OOM) - caller should close connection
     pub fn addClient(self: *SharedState, conn: *websocket.Conn) ?usize {
         self.client_rwlock.lock();
@@ -270,10 +314,17 @@ pub const SharedState = struct {
 
         const id = self.next_client_id;
         self.next_client_id += 1;
-        self.clients.put(id, conn) catch |e| {
+        // Room in both maps first: a client the deadline can't track is refused.
+        self.clients.ensureUnusedCapacity(1) catch |e| {
             logging.err("CLIENT ADD FAILED id={d}: {}", .{ id, e });
             return null;
         };
+        self.awaiting_hello.ensureUnusedCapacity(1) catch |e| {
+            logging.err("CLIENT ADD FAILED id={d}: {}", .{ id, e });
+            return null;
+        };
+        self.clients.putAssumeCapacity(id, conn);
+        self.awaiting_hello.putAssumeCapacity(id, null);
         logging.debug("Socket {d} opened ({d} open)", .{ id, self.clients.count() });
         return id;
     }
@@ -284,6 +335,7 @@ pub const SharedState = struct {
         defer self.client_rwlock.unlock();
         _ = self.clients.swapRemove(id);
         _ = self.handshaken_clients.swapRemove(id);
+        _ = self.awaiting_hello.swapRemove(id);
         // Track disconnected client for gesture cleanup by main thread
         self.disconnected_clients.put(id, {}) catch |e| {
             logging.warn("Failed to track disconnected client {d}: {} - gesture cleanup may be incomplete", .{ id, e });
@@ -394,6 +446,54 @@ pub const SharedState = struct {
         for (self.clients.values()) |conn| {
             conn.flushPending() catch |err| self.logWriteError(err);
         }
+    }
+
+    /// Called by the main thread every tick: ends, with HELLO_TIMEOUT_CODE,
+    /// each client that hasn't said hello within `deadline_ns` of the first
+    /// call to see it. `now` must come from the main thread's monotonic
+    /// clock: a later call's never earlier than an earlier call's.
+    pub fn endClientsPastHelloDeadline(self: *SharedState, now: std.time.Instant, deadline_ns: u64) void {
+        var ended: usize = 0;
+        {
+            self.client_rwlock.lock();
+            defer self.client_rwlock.unlock();
+            var i: usize = 0;
+            while (i < self.awaiting_hello.count()) {
+                const seen = &self.awaiting_hello.values()[i];
+                const first_seen = seen.* orelse {
+                    seen.* = now;
+                    i += 1;
+                    continue;
+                };
+                if (now.since(first_seen) < deadline_ns) {
+                    i += 1;
+                    continue;
+                }
+                const id = self.awaiting_hello.keys()[i];
+                self.awaiting_hello.swapRemoveAt(i);
+                // end(), not close(): this isn't the connection's own thread.
+                // Its worker sees the end and closes the connection, which
+                // calls removeClient and frees the slot.
+                const conn = self.clients.get(id) orelse continue;
+                conn.end(.{ .code = HELLO_TIMEOUT_CODE, .reason = "No hello in time" }) catch |err| {
+                    logging.debug("Socket {d}: hello deadline's close frame not sent: {s}", .{ id, @errorName(err) });
+                };
+                ended += 1;
+            }
+        }
+        self.logHelloTimeouts(now, ended);
+    }
+
+    /// At most one line every 5 s, counting every close since the last.
+    fn logHelloTimeouts(self: *SharedState, now: std.time.Instant, ended: usize) void {
+        self.hello_timeouts_unlogged += ended;
+        if (self.hello_timeouts_unlogged == 0) return;
+        if (self.hello_timeouts_logged_at) |at| {
+            if (now.since(at) < 5 * std.time.ns_per_s) return;
+        }
+        logging.info("Closed {d} connection(s) that didn't say hello within {d} s: a page that couldn't finish connecting, or something holding connections open", .{ self.hello_timeouts_unlogged, HELLO_DEADLINE_NS / std.time.ns_per_s });
+        self.hello_timeouts_unlogged = 0;
+        self.hello_timeouts_logged_at = now;
     }
 
     // Get client count (for logging)

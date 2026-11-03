@@ -124,7 +124,7 @@ Response:
 }
 ```
 
-If token authentication is enabled and the token is invalid, the connection is closed with code `4001`. Protocol version mismatch closes with code `4002`.
+If token authentication is enabled and the token is invalid, the connection is closed with code `4001`. Protocol version mismatch closes with code `4002`. A connection that hasn't sent its hello 10 seconds after the upgrade (counted from the server's first check of it, so at least 10 s) is closed with code `4003`; other messages before the hello don't extend that. If the client isn't reading and its socket is full, the connection ends without the close frame.
 
 ### Clock Sync
 

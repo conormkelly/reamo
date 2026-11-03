@@ -140,6 +140,9 @@ var g_audio_stream: ?*audio_stream.AudioStreamManager = null;
 // ~63Hz on Windows; see platform/fast_timer.zig)
 var g_fast_timer: fast_timer.FastTimer = .{};
 
+// Said once: without a monotonic clock the hello deadline isn't enforced
+var g_no_clock_warned = false;
+
 // Fast timer jitter tracking (for debugging)
 var g_fast_timer_last_tick: ?std.time.Instant = null;
 var g_fast_timer_call_count: u64 = 0;
@@ -747,6 +750,14 @@ fn doProcessing() !void {
     // Check for gesture timeouts
     client_management.checkGestureTimeouts(&client_ctx);
 
+    // End sockets that haven't said hello in time, freeing their connection slots
+    if (std.time.Instant.now()) |now| {
+        shared_state.endClientsPastHelloDeadline(now, ws_server.HELLO_DEADLINE_NS);
+    } else |err| if (!g_no_clock_warned) {
+        g_no_clock_warned = true;
+        logging.warn("No monotonic clock ({s}): sockets that never say hello are never closed", .{@errorName(err)});
+    }
+
     // Drain output queued behind slow clients' sockets before writing more
     shared_state.flushPendingOutput();
 
@@ -1242,6 +1253,7 @@ test {
     _ = @import("server/ws_server.zig");
     _ = @import("server/http_server_stress_test.zig");
     _ = @import("server/http_server_shutdown_test.zig");
+    _ = @import("server/hello_deadline_test.zig");
     _ = @import("server/gesture_state.zig");
     _ = @import("subscriptions/toggle_subscriptions.zig");
     _ = @import("server/subscription_polling.zig");
