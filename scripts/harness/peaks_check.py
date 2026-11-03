@@ -26,6 +26,9 @@ from reamo_client import reaper, screenshot, WINDOWS
 
 # Seconds per tile at each LOD (peaks_tile.zig TILE_CONFIGS).
 TILE_SECONDS = [4096, 1024, 256, 64, 16, 4, 1]
+# Peaks per whole tile at every LOD; a tile cut short by the item's end
+# has fewer, at the same spacing.
+PEAKS_PER_TILE = 256
 
 
 def decode(frame):
@@ -41,7 +44,7 @@ def decode(frame):
         data = struct.unpack_from(f"<{npk * ch * 2}b", frame, off)
         off += npk * ch * 2
         out.append({"guid": guid, "lod": lod, "idx": idx, "npk": npk, "ch": ch, "epoch": epoch,
-                    "item": itempos, "data": data})
+                    "data": data})
     assert off == len(frame), f"frame has {len(frame) - off} trailing bytes"
     return out
 
@@ -65,6 +68,20 @@ def wait_tiles(client, n=0, timeout=3.0, settle=0.5):
     return tiles_since(client, n)
 
 
+def drain_until_quiet(client, quiet=1.0, timeout=10.0):
+    """Read until no peaks frame has arrived for `quiet` seconds. After a
+    subscribe, REAmo meets each subscribed track for the first time on a
+    later tick and may send a frame for it; an edit made before those stop
+    can't tell its own frame from theirs."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        n = len(client.binary)
+        client.drain(quiet)
+        if len(client.binary) == n:
+            return
+    raise AssertionError(f"peaks frames still arriving after {timeout:g} s")
+
+
 def take_tiles(tiles, guid):
     """The take's tiles, the latest copy of each (lod, index)."""
     latest = {}
@@ -75,7 +92,7 @@ def take_tiles(tiles, guid):
 
 
 def reamo_profile(tiles, length, bin_s=0.5):
-    """{"channels", "epochs", "max": [[per bin] per channel], "min": ...} of a
+    """{"channels", "max": [[per bin] per channel], "min": ...} of a
     take's tiles over the item's first `length` seconds."""
     nb = int(length / bin_s + 0.5)
     chans = max((t["ch"] for t in tiles), default=0)
@@ -84,14 +101,14 @@ def reamo_profile(tiles, length, bin_s=0.5):
     for t in tiles:
         dur = TILE_SECONDS[t["lod"]]
         for p in range(t["npk"]):
-            b = int((t["idx"] * dur + (p + 0.5) * dur / t["npk"]) / bin_s)
+            b = int((t["idx"] * dur + (p + 0.5) * dur / PEAKS_PER_TILE) / bin_s)
             if b >= nb:
                 continue
             for c in range(t["ch"]):
                 lo, hi = t["data"][(p * t["ch"] + c) * 2] / 127, t["data"][(p * t["ch"] + c) * 2 + 1] / 127
                 mx[c][b] = max(mx[c][b], hi)
                 mn[c][b] = min(mn[c][b], lo)
-    return {"channels": sorted({t["ch"] for t in tiles}), "epochs": sorted({t["epoch"] for t in tiles}),
+    return {"channels": sorted({t["ch"] for t in tiles}),
             "max": mx, "min": mn}
 
 
@@ -110,7 +127,9 @@ local _, guid = reaper.GetSetMediaItemTakeInfo_String(tk, "GUID", "", false)
 local n = math.floor(len * rate + 0.5)
 local buf = reaper.new_array(n * 4)
 buf.clear()
-local got = reaper.GetMediaItemTake_Peaks(tk, rate, pos, 2, n, 0, buf) & 0xfffff
+local rv = reaper.GetMediaItemTake_Peaks(tk, rate, pos, 2, n, 0, buf)
+assert(rv >= 0, "GetMediaItemTake_Peaks failed: " .. rv)
+local got = rv & 0xfffff
 local nb = math.floor(len / bin + 0.5)
 local mx, mn = {{}, {}}, {{}, {}}
 for c = 1, 2 do for b = 1, nb do mx[c][b] = 0; mn[c][b] = 0 end end

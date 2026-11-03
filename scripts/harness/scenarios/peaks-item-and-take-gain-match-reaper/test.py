@@ -2,9 +2,9 @@
 
 REAPER draws a take's waveform from GetMediaItemTake_Peaks, which applies
 the item's and the take's volume (multiplied), the take's pan and its
-volume envelope. A flipped take polarity draws the same as unflipped, and
-the track's volume isn't applied at all. REAmo asks the same API, so a
-phone matches in each case.
+volume envelope; the track's volume isn't applied at all. REAmo asks the
+same API, so a phone matches in each case. (Take polarity isn't checked:
+the staircase is symmetric, so a flip couldn't show.)
 """
 from reamo_client import Client
 import peaks_check as pk
@@ -14,7 +14,7 @@ FILE = pk.steps(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
 with Client() as c:
     c.wait_event("items")
     tiles = pk.subscribe_all(c)
-    mono = ["item volume -6 dB", "take volume -6 dB", "item and take -6 dB", "take polarity flipped",
+    mono = ["item volume -6 dB", "take volume -6 dB", "item and take -6 dB",
             "track volume -6 dB", "take volume envelope"]
     profiles, bad = pk.compare(tiles, mono)
     stereo, bad2 = pk.compare(tiles, ["stereo, take pan hard left", "stereo"], channels=2)
@@ -27,7 +27,7 @@ with Client() as c:
         return profiles[name][1]["max"][ch]
 
     for name, scale in (("item volume -6 dB", 0.5), ("take volume -6 dB", 0.5), ("item and take -6 dB", 0.25),
-                        ("take polarity flipped", 1), ("track volume -6 dB", 1)):
+                        ("track volume -6 dB", 1)):
         want = [v * scale for v in FILE]
         assert pk.near(reaper_max(name), want), f"REAPER's peaks for {name!r}: {pk.fmt(reaper_max(name))}, expected {pk.fmt(want)}"
     env = reaper_max("take volume envelope")

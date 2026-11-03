@@ -26,7 +26,7 @@ AFTER = {"reverse": pk.steps(0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1),
 with Client() as c:
     c.wait_event("items")
     pk.subscribe_all(c)
-    c.drain(0.5)
+    pk.drain_until_quiet(c)
     bad, evidence = [], {}
     for name, edit in EDITS.items():
         ti = pk.track_index(name)

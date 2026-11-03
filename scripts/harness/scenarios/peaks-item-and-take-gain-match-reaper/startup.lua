@@ -1,4 +1,4 @@
--- Items whose level is changed by item volume, take volume, take polarity,
+-- Items whose level is changed by item volume, take volume,
 -- take pan, a take volume envelope, or the track's volume.
 dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 local wav = harness.staircase_wav("/tmp/staircase.wav")
@@ -11,8 +11,6 @@ reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 0.5)
 it, take = harness.waveform_item("item and take -6 dB", wav, 1, 8)
 reaper.SetMediaItemInfo_Value(it, "D_VOL", 0.5)
 reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 0.5)
-it, take = harness.waveform_item("take polarity flipped", wav, 1, 8)
-reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", -1)
 it, take, t = harness.waveform_item("track volume -6 dB", wav, 1, 8)
 reaper.SetMediaTrackInfo_Value(t, "D_VOL", 0.5)
 

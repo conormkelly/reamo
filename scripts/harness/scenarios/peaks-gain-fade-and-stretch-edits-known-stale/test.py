@@ -6,8 +6,9 @@ the take's source, channel count, start offset and playrate, and the
 item's position, length and active take. So after any of these edits:
 
 - no peaks frame arrives;
-- REAmo's tile cache, shared by every phone and keyed by those properties,
-  still holds the old tiles: a frame sent for another reason (here, a slip
+- REAmo's tile cache, shared by every phone and keyed by take, an epoch
+  (the take's source, channel count, start offset and playrate), LOD and
+  tile, still holds the old tiles: a frame sent for another reason (here, a slip
   edit on another track), and a phone that connects afterwards, get the
   waveform from before the edit.
 
@@ -55,7 +56,7 @@ def channels(name):
 with Client() as c:
     c.wait_event("items")
     first = pk.subscribe_all(c)
-    c.drain(0.5)
+    pk.drain_until_quiet(c)
     before = {name: pk.compare(first, [name], channels(name)) for name in EDITS}
     for name, (profiles, b) in before.items():
         assert not b, "\n".join(b)  # REAmo matched REAPER before the edit
@@ -90,12 +91,14 @@ with Client() as c:
         fresh = pk.subscribe_all(late)
     for label, tiles in (("re-sent after the control edit", resent), ("sent to a phone connecting afterwards", fresh)):
         for name in EDITS:
-            got = pk.reamo_profile(pk.take_tiles(tiles, stale[name]["reaper_after"]["guid"]),
-                                   stale[name]["reaper_after"]["length"])
+            mine = pk.take_tiles(tiles, stale[name]["reaper_after"]["guid"])
+            assert mine, f"{name}: no tiles {label}"
+            got = pk.reamo_profile(mine, stale[name]["reaper_after"]["length"])
             assert not pk.mismatches(name, got, stale[name]["reaper_before"], channels(name)), \
                 f"{name}: the waveform {label} is no longer the one from before the edit:\n" + \
                 "\n".join(pk.mismatches(name, got, stale[name]["reaper_before"], channels(name)))
-            assert pk.mismatches(name, got, stale[name]["reaper_after"], channels(name))
+            assert pk.mismatches(name, got, stale[name]["reaper_after"], channels(name)), \
+                f"{name}: the waveform {label} matches REAPER's after the edit, though no tiles were sent for it"
     pk.save("profiles", stale)
     pk.save("reamo-tiles-after-edits", fresh)
     pk.screenshot_arrange("reaper-arrange")

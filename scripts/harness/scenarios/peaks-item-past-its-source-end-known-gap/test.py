@@ -8,9 +8,12 @@ start for the count asked for (after `asked` maximums), leaving the gap
 before it untouched.
 
 REAmo reads the minimums from just after the peaks returned. So on a phone
-the top half of the waveform is right, but the bottom half starts with
-whatever was in REAmo's buffer and shows the audio late by the length past
-its end.
+the top half of the waveform is right, but the bottom half is wrong: for
+as long as the item runs on past its audio it is the slots REAPER never
+wrote (uninitialised memory from REAmo's buffer, quantised and sent), then
+it shows the audio late by that length. Each item here runs on by less
+than its audio, so the late part can be checked; an item that runs on
+longer gets nothing but the unwritten slots.
 
 This scenario pins both: REAPER's layout (the oracle reads the minimums at
 the count asked for, and they mirror the maximums), and REAmo's misread.
@@ -20,7 +23,7 @@ fails: make it assert a match instead.
 from reamo_client import Client
 import peaks_check as pk
 
-GAPPED = ["12 s item, 8 s file", "slipped 2 s, 8 s item", "rate 2, 8 s item"]
+GAPPED = ["12 s item, 8 s file", "slipped 2 s, 8 s item", "rate 2, 6 s item"]
 
 with Client() as c:
     c.wait_event("items")
@@ -40,7 +43,7 @@ with Client() as c:
         # (read at the count asked for) mirror its maximums.
         assert want["got"] < want["asked"], f"{name}: REAPER returned {want['got']} of {want['asked']} peaks"
         audio_s = want["got"] / 200.0
-        nb_audio = int(audio_s * 2)
+        nb_audio = round(audio_s * 2)
         assert max(want["max"][0][nb_audio:]) < 0.01, f"{name}: REAPER's peaks after the audio: {pk.fmt(want['max'][0])}"
         assert pk.near([-v for v in want["min"][0]], want["max"][0]), \
             f"{name}: REAPER's minimums don't mirror its maximums:\n  max {pk.fmt(want['max'][0])}\n  min {pk.fmt(want['min'][0])}"
@@ -49,7 +52,8 @@ with Client() as c:
         assert pk.near(got["max"][0], want["max"][0]), \
             f"{name}: REAmo's maximums {pk.fmt(got['max'][0])}, REAPER's {pk.fmt(want['max'][0])}"
         # Known gap: its bottom half is REAPER's, late by the time past the audio.
-        late = int((want["length"] - audio_s) * 2)
+        late = round((want["length"] - audio_s) * 2)
+        assert 0 < late < nb_audio, f"{name}: the fixture must run on past its audio by less than the audio"
         shifted = want["min"][0][:nb_audio - late]
         mine = got["min"][0][late:nb_audio]
         print(f"{name}: audio {audio_s:g} s of {want['length']:g} s; REAmo's minimums run {late / 2:g} s late")

@@ -285,9 +285,9 @@ second; `screenshot_arrange()` keeps REAPER's drawing beside them.
 - `harness.section(item, start, len)` and `harness.reverse_take(item)` wrap
   the source the way REAPER's own commands do.
 
-`peaks-*-matches-reaper` scenarios check a rule each; `*-known-gap` and
-`*-known-stale` ones pin differences not fixed yet, and say what to change
-when they are.
+The `peaks-*` scenarios named `…-match(es)-reaper` or `…-refresh-the-waveform`
+check a rule each; `…-known-gap` and `…-known-stale` ones pin differences not
+fixed yet, and say what to change when they are.
 
 ### Acting in REAPER mid-test
 

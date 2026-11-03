@@ -100,7 +100,8 @@ end
 
 -- Play only `len` seconds of the item's file from `startpos` (Item
 -- Properties' "Section"): wraps the take's WAVE source in a SECTION source,
--- as REAPER's own dialog does.
+-- the source type that option makes. Its other settings (OVERLAP) are 0
+-- here, not necessarily what REAPER's dialog writes.
 function harness.section(item, startpos, len)
   local ok, chunk = reaper.GetItemStateChunk(item, "", false)
   assert(ok, "GetItemStateChunk failed")
