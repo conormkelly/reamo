@@ -689,7 +689,9 @@ def _(t):
     g, tr = t.track_for("Guitar", lambda g, tr: tr["freemode"] != 2 and tr["depth"] <= 0 and not any(
         it["track"] == g and it["pos"] < 2.4 for it in t.d["items"].values()), role="free to record the first 2.4 s on")
     # REAPER's dummy audio device has no inputs, so the track records its
-    # own output, a setting the user makes in REAPER's record menu.
+    # own output, a setting the user makes in REAPER's record menu. Tracks
+    # the project already has armed on a hardware input record too, on a
+    # device that has that input (JACK under HARNESS_AUDIO=jack).
     old_mode = reaper(f"""local tr
 for i = 0, reaper.CountTracks(0) - 1 do
   local x = reaper.GetTrack(0, i)
@@ -701,6 +703,22 @@ return m""")
     armed = [gg for gg, tt in t.tracks() if tt["arm"]]
 
     def restore_all():
+        # A failure while recording leaves REAPER recording: throw that take
+        # away with REAPER's own stop-and-delete. A failure between recording
+        # and undoing it leaves the take (selected, every other item
+        # unselected): undo it. Otherwise the ops after this one start from a
+        # project the tour didn't open.
+        if t.digest()["project.play"] != 0:
+            reaper("reaper.Main_OnCommand(40668, 0)")  # Transport: Stop (DELETE all recorded media)
+            deadline = time.time() + 3
+            while t.digest()["project.play"] != 0:
+                if time.time() > deadline:
+                    raise Mismatch(f"REAPER's play state stayed {t.flat['project.play']} after stop-and-delete")
+                t.c.drain(0.1)
+        if t.flat["undo.can_undo"] == "Recorded media" != start["undo.can_undo"]:
+            r = t.send("undo/do", awaited=True)
+            if not r.get("success"):
+                raise Mismatch(f"undo/do of the recording left behind failed: {r}")
         t.ok("track/setRecArm", trackGuid=g, arm=tr["arm"])
         reaper(f"""for i = 0, reaper.CountTracks(0) - 1 do
   local x = reaper.GetTrack(0, i)
@@ -750,6 +768,16 @@ end""")
                         and t.d["items"][n]["pos"] < it["pos"])
             if ahead:
                 changes[f"items.{ig}.idx"] = before[f"items.{ig}.idx"] + ahead
+            # A track in fixed lanes records into the lane that plays, and
+            # REAPER gives each item in that lane with no colour of its own
+            # the new take's colour; a coloured item keeps its colour
+            # (transport-record-with-real-inputs-matches-reaper measures
+            # REAPER's own record action doing both).
+            if t.d["tracks"][it["track"]]["freemode"] == 2 and before[f"items.{ig}.color"] == 0:
+                lane_colors = {t.d["items"][n]["color"] for n in new
+                               if t.d["items"][n]["track"] == it["track"] and t.d["items"][n]["lane"] == it["lane"]}
+                if lane_colors:
+                    changes[f"items.{ig}.color"] = lambda v, want=lane_colors: v in want
         t.expect(changes)
         t.undo_redo(before, t.flat)
         r = t.send("undo/do", awaited=True)
