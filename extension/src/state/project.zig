@@ -76,7 +76,7 @@ pub const State = struct {
     frame_rate: f64 = 30.0, // Project frame rate (e.g., 29.97, 24, 25)
     drop_frame: bool = false, // True for drop-frame timecode (29.97/59.94)
     record_mode: u8 = 0, // 0=normal, 1=time selection auto-punch, 2=selected items auto-punch
-    sample_rate: u32 = 48000, // Audio engine sample rate (Hz)
+    sample_rate: u32 = 48000, // Audio device's rate (Hz), the stream's; not the project's setting
 
     // Memory warning flag - set externally from tiered arena usage monitoring
     // When true, frontend should warn user about high memory utilization
@@ -159,13 +159,13 @@ pub const State = struct {
         else
             0; // normal
 
-        const api_rate = api.getSampleRate();
+        const device_rate = api.audioDeviceSampleRate();
 
         var state = State{
             .load_count = api.projectLoadCount(),
             .state_change_count = api.projectStateChangeCount(),
             .project_length = api.projectLength(),
-            .sample_rate = if (api_rate > 0) api_rate else 48000,
+            .sample_rate = if (device_rate > 0) device_rate else 48000,
             .repeat = api.getRepeat(),
             .metronome_enabled = api.isMetronomeEnabled(),
             .metronome_volume = api.getMetronomeVolume(),

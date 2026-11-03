@@ -87,7 +87,6 @@ pub const Api = struct {
 
     // Project info
     getProjectLength: ?*const fn (?*anyopaque) callconv(.c) f64 = null,
-    getSetProjectInfo: ?*const fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64 = null,
     getAudioDeviceInfo: ?*const fn ([*:0]const u8, [*]u8, c_int) callconv(.c) bool = null,
 
     // Command state
@@ -320,7 +319,6 @@ pub const Api = struct {
             .setTempoTimeSigMarker = getFunc(info, "SetTempoTimeSigMarker", fn (?*anyopaque, c_int, f64, c_int, f64, f64, c_int, c_int, bool) callconv(.c) bool),
             // Project info
             .getProjectLength = getFunc(info, "GetProjectLength", fn (?*anyopaque) callconv(.c) f64),
-            .getSetProjectInfo = getFunc(info, "GetSetProjectInfo", fn (?*anyopaque, [*:0]const u8, f64, bool) callconv(.c) f64),
             .getAudioDeviceInfo = getFunc(info, "GetAudioDeviceInfo", fn ([*:0]const u8, [*]u8, c_int) callconv(.c) bool),
             // Command state
             .getToggleCommandState = getFunc(info, "GetToggleCommandState", fn (c_int) callconv(.c) c_int),
@@ -771,19 +769,27 @@ pub const Api = struct {
         return f(null);
     }
 
-    // Query project info value (GetSetProjectInfo). Returns raw f64.
-    // desc examples: "PROJECT_SRATE", "PROJECT_SRATE_USE"
-    pub fn getProjectInfoValue(self: *const Api, desc: [*:0]const u8) f64 {
-        const f = self.getSetProjectInfo orelse return 0.0;
-        return f(null, desc, 0.0, false);
-    }
-
     // Query audio device info string (GetAudioDeviceInfo).
     // Returns true on success, writing result into buf.
     // attr examples: "SRATE", "BSIZE", "BPS"
     pub fn audioDeviceInfo(self: *const Api, attr: [*:0]const u8, buf: [*]u8, buf_sz: c_int) bool {
         const f = self.getAudioDeviceInfo orelse return false;
         return f(attr, buf, buf_sz);
+    }
+
+    /// The rate the open audio device runs at, which is the rate the audio
+    /// hook delivers samples at; 0 if no device is open or REAPER can't say.
+    ///
+    /// Not the project's own rate (PROJECT_SRATE): REAPER asks the device
+    /// for it, but a device that can't change rate, such as JACK, keeps its
+    /// own, and samples arrive at that. Where the device does follow the
+    /// project, this reads the new rate as soon as the project has opened.
+    pub fn audioDeviceSampleRate(self: *const Api) u32 {
+        var buf = [_]u8{0} ** 64;
+        if (!self.audioDeviceInfo("SRATE", &buf, buf.len)) return 0;
+        // An integer ("48000"); read the leading digits, NUL-terminated or not.
+        const digits = std.mem.indexOfNone(u8, &buf, "0123456789") orelse buf.len;
+        return std.fmt.parseInt(u32, buf[0..digits], 10) catch 0;
     }
 
     // Command toggle state: returns 1 if on, 0 if off, -1 if not toggle command
@@ -2713,6 +2719,54 @@ test "getTrackByUnifiedIdx returns null for negative indices instead of overflow
     const api = Api{ .showConsoleMsg = undefined, .register = undefined };
     try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(std.math.minInt(c_int)));
     try std.testing.expectEqual(@as(?*anyopaque, null), api.getTrackByUnifiedIdx(-1));
+}
+
+/// A fake GetAudioDeviceInfo for the tests below: answers "SRATE" with
+/// `fake_device_srate`, or fails (no device open) when it is null.
+var fake_device_srate: ?[]const u8 = null;
+fn fakeAudioDeviceInfo(attr: [*:0]const u8, buf: [*]u8, buf_sz: c_int) callconv(.c) bool {
+    if (!std.mem.eql(u8, std.mem.span(attr), "SRATE")) return false;
+    const text = fake_device_srate orelse return false;
+    const n = @min(text.len, @as(usize, @intCast(buf_sz)) - 1);
+    @memcpy(buf[0..n], text[0..n]);
+    buf[n] = 0;
+    return true;
+}
+
+test "audioDeviceSampleRate is the rate the open device reports" {
+    // The rate the hook's samples arrive at, whatever rate the project asks
+    // for: a device that can't change rate, such as JACK, keeps its own.
+    var api = Api{ .showConsoleMsg = undefined, .register = undefined };
+    api.getAudioDeviceInfo = &fakeAudioDeviceInfo;
+    defer fake_device_srate = null;
+    fake_device_srate = "48000";
+    try std.testing.expectEqual(@as(u32, 48000), api.audioDeviceSampleRate());
+    fake_device_srate = "44100";
+    try std.testing.expectEqual(@as(u32, 44100), api.audioDeviceSampleRate());
+}
+
+test "audioDeviceSampleRate is 0 when no device is open or REAPER can't say" {
+    var api = Api{ .showConsoleMsg = undefined, .register = undefined };
+    try std.testing.expectEqual(@as(u32, 0), api.audioDeviceSampleRate());
+    api.getAudioDeviceInfo = &fakeAudioDeviceInfo;
+    fake_device_srate = null;
+    try std.testing.expectEqual(@as(u32, 0), api.audioDeviceSampleRate());
+    fake_device_srate = "";
+    defer fake_device_srate = null;
+    try std.testing.expectEqual(@as(u32, 0), api.audioDeviceSampleRate());
+    fake_device_srate = "fast";
+    try std.testing.expectEqual(@as(u32, 0), api.audioDeviceSampleRate());
+    // Past u32: no rate, rather than a wrapped one.
+    fake_device_srate = "99999999999";
+    try std.testing.expectEqual(@as(u32, 0), api.audioDeviceSampleRate());
+}
+
+test "audioDeviceSampleRate reads the digits REAPER writes and nothing after them" {
+    var api = Api{ .showConsoleMsg = undefined, .register = undefined };
+    api.getAudioDeviceInfo = &fakeAudioDeviceInfo;
+    defer fake_device_srate = null;
+    fake_device_srate = "96000.000";
+    try std.testing.expectEqual(@as(u32, 96000), api.audioDeviceSampleRate());
 }
 
 /// The major version at the start of GetAppVersion's text ("7.83/macOS-arm64").
