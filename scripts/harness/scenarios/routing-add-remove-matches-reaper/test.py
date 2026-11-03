@@ -75,8 +75,19 @@ with Client() as a, Client() as b:
     r = a.command("hw/add", trackGuid=vox)
     assert r["success"] and r["payload"]["hwIdx"] == 0, r
     check("hw output", a, b)
+    # hw/listOutputs lists every stereo pair, then every mono channel, under
+    # REAPER's own channel names, which depend on the device (the dummy
+    # device and JACK name them differently).
+    names = reaper("local n = {} for i = 0, reaper.GetNumAudioOutputs() - 1 do"
+                   " n[#n + 1] = reaper.GetOutputChannelName(i) end return n")
+    assert len(names) >= 2, f"the device has {len(names)} outputs, fewer than the 2 this needs"
     outs = a.command("hw/listOutputs")["payload"]["outputs"]
-    mono_r = next(o["destChan"] for o in outs if not o["stereo"] and o["name"].endswith("R"))
+    want_outs = ([{"destChan": ch, "name": f"{names[ch]} / {names[ch + 1]}", "stereo": True}
+                  for ch in range(0, len(names) - 1, 2)] +
+                 [{"destChan": ch | 1024, "name": names[ch], "stereo": False} for ch in range(len(names))])
+    print(f"{'outputs':28s} {[o['name'] for o in outs]}")
+    assert outs == want_outs, f"hw/listOutputs shows {outs}, REAPER {want_outs}"
+    mono_r = 1 | 1024  # the second channel on its own: I_DSTCHAN's mono flag is 1024
     a.fire("hw/setDestChannel", trackIdx=1, hwIdx=0, destChannel=mono_r)
     check(f"hw -> mono R ({mono_r})", a, b)
     for mode in (1, 3, 0):
