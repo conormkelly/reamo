@@ -1,10 +1,12 @@
 """A phone on the tuner, for the tuner scenarios: what its `tuner` events
 say, read as they arrive.
 
-The extension sends a tuner event only when it differs from the last one
-sent to that phone, so a state that holds is sent once. `Phone` keeps the
-latest payload (`last`) and every payload since `mark()` (`since`), so a
-wait for a state already reached returns at once.
+The extension sends a tuner event when it differs from the last one sent
+to that phone, and the same again every 250 ms while it holds. `Phone`
+keeps the latest payload (`last`), every payload since `mark()` (`since`)
+and when each arrived (`since_at`, time.monotonic(), to the read that took
+it: within about 50 ms), so a wait for a state already reached returns at
+once.
 """
 import math
 import time
@@ -26,6 +28,7 @@ class Phone:
         self.name = name
         self.last = None
         self.since = []
+        self.since_at = []
         self.all = []
 
     def subscribe(self, guid):
@@ -37,10 +40,12 @@ class Phone:
     def pump(self, seconds=0.05):
         """Read for `seconds`, keeping the tuner events."""
         self.c.drain(seconds)
+        now = time.monotonic()
         for name, msg in self.c.events:
             if name == "tuner":
                 self.last = msg["payload"]
                 self.since.append(self.last)
+                self.since_at.append(now)
                 self.all.append(self.last)
         # Other events aren't kept, so a long run doesn't hold them all;
         # tunerError is, for the scenario to wait on.
@@ -50,6 +55,7 @@ class Phone:
         """Start a new `since`."""
         self.pump(0)
         self.since = []
+        self.since_at = []
 
     def wait(self, ok, timeout, what):
         """The first payload, the latest included, for which ok(payload) is true."""
