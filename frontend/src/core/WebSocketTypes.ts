@@ -447,8 +447,16 @@ export interface FxParamsErrorEventPayload {
 }
 
 // =============================================================================
-// Tuner Event (per-client, pushed by backend at 30Hz)
+// Tuner Event (per-client: each change at the backend's next 30 Hz poll, and a
+// reading that holds again every TUNER_RESEND_MS)
 // =============================================================================
+
+/**
+ * How often the backend sends a tuner reading again while it holds
+ * (tuner_subscriptions.resend_interval_ms), so a page can tell a reading
+ * that holds from one that has stopped arriving.
+ */
+export const TUNER_RESEND_MS = 250;
 
 /** Tuner event payload with pitch detection data */
 export interface TunerEventPayload {
@@ -488,6 +496,12 @@ export type TunerState = 'listening' | 'deviceClosed' | 'cantTune';
 /** Tuner error event (track deleted, or in another project tab, while subscribed) */
 export interface TunerErrorEventPayload {
   error: string;     // "TUNER_NOT_FOUND"
+  /**
+   * The source the error is about (a track's GUID, or "master"). It can
+   * arrive after the phone has chosen another; absent from an extension
+   * before 0.9.0.
+   */
+  trackGuid?: string;
 }
 
 // =============================================================================

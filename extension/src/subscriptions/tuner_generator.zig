@@ -73,6 +73,21 @@ pub fn writeEvent(w: anytype, track_guid: []const u8, ev: Event) !void {
     try w.print(",\"referenceHz\":{d:.1},\"thresholdDb\":{d:.0}}}}}", .{ ev.reference_hz, ev.threshold_db });
 }
 
+/// The longest tunerError: a code and a GUID of GUID_LEN bytes, each
+/// escaped to at most 6.
+pub const error_capacity = 512;
+
+/// The tunerError event, about the phone's tuner on `track_guid` (a track's
+/// GUID, or "master"): a phone that has since chosen another source ignores
+/// it. The code is in the payload, where pages read it, and beside it, for
+/// pages that read it there.
+pub fn writeError(w: anytype, comptime code: []const u8, track_guid: []const u8) !void {
+    try w.writeAll("{\"type\":\"event\",\"event\":\"tunerError\",\"error\":\"" ++ code ++
+        "\",\"payload\":{\"error\":\"" ++ code ++ "\",\"trackGuid\":\"");
+    try protocol.writeJsonString(w, track_guid);
+    try w.writeAll("\"}}");
+}
+
 fn render(allocator: Allocator, track_guid: []const u8, ev: Event) ?[]const u8 {
     const buf = allocator.alloc(u8, event_capacity) catch return null;
     var stream = std.io.fixedBufferStream(buf);
@@ -105,15 +120,18 @@ pub const AnalyserOutcome = union(enum) {
     event: []const u8,
     /// The phone's track can't be found.
     gone,
-    /// The event couldn't be built (out of scratch memory).
+    /// No event: it couldn't be built (out of scratch memory), or the
+    /// analysis thread has stopped publishing.
     none,
 };
 
 /// The poll's event for a phone on the master tuner, or on a track tuner on
 /// its input (after following the track to its record input now:
 /// TunerSubscriptions.refreshTrack). With the device closed no reading is
-/// shown, as none can be true. `device_open` is api.isAudioRunning(), once
-/// per poll. Main thread.
+/// shown, as none can be true. A reading the analysis thread published
+/// longer ago than subs.worker_stall_ns isn't sent at all (`none`): its
+/// thread has stopped, and the phone, sent nothing, stops showing it.
+/// `device_open` is api.isAudioRunning(), once per poll. Main thread.
 pub fn analyserEvent(
     allocator: Allocator,
     subs: *tuner_subscriptions.TunerSubscriptions,
@@ -138,6 +156,7 @@ pub fn analyserEvent(
             break :s got;
         },
     };
+    if (device_open and snap.olderThan(std.time.Instant.now() catch null, subs.worker_stall_ns)) return .none;
     const reading = if (device_open) snap.reading else pitch.Reading.none;
     return outcome(generateReadingEvent(allocator, track_guid, reading, snap.settings, heard));
 }
@@ -252,4 +271,26 @@ test "a closed device and an input that can't be tuned say so, with the code and
     try std.testing.expectEqualStrings("INPUT_MIDI", p.get("code").?.string);
     try std.testing.expectEqualStrings(msg, p.get("message").?.string);
     try std.testing.expectEqual(@as(f64, 0), p.get("freq").?.float);
+}
+
+test "a tunerError names the source it is about, for a phone that has moved on to ignore" {
+    var buf: [error_capacity]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try writeError(stream.writer(), "TUNER_NOT_FOUND", "{A\"B}");
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, stream.getWritten(), .{});
+    defer parsed.deinit();
+    const msg = parsed.value.object;
+    try std.testing.expectEqualStrings("tunerError", msg.get("event").?.string);
+    // Beside the payload too, for pages that read it there.
+    try std.testing.expectEqualStrings("TUNER_NOT_FOUND", msg.get("error").?.string);
+    const p = msg.get("payload").?.object;
+    try std.testing.expectEqualStrings("TUNER_NOT_FOUND", p.get("error").?.string);
+    try std.testing.expectEqualStrings("{A\"B}", p.get("trackGuid").?.string);
+}
+
+test "a tunerError for the longest GUID a client can send fits" {
+    var buf: [error_capacity]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    // Every character escaped as \u00XX: the most a 40-byte GUID can take.
+    try writeError(stream.writer(), "TUNER_NOT_FOUND", "\x01" ** tuner_subscriptions.GUID_LEN);
 }

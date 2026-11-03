@@ -14,7 +14,8 @@
 ///   var subs = TunerSubscriptions.init(allocator);
 ///   defer subs.deinit();
 ///   const result = try subs.subscribe(client_id, "{track-guid}", guid_cache, api);
-///   // ... tuner events broadcast at 30Hz ...
+///   // ... tuner events: each change at once (30 Hz polls), a reading
+///   // that holds again every resend_interval_ms ...
 ///   subs.unsubscribe(client_id, api);
 const std = @import("std");
 const logging = @import("../core/logging.zig");
@@ -129,6 +130,19 @@ pub fn cantTuneOf(err: SubscribeError) ?CantTune {
 /// failure isn't retried, and logged, at every poll.
 pub const open_retry_polls = 30;
 
+/// How often a phone is sent a reading again while it holds (silence, a
+/// steady tone, a state that doesn't change). Every change is sent at the
+/// next poll; without a resend a reading that holds would be sent once, and
+/// a phone couldn't tell it from a connection, or a REAPER, that has
+/// stopped sending: it would keep showing that reading, green included,
+/// until the heartbeat let the connection go. The page takes a reading as
+/// gone after a few intervals without an event (useTuner.ts). A resend
+/// goes at the first 30 Hz poll once due, so about 267 ms apart. A tuner
+/// event is about 330 bytes: about 1.3 KB/s per phone while nothing
+/// changes, against up to 10 KB/s while a note sounds and each poll's
+/// reading differs.
+pub const resend_interval_ms = 250;
+
 /// What a poll finds of a phone's track tuner.
 pub const TrackStatus = union(enum) {
     /// The track can't be found (deleted, or in another project tab).
@@ -161,6 +175,20 @@ pub const TunerSubscriptions = struct {
     /// Force broadcast flag per client (set on subscribe)
     force_broadcast_clients: [MAX_CLIENTS]bool,
 
+    /// When each client was last sent an event (`nowMs`), for its resend.
+    last_sent_ms: [MAX_CLIENTS]u64,
+
+    /// The poll's monotonic clock; null if the OS has none.
+    clock: ?std.time.Timer,
+
+    /// A reading its analysis thread published longer ago than this isn't
+    /// sent (tuner_generator.analyserEvent): the thread has stopped
+    /// ticking, and resending its last reading every resend_interval_ms
+    /// would keep it, green included, fresh on the phone. 15 of the
+    /// worker's 30 Hz ticks; an overrun starts a new tick at once. Tests
+    /// shorten it.
+    worker_stall_ns: u64 = 500 * std.time.ns_per_ms,
+
     /// Free list for slot recycling
     free_slots: [MAX_CLIENTS]usize,
     free_count: usize,
@@ -187,6 +215,8 @@ pub const TunerSubscriptions = struct {
             .client_id_to_slot = std.AutoHashMap(usize, usize).init(allocator),
             .prev_hash = [_]u64{0} ** MAX_CLIENTS,
             .force_broadcast_clients = [_]bool{false} ** MAX_CLIENTS,
+            .last_sent_ms = [_]u64{0} ** MAX_CLIENTS,
+            .clock = std.time.Timer.start() catch null,
             .free_slots = undefined,
             .free_count = 0,
             .next_slot = 0,
@@ -555,24 +585,25 @@ pub const TunerSubscriptions = struct {
         return false;
     }
 
-    /// Check if data changed by comparing hash. Returns true if changed (or force broadcast).
-    pub fn checkChanged(self: *TunerSubscriptions, slot: usize, data_hash: u64) bool {
+    /// Milliseconds on the poll's monotonic clock, or null if there is none.
+    pub fn nowMs(self: *TunerSubscriptions) ?u64 {
+        const clock = if (self.clock) |*c| c else return null;
+        return clock.read() / std.time.ns_per_ms;
+    }
+
+    /// Whether a poll sends a client its event (by hash): its first since
+    /// subscribing, a change, or the same again once resend_interval_ms
+    /// has passed since the last it was sent. `now_ms` is nowMs(); with no
+    /// clock every event is sent, as a phone shown a reading that holds
+    /// and isn't sent again would take it for gone.
+    pub fn shouldSend(self: *TunerSubscriptions, slot: usize, data_hash: u64, now_ms: ?u64) bool {
         if (slot >= MAX_CLIENTS) return false;
-
-        // Force broadcast always triggers change
-        if (self.force_broadcast_clients[slot]) {
-            self.force_broadcast_clients[slot] = false;
-            self.prev_hash[slot] = data_hash;
-            return true;
-        }
-
-        // Compare with previous
-        if (self.prev_hash[slot] != data_hash) {
-            self.prev_hash[slot] = data_hash;
-            return true;
-        }
-
-        return false;
+        const due = if (now_ms) |now| now -| self.last_sent_ms[slot] >= resend_interval_ms else true;
+        if (!self.force_broadcast_clients[slot] and self.prev_hash[slot] == data_hash and !due) return false;
+        self.force_broadcast_clients[slot] = false;
+        self.prev_hash[slot] = data_hash;
+        if (now_ms) |now| self.last_sent_ms[slot] = now;
+        return true;
     }
 
     /// Increment consecutive failure count for a client.
@@ -1398,6 +1429,35 @@ test "every phone on a source is sent the same reading in a poll, though the wor
     try std.testing.expectEqual(@as(f64, 111), (try polledPayload(&rig, 3, arena.allocator())).get("freq").?.float);
 }
 
+test "a reading from an analysis thread that has stopped publishing isn't sent, so the phone's screen goes stale" {
+    var rig: InputRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // Workers that tick once, at start, then wait: a stalled thread.
+    rig.subs.inputs.tick_ns = 60 * std.time.ns_per_s;
+    rig.subs.master.worker.tick_ns = 60 * std.time.ns_per_s;
+    rig.subs.worker_stall_ns = 20 * std.time.ns_per_ms;
+    _ = try rig.sub(1, "{T1}");
+    _ = try rig.sub(2, MASTER_GUID);
+    std.Thread.sleep(5 * std.time.ns_per_ms); // the first tick is done, and fresh
+    rig.subs.beginPoll();
+    _ = try polledPayload(&rig, 1, arena.allocator());
+    _ = try polledPayload(&rig, 2, arena.allocator());
+    std.Thread.sleep(40 * std.time.ns_per_ms);
+    rig.subs.beginPoll();
+    for ([_]usize{ 1, 2 }) |client| {
+        const slot = rig.subs.client_id_to_slot.get(client).?;
+        const out = tuner_generator.analyserEvent(arena.allocator(), &rig.subs, slot, &rig.cache, &rig.api, true);
+        try std.testing.expect(out == .none);
+    }
+    // With the device closed nothing of the reading is sent, so the event is.
+    rig.subs.beginPoll();
+    const slot = rig.subs.client_id_to_slot.get(1).?;
+    try std.testing.expect(tuner_generator.analyserEvent(arena.allocator(), &rig.subs, slot, &rig.cache, &rig.api, false) == .event);
+}
+
 test "a source closed and opened again in one poll isn't sent the closed one's snapshot" {
     var rig: InputRig = undefined;
     try rig.init();
@@ -1416,4 +1476,78 @@ test "a source closed and opened again in one poll isn't sent the closed one's s
     rig.setInput(1, 3); // same poll: the phone moves, and the new source may take the same slot
     const p = try polledPayload(&rig, 1, arena.allocator());
     try std.testing.expectEqual(@as(f64, 0), p.get("freq").?.float);
+}
+
+// -----------------------------------------------------------------------------
+// What a poll sends a phone: a change at once, and a reading that holds again
+// every resend_interval_ms
+// -----------------------------------------------------------------------------
+
+test "a reading that holds is sent again every resend interval, and a change at once" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1);
+    const slot = rig.subs.client_id_to_slot.get(1).?;
+    const t0: u64 = 10_000;
+    try std.testing.expect(rig.subs.shouldSend(slot, 7, t0)); // the first, at once
+    try std.testing.expect(!rig.subs.shouldSend(slot, 7, t0 + 33));
+    try std.testing.expect(!rig.subs.shouldSend(slot, 7, t0 + resend_interval_ms - 1));
+    try std.testing.expect(rig.subs.shouldSend(slot, 7, t0 + resend_interval_ms));
+    // The interval runs from the last send, a resend included.
+    try std.testing.expect(!rig.subs.shouldSend(slot, 7, t0 + resend_interval_ms + 33));
+    try std.testing.expect(rig.subs.shouldSend(slot, 8, t0 + resend_interval_ms + 66)); // a change
+    try std.testing.expect(!rig.subs.shouldSend(slot, 8, t0 + 2 * resend_interval_ms + 65));
+    try std.testing.expect(rig.subs.shouldSend(slot, 8, t0 + 2 * resend_interval_ms + 66));
+}
+
+test "each phone's resends run on its own clock" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1);
+    _ = try rig.sub(2);
+    const a = rig.subs.client_id_to_slot.get(1).?;
+    const b = rig.subs.client_id_to_slot.get(2).?;
+    const t0: u64 = 10_000;
+    try std.testing.expect(rig.subs.shouldSend(a, 7, t0));
+    // Phone 2's first event goes 100 ms later: its resend is due 100 ms
+    // after phone 1's, and phone 1's sends don't move it.
+    try std.testing.expect(rig.subs.shouldSend(b, 7, t0 + 100));
+    try std.testing.expect(rig.subs.shouldSend(a, 7, t0 + resend_interval_ms));
+    try std.testing.expect(!rig.subs.shouldSend(b, 7, t0 + resend_interval_ms));
+    try std.testing.expect(rig.subs.shouldSend(b, 7, t0 + 100 + resend_interval_ms));
+    // A change for one phone is sent to it alone.
+    try std.testing.expect(rig.subs.shouldSend(a, 9, t0 + resend_interval_ms + 133));
+    try std.testing.expect(!rig.subs.shouldSend(b, 7, t0 + resend_interval_ms + 133));
+}
+
+test "a phone subscribing again is sent its first event at once, though one went out within the interval" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1);
+    const slot = rig.subs.client_id_to_slot.get(1).?;
+    try std.testing.expect(rig.subs.shouldSend(slot, 7, 10_000));
+    _ = try rig.sub(1);
+    try std.testing.expect(rig.subs.shouldSend(slot, 7, 10_033));
+}
+
+test "with no clock, a poll sends every reading rather than none again" {
+    var rig: MasterRig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    _ = try rig.sub(1);
+    const slot = rig.subs.client_id_to_slot.get(1).?;
+    try std.testing.expect(rig.subs.shouldSend(slot, 7, null));
+    try std.testing.expect(rig.subs.shouldSend(slot, 7, null));
+}
+
+test "the poll's clock moves on in milliseconds" {
+    var subs = TunerSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const a = subs.nowMs() orelse return error.SkipZigTest;
+    std.Thread.sleep(5 * std.time.ns_per_ms);
+    const b = subs.nowMs().?;
+    try std.testing.expect(b >= a + 4);
 }

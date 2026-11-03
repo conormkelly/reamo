@@ -1,6 +1,7 @@
 /**
  * Tuner state slice
- * Manages tuner subscription and real-time pitch detection data from backend (30Hz)
+ * Manages tuner subscription and real-time pitch detection data from backend
+ * (each change at its 30 Hz poll, and a reading that holds every 250 ms)
  *
  * Used by TunerView for chromatic tuning with visual feedback.
  * Only one track can be subscribed at a time per client.
@@ -30,6 +31,7 @@ const NO_READING = {
   tunerMultiple: false,
   tunerState: null,
   tunerProblem: null,
+  tunerHeard: false,
 } as const;
 
 export interface TunerSlice {
@@ -37,7 +39,7 @@ export interface TunerSlice {
   /** GUID of the currently subscribed track (null = not subscribed) */
   tunerSubscribedGuid: string | null;
 
-  // Current tuner data (from 30Hz events)
+  // Current tuner data (from the latest event)
   tunerFreq: number;
   tunerNote: number;
   tunerNoteName: string;
@@ -62,6 +64,13 @@ export interface TunerSlice {
   tunerState: TunerState | null;
   /** Why the chosen track can't be tuned: a refused subscribe, or a cantTune event */
   tunerProblem: TunerProblem | null;
+  /** Whether an event has come for this subscription: until one has, nothing above is REAPER's */
+  tunerHeard: boolean;
+  /**
+   * Changes with every event taken and every change of subscription, for a
+   * reading's freshness to be timed from (useTuner's `stale`).
+   */
+  tunerEventSeq: number;
 
   // Settings (persisted to localStorage separately)
   tunerReferenceHz: number;
@@ -75,10 +84,14 @@ export interface TunerSlice {
   // Actions
   /** Set subscription state (call before sending tuner/subscribe command) */
   setTunerSubscription: (trackGuid: string | null) => void;
-  /** Handle incoming tuner event from backend (30Hz) */
+  /** Handle incoming tuner event from backend */
   handleTunerEvent: (payload: TunerEventPayload) => void;
-  /** Handle tuner error (auto-unsubscribes) */
-  handleTunerError: (error: string) => void;
+  /**
+   * Handle a tuner error: the backend has unsubscribed the phone from the
+   * source it names. One about a source the phone has since left is
+   * ignored; one naming none (an older extension) ends the subscription.
+   */
+  handleTunerError: (error: string, trackGuid?: string) => void;
   /** Clear subscription and data (call after sending tuner/unsubscribe command) */
   clearTunerSubscription: () => void;
   /** Update reference Hz (local state only - use sendCommand for backend) */
@@ -93,21 +106,25 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
   // Initial state
   tunerSubscribedGuid: null,
   ...NO_READING,
+  tunerEventSeq: 0,
   tunerReferenceHz: 440,
   tunerThresholdDb: -90,
 
   setTunerSubscription: (trackGuid) =>
-    set({
+    set((s) => ({
       tunerSubscribedGuid: trackGuid,
       // Clear old data when subscription changes
       ...NO_READING,
-    }),
+      tunerEventSeq: s.tunerEventSeq + 1,
+    })),
 
   handleTunerEvent: (payload) => {
     const currentGuid = get().tunerSubscribedGuid;
     if (!currentGuid || payload.trackGuid !== currentGuid) return;
 
-    set({
+    set((s) => ({
+      tunerHeard: true,
+      tunerEventSeq: s.tunerEventSeq + 1,
       tunerFreq: payload.freq,
       tunerNote: payload.note,
       tunerNoteName: payload.noteName,
@@ -125,15 +142,17 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
       // Multi-client sync: update settings if changed by another client
       tunerReferenceHz: payload.referenceHz,
       tunerThresholdDb: payload.thresholdDb,
-    });
+    }));
   },
 
-  handleTunerError: (_error) => {
+  handleTunerError: (_error, trackGuid) => {
+    if (trackGuid !== undefined && trackGuid !== get().tunerSubscribedGuid) return;
     // Auto-unsubscribed by backend, clear local state
-    set({ tunerSubscribedGuid: null, ...NO_READING });
+    set((s) => ({ tunerSubscribedGuid: null, ...NO_READING, tunerEventSeq: s.tunerEventSeq + 1 }));
   },
 
-  clearTunerSubscription: () => set({ tunerSubscribedGuid: null, ...NO_READING }),
+  clearTunerSubscription: () =>
+    set((s) => ({ tunerSubscribedGuid: null, ...NO_READING, tunerEventSeq: s.tunerEventSeq + 1 })),
 
   setTunerProblem: (problem) => set({ tunerProblem: problem }),
 

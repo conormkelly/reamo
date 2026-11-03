@@ -19,7 +19,9 @@ vi.mock('./useReaper', () => ({
   })),
 }));
 
-import { useTuner } from './useTuner';
+import { useTuner, TUNER_STALE_MS, SEVERAL_HOLD_MS } from './useTuner';
+import { TUNER_RESEND_MS } from '../core/WebSocketTypes';
+import type { TunerEventPayload } from '../core/WebSocketTypes';
 import { useReaperStore } from '../store';
 
 const TRACK = '{TRACK-GUID-0001}';
@@ -173,5 +175,128 @@ describe('useTuner', () => {
     expect(result.current.problem).toBeNull();
     await again({ success: true, payload: { reference: 440, threshold: -90 } });
     expect(result.current.problem).toBeNull();
+  });
+
+  describe('a reading that stops arriving', () => {
+    function event(overrides: Partial<TunerEventPayload> = {}): TunerEventPayload {
+      return {
+        trackGuid: TRACK, freq: 82.41, note: 40, noteName: 'E', octave: 2, cents: 0.5, clarity: 0.98, conf: 0.98,
+        inTune: true, referenceHz: 440, thresholdDb: -90, state: 'listening',
+        starting: false, settling: false, stable: true, multiple: false,
+        ...overrides,
+      };
+    }
+    const send = (overrides: Partial<TunerEventPayload> = {}) =>
+      act(() => useReaperStore.getState().handleTunerEvent(event(overrides)));
+    const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      return () => vi.useRealTimers();
+    });
+
+    it('allows a few resends to go missing before the reading is taken as gone', () => {
+      expect(TUNER_STALE_MS).toBe(3 * TUNER_RESEND_MS);
+    });
+
+    it('is stale once no event has come for the stale time, and fresh again with the next', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      send();
+      advance(TUNER_STALE_MS - 1);
+      expect(result.current.stale).toBe(false);
+      advance(1);
+      expect(result.current.stale).toBe(true);
+      send();
+      expect(result.current.stale).toBe(false);
+    });
+
+    it('stays fresh while the backend resends a reading that holds', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      for (let i = 0; i < 20; i++) {
+        send({ freq: 0, note: 0, noteName: 'C', octave: -1, cents: 0, inTune: false, stable: false, multiple: true });
+        advance(TUNER_RESEND_MS);
+        expect(result.current.stale).toBe(false);
+        expect(result.current.multiple).toBe(true);
+      }
+    });
+
+    it('is stale when no event comes at all after subscribing', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      expect(result.current.heard).toBe(false);
+      expect(result.current.stale).toBe(false);
+      advance(TUNER_STALE_MS);
+      expect(result.current.stale).toBe(true);
+    });
+
+    it("doesn't carry a stale mark to the next subscription, even to the same source", () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      advance(TUNER_STALE_MS);
+      expect(result.current.stale).toBe(true);
+      act(() => useReaperStore.getState().setTunerSubscription('master'));
+      expect(result.current.stale).toBe(false);
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      expect(result.current.stale).toBe(false);
+      advance(TUNER_STALE_MS - 1);
+      expect(result.current.stale).toBe(false);
+    });
+
+    it('takes an event for another source as no event', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      send();
+      for (let i = 0; i < 4; i++) {
+        advance(TUNER_RESEND_MS);
+        send({ trackGuid: 'master' });
+      }
+      expect(result.current.stale).toBe(true);
+    });
+  });
+
+  describe('several notes', () => {
+    function event(overrides: Partial<TunerEventPayload> = {}): TunerEventPayload {
+      return {
+        trackGuid: TRACK, freq: 82.41, note: 40, noteName: 'E', octave: 2, cents: 0.5, clarity: 0.98, conf: 0.98,
+        inTune: true, referenceHz: 440, thresholdDb: -90, state: 'listening',
+        starting: false, settling: false, stable: true, multiple: false,
+        ...overrides,
+      };
+    }
+    const send = (overrides: Partial<TunerEventPayload> = {}) =>
+      act(() => useReaperStore.getState().handleTunerEvent(event(overrides)));
+    const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      return () => vi.useRealTimers();
+    });
+
+    it('holds for SEVERAL_HOLD_MS after the last event flagging it, so an analyser flipping each tick shows it steadily', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      for (let i = 0; i < 10; i++) {
+        send({ multiple: i % 2 === 0 || i === 9 });
+        expect(result.current.multiple).toBe(true);
+        advance(33);
+      }
+      send();
+      advance(SEVERAL_HOLD_MS - 1);
+      expect(result.current.multiple).toBe(true);
+      advance(1);
+      expect(result.current.multiple).toBe(false);
+    });
+
+    it('is not held over to another source', () => {
+      const { result } = renderHook(() => useTuner());
+      act(() => useReaperStore.getState().setTunerSubscription(TRACK));
+      send({ multiple: true });
+      act(() => useReaperStore.getState().setTunerSubscription('master'));
+      expect(result.current.multiple).toBe(false);
+      send({ trackGuid: 'master' });
+      expect(result.current.multiple).toBe(false);
+    });
   });
 });

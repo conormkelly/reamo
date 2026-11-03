@@ -84,7 +84,8 @@ describe('TunerView', () => {
     });
     expect(subscribes()).toEqual([KEYS, KEYS]);
     expect(screen.queryByText(reason)).toBeNull();
-    expect(screen.getByText('No input detected')).toBeTruthy();
+    // Nothing heard yet: no claim about the input until an event says.
+    expect(screen.queryByText('No input detected')).toBeNull();
   });
 
   it("says when REAPER's audio device isn't running, and why a track it was tuning stopped", async () => {
@@ -203,6 +204,35 @@ describe('TunerView', () => {
       expect(green(container)).toBe(false);
       send({ trackGuid: GUITAR });
       expect(green(container)).toBe(true);
+    });
+
+    it('drops a green reading that stops arriving to no note and no needle, and says it is waiting', async () => {
+      const { container } = await open();
+      send();
+      expect(green(container)).toBe(true);
+      await waitFor(() => expect(screen.getByText('Waiting for REAPER…')).toBeTruthy(), { timeout: 1500 });
+      expect(green(container)).toBe(false);
+      expect(needle()).toBeNull();
+      expect(note().dataset.look).toBe('none');
+      await says('Waiting for REAPER…');
+      send();
+      expect(green(container)).toBe(true);
+      expect(screen.getByText('82.41 Hz')).toBeTruthy();
+      await says('In tune');
+    });
+
+    it("keeps tuning the new source when an error about the one it left arrives late", async () => {
+      await open();
+      fireEvent.click(screen.getByRole('button', { name: /Keys/ }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Guitar/ }));
+      });
+      // Keys' track was deleted just as the phone left it.
+      act(() => useReaperStore.getState().handleTunerError('TUNER_NOT_FOUND', KEYS));
+      send({ trackGuid: GUITAR, freq: 110, note: 45, noteName: 'A', octave: 2 });
+      expect(note().textContent).toContain('A');
+      expect(screen.getByText('110.00 Hz')).toBeTruthy();
+      expect(subscribes()).toEqual([KEYS, GUITAR]);
     });
 
     it("never shows one source's note held on the next", async () => {

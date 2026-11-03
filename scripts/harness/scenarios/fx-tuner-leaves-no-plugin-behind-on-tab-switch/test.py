@@ -49,6 +49,8 @@ for how in ("phone closes the tuner", "tuner loses its track"):
         else:
             e = c.wait_event("tunerError", timeout=3.0)
             assert e["payload"]["error"] == "TUNER_NOT_FOUND", e
+            # Names its source, for a phone that has moved on to ignore.
+            assert e["payload"].get("trackGuid") == bass, e
         n = wait_taps(c, 0)
         fx = reaper(FX_IN_FIRST_TAB)
         print(f"{how}: {fx} FX left in the first tab, {n} input taps open")

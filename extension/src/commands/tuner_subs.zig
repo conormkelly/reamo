@@ -41,8 +41,11 @@ const tuner_subscriptions = @import("../subscriptions/tuner_subscriptions.zig");
 /// (subscriptions/master_tuner.zig): a muted or faded-down master reads as
 /// silence.
 ///
-/// After subscribing, the client receives "tuner" events at 30Hz
-/// containing pitch detection data, with settling, stable, multiple and
+/// After subscribing, the client receives "tuner" events: each change at
+/// once (polled at 30 Hz), and the same reading again every 250 ms while it
+/// holds (tuner_subscriptions.resend_interval_ms), so a page can take a
+/// reading it hasn't heard again for a while as gone. They hold
+/// pitch detection data, with settling, stable, multiple and
 /// starting (a new note's name is held back for its first ~0.1 s), and
 /// state: "listening", "deviceClosed" (REAPER's audio device isn't running:
 /// closed while stopped, which play reopens, or failed or unplugged; no

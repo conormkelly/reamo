@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { tunerDisplay, holdNote, type DisplayInput, type HeldNote } from './tunerDisplay';
+import { tunerDisplay, holdNote, WAITING_TEXT, type DisplayInput, type HeldNote } from './tunerDisplay';
 
 function reading(overrides: Partial<DisplayInput> = {}): DisplayInput {
   return {
@@ -17,6 +17,8 @@ function reading(overrides: Partial<DisplayInput> = {}): DisplayInput {
     multiple: false,
     problem: null,
     deviceClosed: false,
+    heard: true,
+    stale: false,
     ...overrides,
   };
 }
@@ -47,6 +49,39 @@ describe('tunerDisplay', () => {
     expect(d.note).not.toBe('inTune');
     expect(d.needle).not.toBe('inTune');
     expect(d.announcement).not.toBe('In tune');
+  });
+
+  describe('a reading that has stopped arriving', () => {
+    it.each<[string, Partial<DisplayInput>]>([
+      ['a stable reading in tune', {}],
+      ['a stable reading out of tune', { inTune: false, cents: 12 }],
+      ['a settling reading', { settling: true, stable: false }],
+      ['several notes', { multiple: true }],
+      ['a note starting', { ...SILENCE, starting: true }],
+      ['silence', SILENCE],
+      ['the device closed', { ...SILENCE, deviceClosed: true }],
+    ])('shows no note, no needle and no verdict, and says it is waiting, after %s', (_was, overrides) => {
+      const d = tunerDisplay(reading({ ...overrides, stale: true }));
+      expect(d.note).toBe('none');
+      expect(d.needle).toBe('hidden');
+      expect(d.announcement).toBeNull();
+      expect(d.message).toBe(WAITING_TEXT);
+      expect(d.spoken).toBe(WAITING_TEXT);
+    });
+
+    it("still shows why REAPER can't tune the source, which a refused subscribe sends no events after", () => {
+      const d = tunerDisplay(reading({ ...SILENCE, stale: true, problem: 'Every input is in use.' }));
+      expect(d.message).toBe('Every input is in use.');
+      expect(d.needle).toBe('hidden');
+    });
+  });
+
+  it('before the first event shows no note, no needle, and no claim about the input', () => {
+    const d = tunerDisplay(reading({ ...SILENCE, heard: false }));
+    expect(d.note).toBe('none');
+    expect(d.needle).toBe('hidden');
+    expect(d.message).toBe('');
+    expect(d.spoken).toBe('');
   });
 
   it('shows no needle and a dimmed note while a note is starting (its name not known yet)', () => {
