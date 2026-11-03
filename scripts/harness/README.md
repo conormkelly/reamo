@@ -271,6 +271,24 @@ from reamo_client import oracle
 assert got == oracle()["label@0"]
 ```
 
+### Checking waveforms
+
+REAPER draws a take's waveform from the peaks `GetMediaItemTake_Peaks`
+returns, so that's the oracle for the tiles REAmo sends. `peaks_check.py`
+subscribes, decodes the tiles and compares them with REAPER's peaks per half
+second; `screenshot_arrange()` keeps REAPER's drawing beside them.
+
+- `harness.staircase_wav(path, stereo)`: an 8 s file whose level steps from
+  0.1 to 0.8, one step a second, so a waveform shows which part plays when.
+- `harness.waveform_item(name, path, pos, len)`: a track with one such item,
+  no fades or looping, peaks built.
+- `harness.section(item, start, len)` and `harness.reverse_take(item)` wrap
+  the source the way REAPER's own commands do.
+
+`peaks-*-matches-reaper` scenarios check a rule each; `*-known-gap` and
+`*-known-stale` ones pin differences not fixed yet, and say what to change
+when they are.
+
 ### Acting in REAPER mid-test
 
 `reaper(lua)` runs a Lua chunk on REAPER's main thread while the test is
