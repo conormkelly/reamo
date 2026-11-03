@@ -26,8 +26,7 @@ const MAX_TRACKS_PER_BROADCAST = 32;
 
 /// Result from fetching full item peaks via GetMediaItemTake_Peaks
 const ItemPeaksResult = struct {
-    /// Interleaved peak data: peak_max then peak_min blocks
-    /// Layout: [ch0_max_0, ch1_max_0, ...][ch0_min_0, ch1_min_0, ...]
+    /// Peaks interleaved by channel: [ch0_p0, ch1_p0, ch0_p1, ch1_p1, ...]
     peak_min: []f64,
     peak_max: []f64,
     num_peaks: usize,
@@ -93,6 +92,9 @@ fn fetchItemPeaksViaTakePeaksAPI(
         return null;
     };
     defer allocator.free(reaper_buf);
+    // REAPER leaves slots it has no peaks for unwritten; zeroed, they read as
+    // silence rather than heap contents if anything ever reads one.
+    @memset(reaper_buf, 0);
 
     // GetMediaItemTake_Peaks
     const result = api.getMediaItemTakePeaks(
@@ -129,9 +131,11 @@ fn fetchItemPeaksViaTakePeaksAPI(
 
     // Copy from REAPER buffer to our format
     // REAPER writes request_channels (always 2), we extract actual_channels (1 or 2)
-    // Use actual_peaks (not num_peaks) for min block offset — REAPER only writes
-    // actual_peaks worth of data, so the min block starts at actual_peaks * request_channels.
-    const reaper_block_size = actual_peaks * request_channels;
+    // The min block starts at num_peaks * request_channels, the count asked for,
+    // even when REAPER returns fewer peaks (an item past its audio, loop off);
+    // the slots between the returned maxes and the min block stay unwritten.
+    // Measured on REAPER 6.0 and 7.83 (harness: peaks-item-past-its-source-end-matches-reaper).
+    const reaper_block_size = num_peaks * request_channels;
     for (0..peaks_to_use) |p| {
         for (0..actual_channels) |ch| {
             const dst_idx = p * actual_channels + ch;
