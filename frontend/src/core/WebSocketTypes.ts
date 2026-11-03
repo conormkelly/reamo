@@ -496,6 +496,12 @@ export type TunerState = 'listening' | 'deviceClosed' | 'cantTune';
 /** Tuner error event (track deleted, or in another project tab, while subscribed) */
 export interface TunerErrorEventPayload {
   error: string;     // "TUNER_NOT_FOUND"
+  /**
+   * The source the error is about (a track's GUID, or "master"). It can
+   * arrive after the phone has chosen another; absent from an extension
+   * before 0.9.0.
+   */
+  trackGuid?: string;
 }
 
 // =============================================================================

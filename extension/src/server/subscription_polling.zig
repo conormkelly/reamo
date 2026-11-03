@@ -282,12 +282,6 @@ pub fn pollTrackFxParamSubscriptions(
     }
 }
 
-/// The tunerError event: the code in the payload, where pages read it, and
-/// beside it, where the extension long sent it alone.
-fn tunerErrorJson(comptime code: []const u8) []const u8 {
-    return "{\"type\":\"event\",\"event\":\"tunerError\",\"error\":\"" ++ code ++ "\",\"payload\":{\"error\":\"" ++ code ++ "\"}}";
-}
-
 /// Poll tuner subscriptions and broadcast pitch detection data.
 /// Per-client single-track subscriptions with auto-unsubscribe on failure.
 /// The master tuner, and a track tuner on its input, send the latest reading
@@ -315,7 +309,12 @@ pub fn pollTunerSubscriptions(
                 // track was deleted, or the user switched project tabs.
                 if (tuner_subs.recordFailure(entry.client_id)) {
                     logging.warn("tuner: auto-unsubscribing client {d}: its track is gone", .{entry.client_id});
-                    ctx.shared_state.sendToClient(entry.client_id, comptime tunerErrorJson("TUNER_NOT_FOUND"));
+                    // Written before the unsubscribe, which clears the GUID.
+                    var buf: [tuner_generator.error_capacity]u8 = undefined;
+                    var stream = std.io.fixedBufferStream(&buf);
+                    if (tuner_generator.writeError(stream.writer(), "TUNER_NOT_FOUND", entry.track_guid)) {
+                        ctx.shared_state.sendToClient(entry.client_id, stream.getWritten());
+                    } else |err| logging.warn("tuner: tunerError for client {d} not sent: {}", .{ entry.client_id, err });
                     tuner_subs.unsubscribe(entry.client_id, ctx.backend);
                 }
             },

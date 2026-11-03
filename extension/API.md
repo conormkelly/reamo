@@ -3003,9 +3003,11 @@ Sent when the tuner can no longer function: its track was deleted, or is in anot
   "type": "event",
   "event": "tunerError",
   "error": "TUNER_NOT_FOUND",
-  "payload": {"error": "TUNER_NOT_FOUND"}
+  "payload": {"error": "TUNER_NOT_FOUND", "trackGuid": "{AAA}"}
 }
 ```
+
+`trackGuid` is the tuner the error is about (a track's GUID, or `"master"`). It can arrive after the client has subscribed to another source; a client ignores an error for a source it is no longer on. Extensions before 0.9.0 send no `trackGuid`.
 
 ---
 

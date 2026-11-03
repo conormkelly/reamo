@@ -86,8 +86,12 @@ export interface TunerSlice {
   setTunerSubscription: (trackGuid: string | null) => void;
   /** Handle incoming tuner event from backend */
   handleTunerEvent: (payload: TunerEventPayload) => void;
-  /** Handle tuner error (auto-unsubscribes) */
-  handleTunerError: (error: string) => void;
+  /**
+   * Handle a tuner error: the backend has unsubscribed the phone from the
+   * source it names. One about a source the phone has since left is
+   * ignored; one naming none (an older extension) ends the subscription.
+   */
+  handleTunerError: (error: string, trackGuid?: string) => void;
   /** Clear subscription and data (call after sending tuner/unsubscribe command) */
   clearTunerSubscription: () => void;
   /** Update reference Hz (local state only - use sendCommand for backend) */
@@ -141,7 +145,8 @@ export const createTunerSlice: StateCreator<TunerSlice, [], [], TunerSlice> = (s
     }));
   },
 
-  handleTunerError: (_error) => {
+  handleTunerError: (_error, trackGuid) => {
+    if (trackGuid !== undefined && trackGuid !== get().tunerSubscribedGuid) return;
     // Auto-unsubscribed by backend, clear local state
     set((s) => ({ tunerSubscribedGuid: null, ...NO_READING, tunerEventSeq: s.tunerEventSeq + 1 }));
   },

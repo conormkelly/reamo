@@ -221,6 +221,20 @@ describe('TunerView', () => {
       await says('In tune');
     });
 
+    it("keeps tuning the new source when an error about the one it left arrives late", async () => {
+      await open();
+      fireEvent.click(screen.getByRole('button', { name: /Keys/ }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Guitar/ }));
+      });
+      // Keys' track was deleted just as the phone left it.
+      act(() => useReaperStore.getState().handleTunerError('TUNER_NOT_FOUND', KEYS));
+      send({ trackGuid: GUITAR, freq: 110, note: 45, noteName: 'A', octave: 2 });
+      expect(note().textContent).toContain('A');
+      expect(screen.getByText('110.00 Hz')).toBeTruthy();
+      expect(subscribes()).toEqual([KEYS, GUITAR]);
+    });
+
     it("never shows one source's note held on the next", async () => {
       await open();
       send({ cents: 0 });

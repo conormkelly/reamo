@@ -102,6 +102,27 @@ describe('tunerSlice', () => {
     expect(flags()).toEqual({ starting: false, settling: false, stable: false, multiple: false });
   });
 
+  it('ignores an error about a source the phone has left, which can arrive after it chose another', () => {
+    const s = useReaperStore.getState();
+    s.setTunerSubscription('master');
+    s.handleTunerEvent(event({ trackGuid: 'master', state: 'listening' }));
+    s.handleTunerError('TUNER_NOT_FOUND', TRACK);
+    expect(useReaperStore.getState().tunerSubscribedGuid).toBe('master');
+    expect(useReaperStore.getState().tunerState).toBe('listening');
+    s.handleTunerEvent(event({ trackGuid: 'master', freq: 220, note: 57, noteName: 'A', octave: 3 }));
+    expect(useReaperStore.getState().tunerFreq).toBe(220);
+  });
+
+  it('ends the subscription on an error about the source it is on, or one that names none', () => {
+    const s = useReaperStore.getState();
+    s.handleTunerError('TUNER_NOT_FOUND', TRACK);
+    expect(useReaperStore.getState().tunerSubscribedGuid).toBeNull();
+    s.setTunerSubscription(TRACK);
+    // An extension before 0.9.0 names no source.
+    s.handleTunerError('TUNER_NOT_FOUND');
+    expect(useReaperStore.getState().tunerSubscribedGuid).toBeNull();
+  });
+
   it('forgets the state and any problem when the subscription changes or ends', () => {
     const s = useReaperStore.getState();
     s.setTunerProblem({ code: 'INPUT_MIDI', message: 'MIDI.' });

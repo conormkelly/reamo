@@ -495,9 +495,10 @@ function tuner(overrides?: Partial<TunerEventPayload>): ServerMessage {
   } satisfies TunerEventPayload);
 }
 
-function tunerError(error: string): ServerMessage {
+function tunerError(error: string, trackGuid?: string): ServerMessage {
   return event('tunerError', {
     error,
+    ...(trackGuid === undefined ? {} : { trackGuid }),
   } satisfies TunerErrorEventPayload);
 }
 

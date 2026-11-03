@@ -632,17 +632,17 @@ describe('handleWebSocketMessage', () => {
   });
 
   describe('tunerError event', () => {
-    it('calls handleTunerError with error string from payload', () => {
+    it('calls handleTunerError with the code and the source it is about', () => {
       const spy = vi.spyOn(useReaperStore.getState(), 'handleTunerError');
-      handle(msg.tunerError('TUNER_NOT_FOUND'));
-      expect(spy).toHaveBeenCalledWith('TUNER_NOT_FOUND');
+      handle(msg.tunerError('TUNER_NOT_FOUND', '{T1}'));
+      expect(spy).toHaveBeenCalledWith('TUNER_NOT_FOUND', '{T1}');
       spy.mockRestore();
     });
 
     it('takes the code from beside the payload, where an older extension sends it', () => {
       const spy = vi.spyOn(useReaperStore.getState(), 'handleTunerError');
       handle({ type: 'event', event: 'tunerError', error: 'GENERATION_FAILED' } as unknown as Parameters<typeof handle>[0]);
-      expect(spy).toHaveBeenCalledWith('GENERATION_FAILED');
+      expect(spy).toHaveBeenCalledWith('GENERATION_FAILED', undefined);
       spy.mockRestore();
     });
   });
