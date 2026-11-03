@@ -31,11 +31,12 @@ E1, G3 = 41.2034, 195.9977
 def pluck_both(f, phones):
     """E1 and G3 plucked together, each left to ring out (60 dB down in
     2 s), then 0.6 s of silence before the next. Returns the frequencies
-    plucked and the feeder's xruns meanwhile."""
+    plucked and the feeder's xruns from E1's start: rendering E1 can cause
+    some in the silence before it, but G3's render can gap a sounding E1."""
     for p in phones:
         p.mark()
-    xruns = f.stats()["xruns"]
     fb = f.pluck(0, E1, 0.8, decay=2.0)
+    xruns = f.stats()["xruns"]
     fg = f.pluck(1, G3, 0.8, decay=2.0)
     watch(phones, 2.6)
     return fb, fg, f.stats()["xruns"] - xruns
@@ -44,9 +45,10 @@ def pluck_both(f, phones):
 def check(phone, freq, problems, xruns):
     # At least one stable reading, and every stable one, is its own note; no
     # reading names the other instrument's note or an octave either side of
-    # it, and none is flagged multiple but through a gap an xrun left.
+    # it, and none is flagged multiple beyond what the xruns allow.
     n = midi_note(G3 if freq < 100 else E1)
-    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12), alone=True, xruns=xruns)
+    check_note(phone, freq, problems, min_readings=3, never=(n - 12, n, n + 12),
+               alone=True, xruns=xruns)
 
 
 def taps(c):
