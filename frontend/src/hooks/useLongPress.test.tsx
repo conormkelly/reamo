@@ -79,7 +79,8 @@ function fingerCancel(el: Element, at: Point = AT, pointerId = 1) {
 }
 
 function mouseDown(el: Element, extra: Record<string, unknown> = {}, at: Point = AT) {
-  fireEvent.pointerDown(el, pointer(at, 'mouse', 1, extra));
+  const buttons = extra.button === 2 ? 2 : 1;
+  fireEvent.pointerDown(el, pointer(at, 'mouse', 1, { buttons, ...extra }));
   fireEvent.mouseDown(el, { clientX: at.x, clientY: at.y, ...extra });
 }
 
@@ -201,6 +202,52 @@ describe('useLongPress', () => {
       expect(onTap).toHaveBeenCalledTimes(1);
     });
 
+    it('a click with no detail after a pointer tap and its own click is a tap', () => {
+      const { el, onTap } = setup();
+
+      fingerDown(el);
+      fingerUp(el);
+      emulatedMouse(el);
+      fireEvent.click(el, { detail: 0 });
+
+      expect(onTap).toHaveBeenCalledTimes(2);
+    });
+
+    it('a click with no detail after a cancelled press is a tap, even soon after an earlier tap', () => {
+      const { el, onTap } = setup();
+
+      // A tap whose click never came, then a press the browser cancels.
+      fingerDown(el);
+      fingerUp(el);
+      fingerDown(el);
+      fingerCancel(el);
+      fireEvent.click(el, { detail: 0 });
+
+      expect(onTap).toHaveBeenCalledTimes(2);
+    });
+
+    it('a click with no detail long after a tap whose click never came is a tap', () => {
+      const { el, onTap } = setup();
+
+      fingerDown(el);
+      fingerUp(el);
+      wait(600);
+      fireEvent.click(el, { detail: 0 });
+
+      expect(onTap).toHaveBeenCalledTimes(2);
+    });
+
+    it('a mouse-type press that never reports its button down still taps', () => {
+      // A screen reader's emulated pointer can report no buttons.
+      const { el, onTap } = setup();
+
+      fireEvent.pointerDown(el, pointer(AT, 'mouse', 1, { buttons: 0 }));
+      fireEvent.pointerMove(el, pointer(AT, 'mouse', 1, { buttons: 0 }));
+      fireEvent.pointerUp(el, pointer(AT, 'mouse', 1, { buttons: 0 }));
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+    });
+
     it('a press does not take focus from a text field', () => {
       const { el } = setup();
 
@@ -318,7 +365,31 @@ describe('useLongPress', () => {
       expect(onTap).not.toHaveBeenCalled();
     });
 
-    it('the context menu opening mid-hold ends it', () => {
+    it("a touch hold's context menu event is suppressed and the hold goes on", () => {
+      // Android raises it for a finger held still, near the hold's duration.
+      const { el, onTap, onLongPress } = setup();
+
+      fingerDown(el);
+      wait(300);
+      const notPrevented = fireEvent.contextMenu(el);
+      wait(100);
+
+      expect(notPrevented).toBe(false);
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it("a touch's context menu event after its long press is suppressed too", () => {
+      const { el, onLongPress } = setup();
+
+      fingerDown(el);
+      wait(400);
+
+      expect(fireEvent.contextMenu(el)).toBe(false);
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('a mouse opening the context menu mid-hold ends it', () => {
       const { el, onTap, onLongPress } = setup();
 
       mouseDown(el);

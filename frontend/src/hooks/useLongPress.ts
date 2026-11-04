@@ -11,8 +11,10 @@
  * moves more than a few pixels (a scroll or drag, not a hold), when the
  * browser cancels it (it took the touch over for a scroll), when the pointer
  * leaves the element, when the mouse's primary button is no longer down, when
- * the context menu opens, when another press begins, or when the element
- * unmounts. A right-button press is neither, and nor is a mouse Ctrl+click on
+ * a mouse opens the context menu, when another press begins, or when the
+ * element unmounts. A touch or pen held still also raises a context menu
+ * event, on Android at about the long press's own duration; that one is
+ * suppressed and the hold goes on. A right-button press is neither, and nor is a mouse Ctrl+click on
  * any platform, as on macOS it opens the context menu.
  *
  * A click with no pointer press behind it (Enter or Space on a focused button,
@@ -42,7 +44,7 @@ export interface UseLongPressResult {
     onPointerCancel: (e: React.PointerEvent) => void;
     onPointerLeave: (e: React.PointerEvent) => void;
     onMouseDown: (e: React.MouseEvent) => void;
-    onContextMenu: () => void;
+    onContextMenu: (e: React.MouseEvent) => void;
     onClick: (e: React.MouseEvent) => void;
   };
 }
@@ -50,10 +52,15 @@ export interface UseLongPressResult {
 /** How far, in CSS px, a press may drift and still count as holding still. */
 const LONG_PRESS_MOVE_TOLERANCE = 10;
 
+/** How long after a pointer's tap a click with no detail is taken for its own. */
+const CLICK_AFTER_TAP_MS = 500;
+
 interface Press {
   pointerId: number;
   x: number;
   y: number;
+  /** A mouse press began with its primary button reported down. */
+  primaryDown: boolean;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -79,9 +86,12 @@ export function useLongPress({
   // The press under way; null when there is none, or once it has ended in a
   // long press or been cancelled.
   const pressRef = useRef<Press | null>(null);
-  // Set when a pointer release has just tapped, so the click that follows the
+  // When a pointer release last tapped, so the click that follows the
   // release is not a second tap.
-  const pointerTappedRef = useRef(false);
+  const pointerTappedAtRef = useRef<number | null>(null);
+  // The type of the latest press's pointer, kept after the press ends: a
+  // touch's context menu event can come after its long press has fired.
+  const pointerTypeRef = useRef<string | null>(null);
 
   // The callbacks of the latest render: they read state, such as the mixer
   // lock, that can change while a press is held.
@@ -100,11 +110,18 @@ export function useLongPress({
     (e: React.PointerEvent) => {
       // Each press starts afresh.
       cancel();
-      pointerTappedRef.current = false;
+      pointerTappedAtRef.current = null;
+      pointerTypeRef.current = e.pointerType;
       const opensMenu = e.button !== 0 || (e.ctrlKey && e.pointerType === 'mouse');
       if (opensMenu) return;
 
-      const press: Press = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, timer: null };
+      const press: Press = {
+        pointerId: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        primaryDown: (e.buttons & 1) !== 0,
+        timer: null,
+      };
       if (latest.current.onLongPress) {
         press.timer = setTimeout(() => {
           if (pressRef.current !== press) return;
@@ -122,8 +139,9 @@ export function useLongPress({
       const press = pressRef.current;
       if (!press || e.pointerId !== press.pointerId) return;
       // A mouse whose primary button came up while another stays down sends
-      // a move, not an up.
-      if (e.pointerType === 'mouse' && (e.buttons & 1) === 0) {
+      // a move, not an up. A press that never reported its button down (a
+      // screen reader's emulated pointer can) is left to the other checks.
+      if (e.pointerType === 'mouse' && press.primaryDown && (e.buttons & 1) === 0) {
         cancel();
         return;
       }
@@ -141,7 +159,7 @@ export function useLongPress({
       cancel();
       // A release can move the pointer without a pointermove before it.
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) return;
-      pointerTappedRef.current = true;
+      pointerTappedAtRef.current = Date.now();
       latest.current.onTap?.();
     },
     [cancel]
@@ -156,12 +174,26 @@ export function useLongPress({
 
   // A pointer press drives the gesture; a click carries no pointer
   // (detail 0) only when a keyboard or a screen reader activated the element.
+  // A click with no detail within CLICK_AFTER_TAP_MS of a pointer's tap
+  // belongs to that tap; a later one is a keyboard's or a screen reader's.
   const onClick = useCallback((e: React.MouseEvent) => {
-    const pointerTapped = pointerTappedRef.current;
-    pointerTappedRef.current = false;
-    if (e.detail !== 0 || pointerTapped) return;
+    const tappedAt = pointerTappedAtRef.current;
+    pointerTappedAtRef.current = null;
+    if (e.detail !== 0) return;
+    if (tappedAt !== null && Date.now() - tappedAt < CLICK_AFTER_TAP_MS) return;
     latest.current.onTap?.();
   }, []);
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (pointerTypeRef.current === 'touch' || pointerTypeRef.current === 'pen') {
+        e.preventDefault();
+        return;
+      }
+      cancel();
+    },
+    [cancel]
+  );
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -178,10 +210,10 @@ export function useLongPress({
       onPointerCancel: onPointerEnd,
       onPointerLeave: onPointerEnd,
       onMouseDown,
-      onContextMenu: cancel,
+      onContextMenu,
       onClick,
     }),
-    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd, onMouseDown, cancel, onClick]
+    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd, onMouseDown, onContextMenu, onClick]
   );
 
   return { handlers };
