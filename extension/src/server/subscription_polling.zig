@@ -101,14 +101,25 @@ pub fn pollPeaksSubscriptions(
     // Some client subscribed or moved its viewport and needs its own tiles now.
     const any_forced = peaks_subs.anyForceBroadcast();
 
-    // Get all subscribed track indices across all clients
-    var indices_buf: [128]c_int = undefined;
-    const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, &indices_buf);
+    // Every subscribed track across all clients. Each is a unified index
+    // (0 = master .. trackCount), deduplicated, so trackCount + 1 holds
+    // them all.
+    const index_capacity: usize = @intCast(@max(0, ctx.backend.trackCount()) + 1);
+    const scratch = ctx.scratchAllocator();
+    const indices_buf = scratch.alloc(c_int, index_capacity) catch {
+        // Nothing is consumed: forced sends and a held change wait for the next tick.
+        logging.warn("peaks: no scratch memory for {d} track indices; skipping this tick", .{index_capacity});
+        return;
+    };
+    const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, indices_buf);
 
-    // Check every subscribed track for a change (items, or a take's audio
-    // source); that goes to every client. Every track, not just up to the
-    // first change: trackChanged also drops a changed take's stale tiles,
-    // which the broadcast below must not send.
+    // Check the subscribed tracks for a change (items, or a take's audio
+    // source); that goes to every client. Every track in this tick's batch,
+    // not just up to the first change: trackChanged also drops a changed
+    // take's stale tiles, which the broadcast below must not send. Past
+    // CHANGE_CHECK_TRACKS_PER_TICK tracks the batch takes them in turn, so
+    // a broadcast can carry the cached tiles of a track not yet read; its
+    // turn finds the change and sends it within a few ticks.
     //
     // A forced tick skips the check (the next tick sees any change). The
     // first check of a track counts as a change, so it remembers a track
@@ -116,23 +127,28 @@ pub fn pollPeaksSubscriptions(
     // it: the forced send gives it to each of them with a viewport (one
     // without gets it when it sets one). A track an unforced client also
     // watches is left to the next tick's check, which sends it to everyone.
-    var unforced_buf: [128]c_int = undefined;
-    const unforced_indices: ?[]const c_int = if (any_forced)
-        peaks_subs.getUnforcedIndices(ctx.guid_cache_ptr, ctx.backend, &unforced_buf)
-    else
-        null;
     var any_track_changed = false;
-    for (subscribed_indices) |track_idx| {
-        // Unified index (0 = master), as the generator resolves it.
-        const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
-        var guid_buf: [64]u8 = undefined;
-        const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
-        if (any_forced) {
-            if (peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced_indices, track_idx)) {
-                tile_cache.rememberTrack(track_guid, ctx.backend, track);
+    if (any_forced) {
+        const unforced_buf = scratch.alloc(c_int, index_capacity) catch null;
+        const unforced_indices: ?[]const c_int = if (unforced_buf) |buf|
+            peaks_subs.getUnforcedIndices(ctx.guid_cache_ptr, ctx.backend, buf)
+        else
+            null;
+        for (subscribed_indices) |track_idx| {
+            if (!peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced_indices, track_idx)) continue;
+            // Unified index (0 = master), as the generator resolves it.
+            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
+            var guid_buf: [64]u8 = undefined;
+            tile_cache.rememberTrack(ctx.backend.formatTrackGuid(track, &guid_buf), ctx.backend, track);
+        }
+    } else {
+        var batch = peaks_subs.changeCheckBatch(subscribed_indices);
+        while (batch.next()) |track_idx| {
+            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
+            var guid_buf: [64]u8 = undefined;
+            if (tile_cache.trackChanged(ctx.backend.formatTrackGuid(track, &guid_buf), ctx.backend, track)) {
+                any_track_changed = true;
             }
-        } else if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
-            any_track_changed = true;
         }
     }
 
@@ -155,8 +171,6 @@ pub fn pollPeaksSubscriptions(
     while (iter.next()) |entry| {
         const forced = peaks_subs.consumeForceBroadcast(entry.slot);
         if (!forced and !send_change) continue;
-
-        const scratch = ctx.scratchAllocator();
 
         if (!entry.sub.hasViewport()) {
             logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});

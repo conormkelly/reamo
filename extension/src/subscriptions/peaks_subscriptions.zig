@@ -163,8 +163,50 @@ pub const PeaksSubscriptions = struct {
     /// check finds it again: this flag is all that remembers it.
     change_pending: bool = false,
 
+    /// The track the next change check starts at (or at the first after it)
+    /// when there are more subscribed tracks than one tick reads.
+    change_check_from: c_int = 0,
+
     /// Shortest gap between a send and a change broadcast after it.
     pub const CHANGE_BROADCAST_INTERVAL_MS: i64 = 100;
+
+    /// Most subscribed tracks one tick's change check reads. Reading a
+    /// track walks every item on it through REAPER's API, so this bounds the
+    /// check's cost per tick however many tracks the phones watch.
+    pub const CHANGE_CHECK_TRACKS_PER_TICK: usize = 128;
+
+    /// The subscribed tracks this tick's change check reads, given every
+    /// subscribed track (sorted). Up to CHANGE_CHECK_TRACKS_PER_TICK, all of
+    /// them. Past that, that many, starting from the first track at or after
+    /// the one the last such tick stopped before, wrapping round to the
+    /// start: every track is read within ceil(n / CHANGE_CHECK_TRACKS_PER_TICK)
+    /// ticks. Where it stopped is kept as a track index rather than a list
+    /// position, so tracks subscribed or dropped in between don't skip any.
+    pub fn changeCheckBatch(self: *PeaksSubscriptions, indices: []const c_int) ChangeCheckBatch {
+        if (indices.len <= CHANGE_CHECK_TRACKS_PER_TICK) {
+            return .{ .indices = indices, .start = 0, .count = indices.len };
+        }
+        var start = std.sort.lowerBound(c_int, indices, self.change_check_from, orderCInt);
+        if (start == indices.len) start = 0;
+        const end = (start + CHANGE_CHECK_TRACKS_PER_TICK) % indices.len;
+        self.change_check_from = indices[end];
+        return .{ .indices = indices, .start = start, .count = CHANGE_CHECK_TRACKS_PER_TICK };
+    }
+
+    /// One tick's tracks to check, in order, from changeCheckBatch.
+    pub const ChangeCheckBatch = struct {
+        indices: []const c_int,
+        start: usize,
+        count: usize,
+        taken: usize = 0,
+
+        pub fn next(self: *ChangeCheckBatch) ?c_int {
+            if (self.taken >= self.count) return null;
+            const i = (self.start + self.taken) % self.indices.len;
+            self.taken += 1;
+            return self.indices[i];
+        }
+    };
 
     pub fn init(allocator: Allocator) PeaksSubscriptions {
         var subs = PeaksSubscriptions{
@@ -1017,4 +1059,111 @@ test "removeClient after a range ending at maxInt(c_int) terminates with bounded
     // A one-index range at the very top must not overflow the loop counter.
     _ = try subs.subscribeRange(1, std.math.maxInt(c_int), std.math.maxInt(c_int), 30);
     subs.removeClient(1);
+}
+
+fn batchIndices(batch: *PeaksSubscriptions.ChangeCheckBatch, out: []c_int) []c_int {
+    var n: usize = 0;
+    while (batch.next()) |idx| : (n += 1) out[n] = idx;
+    return out[0..n];
+}
+
+test "past CHANGE_CHECK_TRACKS_PER_TICK subscribed tracks, every one is checked within a full turn" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    var indices: [300]c_int = undefined;
+    for (&indices, 1..) |*idx, i| idx.* = @intCast(i);
+
+    const per_tick = PeaksSubscriptions.CHANGE_CHECK_TRACKS_PER_TICK;
+    const ticks = (indices.len + per_tick - 1) / per_tick;
+    var checked = std.StaticBitSet(301).initEmpty();
+    var out: [300]c_int = undefined;
+    for (0..ticks) |_| {
+        var batch = subs.changeCheckBatch(&indices);
+        const got = batchIndices(&batch, &out);
+        try std.testing.expect(got.len <= per_tick);
+        for (got) |idx| checked.set(@intCast(idx));
+    }
+    for (indices) |idx| {
+        if (!checked.isSet(@intCast(idx))) {
+            std.debug.print("track {d} was not checked in {d} ticks\n", .{ idx, ticks });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "with no more subscribed tracks than one tick checks, every tick checks them all" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    var indices: [PeaksSubscriptions.CHANGE_CHECK_TRACKS_PER_TICK]c_int = undefined;
+    for (&indices, 0..) |*idx, i| idx.* = @intCast(i * 2);
+
+    var out: [indices.len]c_int = undefined;
+    for (0..3) |_| {
+        var batch = subs.changeCheckBatch(&indices);
+        try std.testing.expectEqualSlices(c_int, &indices, batchIndices(&batch, &out));
+    }
+}
+
+test "the change check carries on from the first track after the last one checked, as the subscribed set changes" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const per_tick = PeaksSubscriptions.CHANGE_CHECK_TRACKS_PER_TICK;
+
+    var all: [200]c_int = undefined;
+    for (&all, 1..) |*idx, i| idx.* = @intCast(i);
+    var out: [200]c_int = undefined;
+
+    // 1..128 first.
+    var batch = subs.changeCheckBatch(&all);
+    var got = batchIndices(&batch, &out);
+    try std.testing.expectEqual(@as(c_int, 1), got[0]);
+    try std.testing.expectEqual(@as(c_int, per_tick), got[got.len - 1]);
+
+    // Tracks 120..160 are no longer subscribed: the next tick starts at 161,
+    // then wraps round to the start.
+    var fewer: [159]c_int = undefined;
+    var n: usize = 0;
+    for (all) |idx| {
+        if (idx >= 120 and idx <= 160) continue;
+        fewer[n] = idx;
+        n += 1;
+    }
+    batch = subs.changeCheckBatch(fewer[0..n]);
+    got = batchIndices(&batch, &out);
+    try std.testing.expectEqual(per_tick, got.len);
+    try std.testing.expectEqual(@as(c_int, 161), got[0]);
+    try std.testing.expectEqual(@as(c_int, 200), got[39]);
+    try std.testing.expectEqual(@as(c_int, 1), got[40]);
+    try std.testing.expectEqual(@as(c_int, 88), got[got.len - 1]);
+
+    // And on from 89.
+    batch = subs.changeCheckBatch(fewer[0..n]);
+    got = batchIndices(&batch, &out);
+    try std.testing.expectEqual(@as(c_int, 89), got[0]);
+}
+
+test "a buffer of trackCount + 1 holds every subscribed track, however many clients and grace tracks overlap" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 300 };
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    _ = try subs.subscribeRange(1, 0, 200, 30);
+    _ = try subs.subscribeRange(2, 150, std.math.maxInt(c_int), 30);
+    const guids = [_][]const u8{ "master", "{00000000-0000-0000-0000-000000000299}" };
+    _ = try subs.subscribeGuids(3, &guids, 30);
+    try subs.grace_until.put(300, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
+
+    const buf = try allocator.alloc(c_int, @intCast(mock.trackCount() + 1));
+    defer allocator.free(buf);
+    const indices = subs.getSubscribedIndices(&cache, &mock, buf);
+    try std.testing.expectEqual(@as(usize, 301), indices.len);
+    for (indices, 0..) |idx, i| try std.testing.expectEqual(@as(c_int, @intCast(i)), idx);
 }
