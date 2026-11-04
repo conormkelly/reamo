@@ -94,17 +94,24 @@ export function PanKnob({
       }
 
       e.preventDefault();
-      // One drag per knob: a new press ends any drag still under way.
+      // Rows keep their tracks until the drag ends, so the strip under the
+      // finger stays the track this drag writes to. The new hold comes
+      // before ending any drag still under way on this knob (one drag per
+      // knob), so held changes do not apply in between and the row, and
+      // with it guid, still shows the track the earlier drag held.
+      const releaseLayout = useReaperStore.getState().holdTrackLayout();
       cleanupRef.current?.();
+      const isRemoved = (lockedGuid: string) => useReaperStore.getState().removedHeldTrackGuids.has(lockedGuid);
+      if (isRemoved(guid)) {
+        // The row's track was deleted during the hold: there is nothing to drag.
+        releaseLayout();
+        return;
+      }
       setIsDragging(true);
 
       // Lock GUID at gesture start - use this for ALL commands during gesture
       gestureGuidRef.current = guid;
       setDraggedGuid(guid);
-      // Rows keep their tracks until the drag ends, so the strip under the
-      // finger stays the track this drag writes to.
-      const releaseLayout = useReaperStore.getState().holdTrackLayout();
-      const isRemoved = (lockedGuid: string) => useReaperStore.getState().removedHeldTrackGuids.has(lockedGuid);
 
       // Signal gesture start for undo coalescing (with locked GUID)
       sendCommand(gesture.start('pan', trackIndex, gestureGuidRef.current));
@@ -138,17 +145,21 @@ export function PanKnob({
       };
 
       const handleUp = () => {
-        stopListening();
-        setIsDragging(false);
-        setDraggedGuid(null);
-        // Signal gesture end with locked GUID - triggers undo point creation.
-        // A deleted track's GUID resolves to nothing, so it gets no message.
-        if (gestureGuidRef.current && !isRemoved(gestureGuidRef.current)) {
-          sendCommand(gesture.end('pan', trackIndex, gestureGuidRef.current));
+        // The hold is released however the rest of the drag's end goes.
+        try {
+          stopListening();
+          setIsDragging(false);
+          setDraggedGuid(null);
+          // Signal gesture end with locked GUID - triggers undo point creation.
+          // A deleted track's GUID resolves to nothing, so it gets no message.
+          if (gestureGuidRef.current && !isRemoved(gestureGuidRef.current)) {
+            sendCommand(gesture.end('pan', trackIndex, gestureGuidRef.current));
+          }
+          gestureGuidRef.current = null;
+          cleanupRef.current = null;
+        } finally {
+          releaseLayout();
         }
-        gestureGuidRef.current = null;
-        releaseLayout();
-        cleanupRef.current = null;
       };
 
       const stopListening = listenToTrackDrag(handleMove, handleUp);
