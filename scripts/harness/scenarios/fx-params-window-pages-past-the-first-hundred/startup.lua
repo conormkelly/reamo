@@ -1,15 +1,80 @@
--- A JSFX with 256 sliders, each set to its own value, so a parameter's
--- value says which parameter it is.
+-- ReaEQ with 86 bands, so 258 band parameters (frequency, gain and
+-- bandwidth of each) before its global ones. Parameters 0 to 255 are each
+-- set to their own value, so a parameter's value says which one it is.
+--
+-- A JSFX can't be the plugin: REAPER 6.0 gives one at most 64 sliders.
+-- ReaEQ ships with every REAPER, and a user adds bands to it in its window;
+-- a script can't, so this writes them into ReaEQ's saved state. That state
+-- is REAPER's VST chunk header, ReaEQ's own data (a version, the band count
+-- and a 33-byte record per band, then its global settings), and a trailer.
+-- The header holds the data's length, and the data its band count; both
+-- change, the rest is kept as REAPER wrote it.
 dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
-local f = io.open(reaper.GetResourcePath() .. "/Effects/harness_paging.jsfx", "w")
-f:write("desc:Harness paging synth\n")
-for i = 1, 256 do
-  f:write(string.format("slider%d:0<0,1000,1>Param %03d\n", i, i - 1))
+
+local BANDS = 86
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function b64decode(s)
+  s = s:gsub("=", "")
+  local out = {}
+  for i = 1, #s, 4 do
+    local quad = s:sub(i, i + 3)
+    local v = 0
+    for j = 1, 4 do
+      local c = quad:sub(j, j)
+      v = (v << 6) | (c == "" and 0 or assert(B64:find(c, 1, true), "not base64: " .. c) - 1)
+    end
+    out[#out + 1] = string.pack(">I3", v):sub(1, #quad - 1)
+  end
+  return table.concat(out)
 end
-f:write("@sample\n")
-f:close()
+
+local function b64encode(s)
+  local out = {}
+  for i = 1, #s, 3 do
+    local group = s:sub(i, i + 2)
+    local v = string.unpack(">I3", group .. string.rep("\0", 3 - #group))
+    for k = 0, 3 do
+      local sextet = (v >> (18 - 6 * k)) & 63
+      out[#out + 1] = k > #group and "=" or B64:sub(sextet + 1, sextet + 1)
+    end
+  end
+  return table.concat(out)
+end
+
+-- Each line of a VST chunk is base64 on its own; lines of a multiple of 3
+-- bytes carry no padding.
+local function b64lines(s)
+  local lines = {}
+  for i = 1, #s, 96 do lines[#lines + 1] = b64encode(s:sub(i, i + 95)) end
+  return table.concat(lines, "\n")
+end
+
 local t = harness.track("Synth")
-harness.oracle("fx", reaper.TrackFX_AddByName(t, "JS:harness_paging.jsfx", false, -1))
+harness.oracle("fx", reaper.TrackFX_AddByName(t, "ReaEQ", false, -1))
+
+local ok, chunk = reaper.GetTrackStateChunk(t, "", false)
+assert(ok, "GetTrackStateChunk failed")
+local head, body, tail = chunk:match("(<VST [^\n]*\n)(.-)(\n>)")
+assert(head, "no ReaEQ in the track's chunk")
+local lines = {}
+for line in body:gmatch("[^\n]+") do lines[#lines + 1] = b64decode(line) end
+local header = lines[1]
+local rest = table.concat(lines, "", 2)
+local size = string.unpack("<I4", header, 49)
+local data, trailer = rest:sub(1, size), rest:sub(size + 1)
+local version, count = string.unpack("<I4I4", data)
+assert(version == 33 and #data >= 8 + 33 * count,
+  string.format("ReaEQ state version %d (%d bytes, %d bands): not the layout this fixture knows", version, #data, count))
+local record = data:sub(8 + 33 + 1, 8 + 33 * 2)  -- band 2: a band (peak) filter
+data = string.pack("<I4I4", version, BANDS) .. data:sub(9, 8 + 33 * count)
+  .. string.rep(record, BANDS - count) .. data:sub(8 + 33 * count + 1)
+header = header:sub(1, 48) .. string.pack("<I4", #data) .. header:sub(53)
+chunk = chunk:gsub("<VST [^\n]*\n.-\n>", function()
+  return head .. b64encode(header) .. "\n" .. b64lines(data) .. "\n" .. b64encode(trailer) .. tail
+end, 1)
+assert(reaper.SetTrackStateChunk(t, chunk, false), "SetTrackStateChunk failed")
+
 harness.oracle("params", reaper.TrackFX_GetNumParams(t, 0))
 for i = 0, 255 do
   reaper.TrackFX_SetParamNormalized(t, 0, i, i / 1000)
