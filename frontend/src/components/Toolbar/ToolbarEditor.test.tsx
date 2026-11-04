@@ -1,9 +1,11 @@
 /**
- * Tests for ToolbarEditor focus handling
+ * Tests for ToolbarEditor
  *
- * A focused text field must be blurred while it's still on the page before
- * the editor or its action search pane removes it, so a phone keyboard
+ * Focus: a focused text field must be blurred while it's still on the page
+ * before the editor or its action search pane removes it, so a phone keyboard
  * closes the normal way.
+ *
+ * Escape closes only the topmost dialog.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -57,5 +59,29 @@ describe('ToolbarEditor', () => {
     unmount();
 
     expect(connectedAtBlur).toEqual([true]);
+  });
+
+  describe('Escape', () => {
+    it('closes only the icon picker when the picker is open over the editor', async () => {
+      const onClose = vi.fn();
+      render(<ToolbarEditor action={null} isNew onClose={onClose} onSave={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.click(screen.getByText('Select icon...'));
+      await screen.findByPlaceholderText('record, marker, guitar...', {}, { timeout: 10000 });
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(screen.queryByPlaceholderText('record, marker, guitar...')).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText('Add Toolbar Button')).toBeInTheDocument();
+    });
+
+    it('closes the editor when no picker is open over it', () => {
+      const onClose = vi.fn();
+      render(<ToolbarEditor action={null} isNew onClose={onClose} onSave={vi.fn()} onDelete={vi.fn()} />);
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 });

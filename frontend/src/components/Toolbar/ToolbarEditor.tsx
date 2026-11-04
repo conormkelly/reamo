@@ -107,14 +107,20 @@ export function ToolbarEditor({
     }
   }, [action]);
 
-  // Close on Escape
+  // Escape closes the topmost dialog only: the icon picker when it's open
+  // over the editor, otherwise the editor.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (showIconPicker) {
+        setShowIconPicker(false);
+      } else {
+        onClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, showIconPicker]);
 
   const handleSave = useCallback(() => {
     if (!label.trim()) return;
