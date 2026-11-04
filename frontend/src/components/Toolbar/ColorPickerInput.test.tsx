@@ -4,7 +4,8 @@
  * Each gesture fires the event sequence a browser sends: pointer events,
  * the touch events beside them for a finger, and for a tap the emulated
  * mouse events and the click that follow a touch. The swatch's hidden colour
- * input covers it, so every event targets the input.
+ * input covers its inside, so most events target the input; a press on the
+ * swatch's border or its non-default dot targets the swatch itself.
  *
  * "Opens the picker" means a click reached the input without being
  * cancelled: that is what makes the browser show its colour picker.
@@ -26,6 +27,7 @@ function renderSwatch(value = CUSTOM) {
     <ColorPickerInput label="Icon" value={value} onChange={onChange} defaultValue={DEFAULT} />
   );
   const input = utils.container.querySelector('input[type="color"]') as HTMLInputElement;
+  const swatch = input.parentElement as HTMLElement;
 
   let pickerOpens = 0;
   const countOpen = (e: Event) => {
@@ -35,7 +37,7 @@ function renderSwatch(value = CUSTOM) {
   document.addEventListener('click', countOpen);
   const stopCounting = () => document.removeEventListener('click', countOpen);
 
-  return { ...utils, onChange, input, pickerOpens: () => pickerOpens, stopCounting };
+  return { ...utils, onChange, input, swatch, pickerOpens: () => pickerOpens, stopCounting };
 }
 
 function pointer(at: Point, pointerId = 1, pointerType = 'touch') {
@@ -122,6 +124,16 @@ describe('ColorPickerInput', () => {
       expect(pickerOpens()).toBe(1);
     });
 
+    it('opens the picker once for a tap on the swatch border outside the hidden input', () => {
+      const { swatch, pickerOpens } = setup();
+
+      fingerDown(swatch);
+      hold(100);
+      fingerUpWithClick(swatch);
+
+      expect(pickerOpens()).toBe(1);
+    });
+
     it('opens the picker on release after a long hold on a swatch already at its default', () => {
       const { input, onChange, pickerOpens } = setup(DEFAULT);
 
@@ -145,6 +157,49 @@ describe('ColorPickerInput', () => {
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(onChange).toHaveBeenCalledWith(DEFAULT);
       expect(pickerOpens()).toBe(0);
+    });
+
+    it('does not open the picker when a hold-to-reset ends on the swatch border', () => {
+      const { swatch, onChange, pickerOpens } = setup();
+
+      fingerDown(swatch);
+      hold(500);
+      fingerUpWithClick(swatch);
+
+      expect(onChange).toHaveBeenCalledWith(DEFAULT);
+      expect(pickerOpens()).toBe(0);
+    });
+
+    it('does not reset when the press is released before 500 ms', () => {
+      const { input, onChange } = setup();
+
+      fingerDown(input);
+      hold(400);
+      fireEvent.pointerUp(input, pointer(AT));
+      hold(1000);
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('does not reset when the browser cancels the pointer with no leave after it', () => {
+      const { input, onChange } = setup();
+
+      fingerDown(input);
+      hold(100);
+      fireEvent.pointerCancel(input, pointer(AT));
+      hold(1000);
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('does not reset on a held right mouse button', () => {
+      const { input, onChange } = setup();
+
+      fireEvent.pointerDown(input, { ...pointer(AT, 1, 'mouse'), button: 2 });
+      fireEvent.mouseDown(input, { button: 2 });
+      hold(1000);
+
+      expect(onChange).not.toHaveBeenCalled();
     });
 
     it('still resets when the finger only jitters within a few pixels', () => {
