@@ -72,6 +72,21 @@ describe('ToolbarEditor', () => {
   });
 
   describe('Escape', () => {
+    // Runs before any test loads the lazy picker: once loaded, it renders
+    // without the fallback for the rest of the file.
+    it('closes only the icon picker while it is still loading over the editor', () => {
+      const onClose = vi.fn();
+      render(<ToolbarEditor action={null} isNew onClose={onClose} onSave={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.click(screen.getByText('Select icon...'));
+      expect(screen.getByText('Loading icons...')).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(screen.queryByText('Loading icons...')).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText('Add Toolbar Button')).toBeInTheDocument();
+    });
+
     it('closes only the icon picker when the picker is open over the editor', async () => {
       const onClose = vi.fn();
       render(<ToolbarEditor action={null} isNew onClose={onClose} onSave={vi.fn()} onDelete={vi.fn()} />);

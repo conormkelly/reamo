@@ -47,6 +47,37 @@ describe('ToolbarButton', () => {
     expect(onLongPress).toHaveBeenCalledTimes(1);
   });
 
+  it('does not report a long press for a short tap', () => {
+    const onLongPress = vi.fn();
+    render(<ToolbarButton action={ACTION} editMode={false} onEdit={vi.fn()} onLongPress={onLongPress} />, { wrapper: withConnection });
+
+    const button = screen.getByTitle('Play');
+    fireEvent.pointerDown(button);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    fireEvent.pointerUp(button);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it('reports one long press when a second pointer down arrives mid-hold', () => {
+    const onLongPress = vi.fn();
+    render(<ToolbarButton action={ACTION} editMode={false} onEdit={vi.fn()} onLongPress={onLongPress} />, { wrapper: withConnection });
+
+    const button = screen.getByTitle('Play');
+    fireEvent.pointerDown(button);
+    fireEvent.pointerDown(button);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+  });
+
   it('does not report a long press after the button is removed mid-hold', () => {
     const onLongPress = vi.fn();
     const { unmount } = render(
