@@ -50,12 +50,14 @@ const DrawnChannels = struct {
 };
 
 /// Which of GetMediaItemTake_Peaks' two channels REAPER draws for a take.
-/// A mono channel mode draws one, whatever the source, though
-/// GetMediaItemTake_Peaks returns it alike on both channels asked for; the
-/// other modes draw the source's channels, or a stereo pair's two. A mono
-/// source draws one waveform in every mode, from the first channel, except
-/// in reverse stereo, which puts its audio on the second and leaves the
-/// first silent.
+/// A mono channel mode draws one, whatever the source; for a source of two
+/// or more channels GetMediaItemTake_Peaks returns it alike on both
+/// channels asked for. The other modes draw the source's channels, or a
+/// stereo pair's two. A mono source draws one waveform in every mode, which
+/// GetMediaItemTake_Peaks returns on the first channel, the second silent,
+/// except in reverse stereo, which puts it on the second and leaves the
+/// first silent. (A mode picking a channel the source lacks returns silence
+/// on both, and REAPER draws the take flat.)
 ///
 /// I_CHANMODE, measured on REAPER 7.83 and 6.0 on Linux (harness:
 /// peaks-channel-modes-match-reaper): 0 normal, 1 reverse stereo, 2 mono
@@ -557,8 +559,8 @@ test "a take in normal, reverse-stereo, stereo-pair or unknown channel mode keep
     }
 }
 
-test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
-    for ([_]c_int{ 0, 2, 3, 67 }) |mode| {
+test "a mono source gets one channel, the first REAPER returns, in every mode but reverse stereo" {
+    for ([_]c_int{ 0, 2, 3, 67, 195, 258, 300 }) |mode| {
         var api = mock.MockBackend{};
         var result = fetchWithChannelMode(&api, 1, mode);
         defer result.deinit();
