@@ -449,6 +449,28 @@ pub const PeaksSubscriptions = struct {
         api: anytype,
         out_buf: []c_int,
     ) []c_int {
+        return self.collectIndices(cache, api, out_buf, .all);
+    }
+
+    /// Track indices (sorted) of the clients not due fresh tiles this tick,
+    /// without grace-period tracks: the tracks a forced send doesn't give
+    /// to everyone who watches them.
+    pub fn getUnforcedIndices(
+        self: *PeaksSubscriptions,
+        cache: *const GuidCache,
+        api: anytype,
+        out_buf: []c_int,
+    ) []c_int {
+        return self.collectIndices(cache, api, out_buf, .unforced);
+    }
+
+    fn collectIndices(
+        self: *PeaksSubscriptions,
+        cache: *const GuidCache,
+        api: anytype,
+        out_buf: []c_int,
+        which: enum { all, unforced },
+    ) []c_int {
         // Use a hash set to dedupe indices
         var seen = std.AutoHashMap(c_int, void).init(self.allocator);
         defer seen.deinit();
@@ -459,6 +481,7 @@ pub const PeaksSubscriptions = struct {
         // Process each client's subscription
         var slot_iter = self.client_id_to_slot.valueIterator();
         while (slot_iter.next()) |slot| {
+            if (which == .unforced and self.force_broadcast_clients[slot.*]) continue;
             const client = &self.clients[slot.*];
 
             switch (client.mode) {
@@ -488,11 +511,13 @@ pub const PeaksSubscriptions = struct {
         }
 
         // Add grace period tracks
-        const now = std.time.nanoTimestamp();
-        var grace_iter = self.grace_until.iterator();
-        while (grace_iter.next()) |entry| {
-            if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
-                seen.put(entry.key_ptr.*, {}) catch {};
+        if (which == .all) {
+            const now = std.time.nanoTimestamp();
+            var grace_iter = self.grace_until.iterator();
+            while (grace_iter.next()) |entry| {
+                if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
+                    seen.put(entry.key_ptr.*, {}) catch {};
+                }
             }
         }
 
@@ -710,6 +735,35 @@ test "getSubscribedIndices with range" {
     // Should be sorted
     try std.testing.expectEqual(@as(c_int, 0), indices[0]);
     try std.testing.expectEqual(@as(c_int, 4), indices[4]);
+}
+
+test "getUnforcedIndices leaves out a forced client's tracks but keeps those another client watches" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 10 };
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    const vp = PeaksSubscriptions.ViewportParams{ .start = 0, .end = 30, .width_px = 400 };
+    _ = try subs.subscribeRangeWithViewport(1, 1, 3, 30, vp);
+    const slot1 = subs.client_id_to_slot.get(1).?;
+    _ = subs.consumeForceBroadcast(slot1);
+    // Client 2 subscribes (forced) to 2..6, overlapping client 1's 1..3.
+    _ = try subs.subscribeRangeWithViewport(2, 2, 6, 30, vp);
+    // A grace-period track no client watches.
+    try subs.grace_until.put(9, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
+
+    var buf: [32]c_int = undefined;
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3 }, subs.getUnforcedIndices(&cache, &mock, &buf));
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6, 9 }, subs.getSubscribedIndices(&cache, &mock, &buf));
+
+    // Once client 2's send is done, every track it watches is unforced.
+    _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(2).?);
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6 }, subs.getUnforcedIndices(&cache, &mock, &buf));
 }
 
 test "getSubscribedIndices with GUIDs" {

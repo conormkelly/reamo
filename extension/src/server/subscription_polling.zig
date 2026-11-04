@@ -108,10 +108,19 @@ pub fn pollPeaksSubscriptions(
     // Check every subscribed track for a change (items, or a take's audio
     // source); that goes to every client. Every track, not just up to the
     // first change: trackChanged also drops a changed take's stale tiles,
-    // which the broadcast below must not send. A forced tick skips the check
-    // (the next tick sees any change) and only remembers tracks never
-    // checked: the forced send gives them as they are, and the first check
-    // of a track counts as a change, which would resend them to everyone.
+    // which the broadcast below must not send.
+    //
+    // A forced tick skips the check (the next tick sees any change). The
+    // first check of a track counts as a change, so it remembers a track
+    // never checked as it is, if only clients due their tiles now watch
+    // it: the forced send gives it to all of them. A track an unforced
+    // client also watches is left to the next tick's check, which sends it
+    // to everyone.
+    var unforced_buf: [128]c_int = undefined;
+    const unforced_indices = if (any_forced)
+        peaks_subs.getUnforcedIndices(ctx.guid_cache_ptr, ctx.backend, &unforced_buf)
+    else
+        unforced_buf[0..0];
     var any_track_changed = false;
     for (subscribed_indices) |track_idx| {
         // Unified index (0 = master), as the generator resolves it.
@@ -119,7 +128,9 @@ pub fn pollPeaksSubscriptions(
         var guid_buf: [64]u8 = undefined;
         const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
         if (any_forced) {
-            tile_cache.rememberTrack(track_guid, ctx.backend, track);
+            if (std.sort.binarySearch(c_int, unforced_indices, track_idx, orderCInt) == null) {
+                tile_cache.rememberTrack(track_guid, ctx.backend, track);
+            }
         } else if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
             any_track_changed = true;
         }
@@ -166,6 +177,10 @@ pub fn pollPeaksSubscriptions(
             logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
         }
     }
+}
+
+fn orderCInt(a: c_int, b: c_int) std.math.Order {
+    return std.math.order(a, b);
 }
 
 /// Poll routing subscriptions and broadcast sends/receives/hw outputs.
