@@ -40,10 +40,24 @@ const ItemPeaksResult = struct {
     }
 };
 
-/// How many waveforms REAPER draws for a take, capped at the two REAmo
-/// sends. A mono channel mode draws one, whatever the source, though
-/// GetMediaItemTake_Peaks returns it alike on both channels asked for; the
-/// other modes draw the source's channels, or a stereo pair's two.
+/// The waveforms REAPER draws for a take, out of the two channels
+/// GetMediaItemTake_Peaks returns when asked for two.
+const DrawnChannels = struct {
+    /// How many waveforms, capped at the two REAmo sends.
+    count: usize,
+    /// The returned channel the first waveform is read from.
+    first: usize,
+};
+
+/// Which of GetMediaItemTake_Peaks' two channels REAPER draws for a take.
+/// A mono channel mode draws one, whatever the source; for a source of two
+/// or more channels GetMediaItemTake_Peaks returns it alike on both
+/// channels asked for. The other modes draw the source's channels, or a
+/// stereo pair's two. A mono source draws one waveform in every mode, which
+/// GetMediaItemTake_Peaks returns on the first channel, the second silent,
+/// except in reverse stereo, which puts it on the second and leaves the
+/// first silent. (A mode picking a channel the source lacks returns silence
+/// on both, and REAPER draws the take flat.)
 ///
 /// I_CHANMODE, measured on REAPER 7.83 and 6.0 on Linux (harness:
 /// peaks-channel-modes-match-reaper): 0 normal, 1 reverse stereo, 2 mono
@@ -51,11 +65,12 @@ const ItemPeaksResult = struct {
 /// channels 1/2..64/65. On 7.83 (6.0 gives no peaks past 64 channels):
 /// 131..194 mono channel 65..128, 195..257 stereo pairs from 65/66, and 258
 /// and above drawn like normal.
-fn drawnChannels(source_channels: usize, channel_mode: c_int) usize {
+fn drawnChannels(source_channels: usize, channel_mode: c_int) DrawnChannels {
     const mono_mode = (channel_mode >= 2 and channel_mode <= 66) or
         (channel_mode >= 131 and channel_mode <= 194);
-    if (mono_mode) return 1;
-    return @min(source_channels, 2);
+    if (mono_mode) return .{ .count = 1, .first = 0 };
+    if (source_channels == 1 and channel_mode == 1) return .{ .count = 1, .first = 1 };
+    return .{ .count = @min(source_channels, 2), .first = 0 };
 }
 
 /// Fetch peaks for an entire item using REAPER's GetMediaItemTake_Peaks API.
@@ -91,9 +106,10 @@ fn fetchItemPeaksViaTakePeaksAPI(
     }
 
     // The waveforms REAPER draws for the take, at most two (REAmo sends no more).
-    const actual_channels = drawnChannels(@intCast(source_channels), api.getTakeChannelMode(take) catch 0);
+    const drawn = drawnChannels(@intCast(source_channels), api.getTakeChannelMode(take) catch 0);
     // Always request 2 channels from REAPER (it always writes 2 even for mono sources on some platforms)
     const request_channels: usize = 2;
+    std.debug.assert(drawn.first + drawn.count <= request_channels);
 
     // Calculate number of peaks
     const num_peaks: usize = @intFromFloat(@ceil(item_length * peakrate));
@@ -136,7 +152,7 @@ fn fetchItemPeaksViaTakePeaksAPI(
     const peaks_to_use = @min(actual_peaks, num_peaks);
 
     // Allocate output buffers
-    const data_size = peaks_to_use * actual_channels;
+    const data_size = peaks_to_use * drawn.count;
     const peak_min = allocator.alloc(f64, data_size) catch return null;
 
     const peak_max = allocator.alloc(f64, data_size) catch {
@@ -144,19 +160,18 @@ fn fetchItemPeaksViaTakePeaksAPI(
         return null;
     };
 
-    const num_channels = actual_channels;
-
     // Copy from REAPER buffer to our format
-    // REAPER writes request_channels (always 2), we extract actual_channels (1 or 2)
+    // REAPER writes request_channels (always 2); we extract the drawn.count
+    // (1 or 2) of them that REAPER draws, from drawn.first on.
     // The min block starts at num_peaks * request_channels, the count asked for,
     // even when REAPER returns fewer peaks (an item past its audio, loop off);
     // the slots between the returned maxes and the min block stay unwritten.
     // Measured on REAPER 6.0 and 7.83 on Linux (harness: peaks-item-past-its-source-end-matches-reaper).
     const reaper_block_size = num_peaks * request_channels;
     for (0..peaks_to_use) |p| {
-        for (0..actual_channels) |ch| {
-            const dst_idx = p * actual_channels + ch;
-            const src_idx = p * request_channels + ch;
+        for (0..drawn.count) |ch| {
+            const dst_idx = p * drawn.count + ch;
+            const src_idx = p * request_channels + drawn.first + ch;
             const max_offset = src_idx;
             const min_offset = reaper_block_size + src_idx;
             peak_max[dst_idx] = reaper_buf[max_offset];
@@ -168,7 +183,7 @@ fn fetchItemPeaksViaTakePeaksAPI(
         .peak_min = peak_min,
         .peak_max = peak_max,
         .num_peaks = peaks_to_use,
-        .channels = num_channels,
+        .channels = drawn.count,
         .allocator = allocator,
     };
 }
@@ -544,8 +559,8 @@ test "a take in normal, reverse-stereo, stereo-pair or unknown channel mode keep
     }
 }
 
-test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
-    for ([_]c_int{ 0, 2, 3, 67 }) |mode| {
+test "a mono source gets one channel, the first REAPER returns, in every mode but reverse stereo" {
+    for ([_]c_int{ 0, 2, 3, 67, 195, 258, 300 }) |mode| {
         var api = mock.MockBackend{};
         var result = fetchWithChannelMode(&api, 1, mode);
         defer result.deinit();
@@ -553,5 +568,17 @@ test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
             std.debug.print("channel mode {d}\n", .{mode});
             return err;
         };
+    }
+}
+
+test "a mono source in reverse stereo gets the second channel REAPER returns, where its audio is" {
+    var api = mock.MockBackend{};
+    var result = fetchWithChannelMode(&api, 1, 1);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 32), result.num_peaks);
+    try std.testing.expectEqual(@as(usize, 1), result.channels);
+    for (0..32) |p| {
+        try std.testing.expectEqual(mockPeak(p, 1), result.peak_max[p]);
+        try std.testing.expectEqual(-mockPeak(p, 1), result.peak_min[p]);
     }
 }

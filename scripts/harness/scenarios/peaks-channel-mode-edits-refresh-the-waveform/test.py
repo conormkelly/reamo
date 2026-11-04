@@ -2,8 +2,10 @@
 
 While a phone watches, the user changes takes' channel modes: from normal
 to mono (two waveforms to one), from mono to normal (one to two), from mono
-left to mono right (one waveform, another channel), and from normal to
-reverse stereo (the channels swap). Each change gives the take a new epoch,
+left to mono right (one waveform, another channel), from normal to
+reverse stereo (the channels swap), and a mono file from normal to reverse
+stereo (one waveform, which REAPER's peaks then carry on the second channel,
+the first silent). Each change gives the take a new epoch,
 so a peaks frame arrives with its tiles under that epoch, matching REAPER's
 peaks and with the channel count REAPER draws; a phone that connects
 afterwards gets the same, not tiles cached from before the change.
@@ -14,14 +16,17 @@ import peaks_check as pk
 
 STAIRS = pk.steps(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
 RIGHT = [0.25] * 16
+SILENT = [0.0] * 16
 
 # name: (new I_CHANMODE, channels REAPER draws before and after, REAPER's
-# peaks per channel after)
+# peaks per channel after, the channel of REAPER's peaks its drawing starts
+# from after; before every edit it starts from the first)
 EDITS = {
-    "normal to mono (left)": (3, 2, 1, [STAIRS]),
-    "mono (downmix) to normal": (0, 1, 2, [STAIRS, RIGHT]),
-    "mono (left) to mono (right)": (4, 1, 1, [RIGHT]),
-    "normal to reverse stereo": (1, 2, 2, [RIGHT, STAIRS]),
+    "normal to mono (left)": (3, 2, 1, [STAIRS], 0),
+    "mono (downmix) to normal": (0, 1, 2, [STAIRS, RIGHT], 0),
+    "mono (left) to mono (right)": (4, 1, 1, [RIGHT], 0),
+    "normal to reverse stereo": (1, 2, 2, [RIGHT, STAIRS], 0),
+    "mono source: normal to reverse stereo": (1, 1, 1, [SILENT, STAIRS], 1),
 }
 
 
@@ -34,14 +39,14 @@ with Client() as c:
     first = pk.subscribe_all(c)
     pk.drain_until_quiet(c)
     bad, evidence = [], {}
-    for name, (_, before, _, _) in EDITS.items():
+    for name, (_, before, _, _, _) in EDITS.items():
         profiles, b = pk.compare(first, [name], before)
         bad += [f"before the {name} edit: " + line for line in b]
         sent = channels_sent(first, profiles[name][1]["guid"])
         if sent != [before]:
             bad.append(f"before the {name} edit, the phone got {sent} channels, not {before}")
 
-    for name, (mode, _, after, levels) in EDITS.items():
+    for name, (mode, _, after, levels, drawn_from) in EDITS.items():
         ti = pk.track_index(name)
         n = len(c.binary)
         reaper(f"""local tk = reaper.GetActiveTake(reaper.GetTrackMediaItem(reaper.GetTrack(0, {ti}), 0))
@@ -51,7 +56,7 @@ reaper.SetMediaItemTakeInfo_Value(tk, "I_CHANMODE", {mode}); reaper.UpdateArrang
         except AssertionError as e:
             bad.append(f"after the {name} edit: {e}")
             continue
-        profiles, b = pk.compare(tiles, [name], after)
+        profiles, b = pk.compare(tiles, [name], after, first=drawn_from)
         evidence[name] = profiles[name]
         got, want = profiles[name]
         for ch, level in enumerate(levels):
@@ -68,8 +73,8 @@ reaper.SetMediaItemTakeInfo_Value(tk, "I_CHANMODE", {mode}); reaper.UpdateArrang
     with Client() as late:
         late.wait_event("items")
         fresh = pk.subscribe_all(late)
-        for name, (_, _, after, _) in EDITS.items():
-            profiles, b = pk.compare(fresh, [name], after)
+        for name, (_, _, after, _, drawn_from) in EDITS.items():
+            profiles, b = pk.compare(fresh, [name], after, first=drawn_from)
             bad += ["a phone connecting afterwards: " + line for line in b]
             sent = channels_sent(fresh, profiles[name][1]["guid"])
             if sent != [after]:

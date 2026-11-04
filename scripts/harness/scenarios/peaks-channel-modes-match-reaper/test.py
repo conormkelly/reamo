@@ -13,6 +13,12 @@ channels 1/2..64/65. REAPER 7.83 also has 131..194 mono channel 65..128
 and 195..257 stereo channels 65/66..127/128, and draws 258 and above like
 normal; 6.0 gives no peaks for a source past 64 channels, so this scenario
 stays within four.
+
+A mono source draws one waveform in every mode, but not always from the
+first of the two channels GetMediaItemTake_Peaks returns: reverse stereo
+puts the audio on the second and leaves the first silent. A mode picking a
+channel the source doesn't have (mono channel 3) returns silence on both,
+and REAPER draws it flat. REAmo's one channel carries what REAPER draws.
 """
 from reamo_client import Client
 import peaks_check as pk
@@ -26,6 +32,12 @@ CH3, CH4 = [0.3] * 16, [0.4] * 16
 STEREO = {"normal": (STAIRS, RIGHT), "reverse stereo": (RIGHT, STAIRS), "stereo (channels 3/4)": (CH3, CH4)}
 MONO = {"mono (downmix)": DOWNMIX, "mono (left)": STAIRS, "mono (right)": RIGHT,
         "mono (channel 3)": CH3, "mono (channel 4)": CH4}
+SILENT = [0.0] * 16
+# A mono source's takes: REAPER's peaks on both channels asked for, and the
+# channel of them its one waveform is drawn from.
+MONO_SOURCE = {"mono source (normal)": ((STAIRS, SILENT), 0),
+               "mono source (reverse stereo)": ((SILENT, STAIRS), 1),
+               "mono source (mono channel 3)": ((SILENT, SILENT), 0)}
 
 with Client() as c:
     c.wait_event("items")
@@ -34,11 +46,16 @@ with Client() as c:
     mono, b = pk.compare(tiles, list(MONO), channels=1)
     bad += b
     profiles = {**stereo, **mono}
+    for name, (_, drawn_from) in MONO_SOURCE.items():
+        p, b = pk.compare(tiles, [name], channels=1, first=drawn_from)
+        profiles.update(p)
+        bad += b
     pk.save("profiles", profiles)
     pk.save("reamo-tiles", tiles)
     pk.screenshot_arrange("reaper-arrange")
 
-    want = {**STEREO, **{name: (level, level) for name, level in MONO.items()}}
+    want = {**STEREO, **{name: (level, level) for name, level in MONO.items()},
+            **{name: peaks for name, (peaks, _) in MONO_SOURCE.items()}}
     for name, (left, right) in want.items():
         r = profiles[name][1]["max"]
         assert pk.near(r[0], left) and pk.near(r[1], right), \
@@ -47,6 +64,6 @@ with Client() as c:
 
     for name in STEREO:
         assert profiles[name][0]["channels"] == [2], f"{name}: REAmo sent {profiles[name][0]['channels']} channels"
-    for name in MONO:
+    for name in [*MONO, *MONO_SOURCE]:
         assert profiles[name][0]["channels"] == [1], \
             f"{name}: REAmo sent {profiles[name][0]['channels']} channels; REAPER draws one waveform"

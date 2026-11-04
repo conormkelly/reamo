@@ -1,6 +1,8 @@
 -- A stereo file (left: the staircase, right: 0.25) in takes with each
--- channel mode (Item Properties: Channel mode, I_CHANMODE), and a
--- four-channel file in the modes that pick channels past the second.
+-- channel mode (Item Properties: Channel mode, I_CHANMODE), a four-channel
+-- file in the modes that pick channels past the second, and a mono file
+-- (the staircase) in normal, reverse stereo and a mode picking a channel it
+-- doesn't have.
 dofile(reaper.GetResourcePath() .. "/Scripts/harness.lua")
 
 -- 8 s, 8 kHz: a 200 Hz square wave on every channel, channel k at levels[k].
@@ -30,6 +32,11 @@ end
 local quad = levels_wav("/tmp/quad.wav", {0.1, 0.2, 0.3, 0.4})
 for _, m in ipairs({{"mono (channel 3)", 5}, {"mono (channel 4)", 6}, {"stereo (channels 3/4)", 69}}) do
   local _, take = harness.waveform_item(m[1], quad, 1, 8)
+  reaper.SetMediaItemTakeInfo_Value(take, "I_CHANMODE", m[2])
+end
+local mono = harness.staircase_wav("/tmp/staircase-mono.wav", false)
+for _, m in ipairs({{"mono source (normal)", 0}, {"mono source (reverse stereo)", 1}, {"mono source (mono channel 3)", 5}}) do
+  local _, take = harness.waveform_item(m[1], mono, 1, 8)
   reaper.SetMediaItemTakeInfo_Value(take, "I_CHANMODE", m[2])
 end
 harness.ready()
