@@ -1005,8 +1005,17 @@ export interface PeaksViewport {
   start: number;
   /** End time in seconds (project timeline position) */
   end: number;
-  /** Viewport width in pixels (for peakrate calculation) */
+  /**
+   * Viewport width in CSS pixels (for peakrate calculation). May be
+   * fractional, as a ResizeObserver measures it; the commands send it rounded,
+   * because the extension reads an integer and refuses a fraction.
+   */
   widthPx: number;
+}
+
+/** The viewport as the extension reads it: the width in whole pixels. */
+function wireViewport(viewport: PeaksViewport): PeaksViewport {
+  return { ...viewport, widthPx: Math.round(viewport.widthPx) };
 }
 
 /** Subscription parameters for peaks/subscribe command */
@@ -1042,7 +1051,7 @@ export const peaks = {
       ...(params.range && { range: params.range }),
       ...(params.guids && { guids: params.guids }),
       ...(params.sampleCount !== undefined && { sampleCount: params.sampleCount }),
-      ...(params.viewport && { viewport: params.viewport }),
+      ...(params.viewport && { viewport: wireViewport(params.viewport) }),
     },
   }),
   /** Unsubscribe from peaks updates. */
@@ -1056,7 +1065,7 @@ export const peaks = {
    */
   updateViewport: (viewport: PeaksViewport): WSCommand => ({
     command: 'peaks/updateViewport',
-    params: { viewport },
+    params: { viewport: wireViewport(viewport) },
   }),
 };
 
