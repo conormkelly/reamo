@@ -114,4 +114,132 @@ describe('ToolbarButton', () => {
 
     expect(onLongPress).not.toHaveBeenCalled();
   });
+
+  describe('presses that are neither a tap nor a hold', () => {
+    type Point = { x: number; y: number };
+    const AT: Point = { x: 100, y: 100 };
+
+    function pointer(at: Point, pointerType = 'mouse', extra: Record<string, unknown> = {}) {
+      return { pointerId: 1, pointerType, isPrimary: true, clientX: at.x, clientY: at.y, button: 0, buttons: 1, ...extra };
+    }
+
+    function setup(editMode = false) {
+      const onLongPress = vi.fn();
+      const onEdit = vi.fn();
+      vi.mocked(connection.sendCommand).mockClear();
+      render(<ToolbarButton action={ACTION} editMode={editMode} onEdit={onEdit} onLongPress={onLongPress} />, {
+        wrapper: withConnection,
+      });
+      return { button: screen.getByTitle('Play'), onLongPress, onEdit };
+    }
+
+    it('a right-button hold does not enter edit mode', () => {
+      const { button, onLongPress } = setup();
+
+      fireEvent.pointerDown(button, pointer(AT, 'mouse', { button: 2, buttons: 2 }));
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('a hold ended by the window losing focus does not enter edit mode', () => {
+      const { button, onLongPress } = setup();
+
+      fireEvent.pointerDown(button, pointer(AT));
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('a press dragged past the move tolerance does not enter edit mode', () => {
+      const { button, onLongPress } = setup();
+
+      fireEvent.pointerDown(button, pointer(AT));
+      fireEvent.pointerMove(button, pointer({ x: AT.x + 20, y: AT.y }));
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('a held Enter runs the action once: its key repeats are cancelled, which cancels their clicks', () => {
+      const { button } = setup();
+
+      const first = fireEvent.keyDown(button, { key: 'Enter' });
+      const repeat = fireEvent.keyDown(button, { key: 'Enter', repeat: true });
+
+      expect(first).toBe(true);
+      expect(repeat).toBe(false);
+    });
+
+    it('a tap runs the action once', () => {
+      const { button } = setup();
+
+      fireEvent.pointerDown(button, pointer(AT, 'touch'));
+      fireEvent.pointerUp(button, pointer(AT, 'touch', { buttons: 0 }));
+      fireEvent.click(button, { detail: 1 });
+
+      expect(connection.sendCommand).toHaveBeenCalledTimes(1);
+      expect(connection.sendCommand).toHaveBeenCalledWith({
+        command: 'action/execute',
+        params: { commandId: 40044 },
+      });
+    });
+
+    it('Enter or a screen reader activation (a click with no pointer) runs the action once', () => {
+      const { button } = setup();
+
+      fireEvent.click(button, { detail: 0 });
+
+      expect(connection.sendCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('a draggable button keeps its mousedown default, which a browser needs to start a drag', () => {
+      const noop = () => {};
+      const dragProps = {
+        draggable: true,
+        onDragStart: noop,
+        onDragOver: noop,
+        onDrop: noop,
+        onDragEnd: noop,
+        onTouchStart: noop,
+        onTouchMove: noop,
+        onTouchEnd: noop,
+      };
+      render(<ToolbarButton action={ACTION} editMode onEdit={vi.fn()} dragProps={dragProps} />, {
+        wrapper: withConnection,
+      });
+
+      expect(fireEvent.mouseDown(screen.getByTitle('Play'))).toBe(true);
+    });
+
+    it('a button that is not draggable does not take focus when pressed', () => {
+      const { button } = setup();
+
+      expect(fireEvent.mouseDown(button)).toBe(false);
+    });
+
+    it('a tap in edit mode opens the editor and runs nothing', () => {
+      const { button, onEdit, onLongPress } = setup(true);
+
+      fireEvent.pointerDown(button, pointer(AT, 'touch'));
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      fireEvent.pointerUp(button, pointer(AT, 'touch', { buttons: 0 }));
+      fireEvent.click(button, { detail: 1 });
+
+      expect(onEdit).toHaveBeenCalledTimes(1);
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(connection.sendCommand).not.toHaveBeenCalled();
+    });
+  });
 });
