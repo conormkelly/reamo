@@ -530,7 +530,7 @@ test "a take in a mono channel mode gets one channel, as REAPER draws one wavefo
     }
 }
 
-test "a take in a stereo-pair or all-channel mode keeps two channels" {
+test "a take in normal, reverse-stereo, stereo-pair or unknown channel mode keeps two channels" {
     for ([_]c_int{ 0, 1, 67, 130, 195, 257, 258, 300 }) |mode| {
         for ([_]c_int{ 2, 4 }) |source_channels| {
             var api = mock.MockBackend{};
