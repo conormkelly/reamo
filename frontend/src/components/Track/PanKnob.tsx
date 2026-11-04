@@ -8,6 +8,7 @@ import { useReaper } from '../../hooks/useReaper';
 import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
 import { gesture, track as trackCmd } from '../../core/WebSocketCommands';
+import { listenToTrackDrag } from './listenToTrackDrag';
 
 /** Center pan position */
 const CENTER_PAN = 0;
@@ -43,6 +44,13 @@ export function PanKnob({
   const { pan, panDisplay, setPan, guid } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
+  // The GUID the current drag writes to, or null when no drag is under way
+  const [draggedGuid, setDraggedGuid] = useState<string | null>(null);
+  // The dragged track was deleted mid-drag: the drag writes nothing more
+  const draggedTrackRemoved = useReaperStore(
+    (s) => draggedGuid !== null && s.removedHeldTrackGuids.has(draggedGuid)
+  );
+  const disabled = mixerLocked || draggedTrackRemoved;
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -86,10 +94,17 @@ export function PanKnob({
       }
 
       e.preventDefault();
+      // One drag per knob: a new press ends any drag still under way.
+      cleanupRef.current?.();
       setIsDragging(true);
 
       // Lock GUID at gesture start - use this for ALL commands during gesture
       gestureGuidRef.current = guid;
+      setDraggedGuid(guid);
+      // Rows keep their tracks until the drag ends, so the strip under the
+      // finger stays the track this drag writes to.
+      const releaseLayout = useReaperStore.getState().holdTrackLayout();
+      const isRemoved = (lockedGuid: string) => useReaperStore.getState().removedHeldTrackGuids.has(lockedGuid);
 
       // Signal gesture start for undo coalescing (with locked GUID)
       sendCommand(gesture.start('pan', trackIndex, gestureGuidRef.current));
@@ -103,6 +118,7 @@ export function PanKnob({
 
       const updatePosition = (clientX: number) => {
         if (!containerRef.current || !gestureGuidRef.current) return;
+        if (isRemoved(gestureGuidRef.current)) return;
         const rect = containerRef.current.getBoundingClientRect();
         const x = clientX - rect.left;
         // Convert to -1 to 1 range
@@ -122,23 +138,20 @@ export function PanKnob({
       };
 
       const handleUp = () => {
+        stopListening();
         setIsDragging(false);
-        // Signal gesture end with locked GUID - triggers undo point creation
-        if (gestureGuidRef.current) {
+        setDraggedGuid(null);
+        // Signal gesture end with locked GUID - triggers undo point creation.
+        // A deleted track's GUID resolves to nothing, so it gets no message.
+        if (gestureGuidRef.current && !isRemoved(gestureGuidRef.current)) {
           sendCommand(gesture.end('pan', trackIndex, gestureGuidRef.current));
         }
         gestureGuidRef.current = null;
-        document.removeEventListener('mousemove', handleMove);
-        document.removeEventListener('mouseup', handleUp);
-        document.removeEventListener('touchmove', handleMove);
-        document.removeEventListener('touchend', handleUp);
+        releaseLayout();
         cleanupRef.current = null;
       };
 
-      document.addEventListener('mousemove', handleMove);
-      document.addEventListener('mouseup', handleUp);
-      document.addEventListener('touchmove', handleMove, { passive: false });
-      document.addEventListener('touchend', handleUp);
+      const stopListening = listenToTrackDrag(handleMove, handleUp);
 
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
@@ -155,10 +168,11 @@ export function PanKnob({
         ref={containerRef}
         className={`relative h-4 rounded touch-none ${
           isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
-        } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'} ${
+        } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'} ${
           isDragging ? 'ring-2 ring-control-ring' : ''
         }`}
         style={{ width }}
+        aria-disabled={disabled || undefined}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
         title="Pan - double-tap to center"

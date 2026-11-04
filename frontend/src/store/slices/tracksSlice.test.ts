@@ -6,7 +6,8 @@
  * - updateTrack/updateTracks merge into existing record
  * - removeTrack deletes by index
  * - setTrackSkeleton builds guidToIndex map
- * - updateMeters only writes when peak/clip changes
+ * - updateMeters only writes when peak/clip changes, to the row showing the meter's GUID
+ * - holdTrackLayout keeps each row on its track until every hold is released
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -45,6 +46,10 @@ describe('tracksSlice', () => {
       trackSkeleton: [],
       guidToIndex: new Map(),
       mixerLocked: false,
+      trackLayoutHolds: 0,
+      heldTrackSkeleton: null,
+      heldTracksEvent: null,
+      removedHeldTrackGuids: new Set(),
     });
   });
 
@@ -250,17 +255,21 @@ describe('tracksSlice', () => {
       expect(useReaperStore.getState().tracks).toBe(tracksBefore);
     });
 
-    it('falls back to meter.i when guid not in guidToIndex', () => {
+    it('puts a meter on the row showing its GUID, whatever index the meter or skeleton gives', () => {
       useReaperStore.setState({
         tracks: {
-          2: makeTrack({ index: 2, lastMeterPeak: 0, clipped: false }),
+          2: makeTrack({ index: 2, guid: '{G2}', lastMeterPeak: 0, clipped: false }),
+          3: makeTrack({ index: 3, guid: '{G3}', lastMeterPeak: 0, clipped: false }),
         },
-        guidToIndex: new Map(), // Empty — no GUID mapping
+        // A skeleton that lags the tracks: it still has the old order.
+        guidToIndex: new Map([['{G2}', 3], ['{G3}', 2]]),
       });
       useReaperStore.getState().updateMeters({
-        '{UNKNOWN}': { i: 2, l: 0.7, r: 0.4, c: false },
+        '{G2}': { i: 3, l: 0.7, r: 0.4, c: false },
+        '{NEW}': { i: 2, l: 0.1, r: 0.1, c: false },
       });
       expect(useReaperStore.getState().tracks[2]?.lastMeterPeak).toBe(0.7);
+      expect(useReaperStore.getState().tracks[3]?.lastMeterPeak).toBe(0);
     });
 
     it('ignores meters for tracks not in store', () => {
@@ -269,6 +278,114 @@ describe('tracksSlice', () => {
         '{NONEXISTENT}': { i: 99, l: 0.5, r: 0.5, c: false },
       });
       expect(useReaperStore.getState().tracks).toBe(tracksBefore);
+    });
+  });
+
+  // ===========================================================================
+  // Track layout hold
+  // ===========================================================================
+
+  describe('holdTrackLayout', () => {
+    const skel = (...guids: string[]): SkeletonTrack[] =>
+      guids.map((g) => ({ n: g, g, m: false, sl: null, sel: false, r: false, fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0 }));
+    const rows = (...guids: string[]): Record<number, Track> =>
+      Object.fromEntries(guids.map((g, i) => [i, makeTrack({ index: i, guid: g, name: g })]));
+    const names = () => Object.values(useReaperStore.getState().tracks).map((t) => t.name);
+
+    beforeEach(() => {
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'A', 'B'));
+      useReaperStore.getState().applyTracksEvent(rows('master', 'A', 'B'), 2);
+    });
+
+    it('applies tracks events and skeletons straight away when nothing holds the layout', () => {
+      useReaperStore.getState().applyTracksEvent(rows('master', 'N', 'A', 'B'), 3);
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'N', 'A', 'B'));
+      expect(names()).toEqual(['master', 'N', 'A', 'B']);
+      expect(useReaperStore.getState().totalTracks).toBe(3);
+      expect(useReaperStore.getState().guidToIndex.get('A')).toBe(2);
+    });
+
+    it('keeps every row on its track and updates its values by GUID while held', () => {
+      useReaperStore.getState().holdTrackLayout();
+      const incoming = rows('master', 'N', 'A', 'B');
+      incoming[3] = { ...incoming[3], volume: 0.25 };
+      useReaperStore.getState().applyTracksEvent(incoming, 3);
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'N', 'A', 'B'));
+
+      const state = useReaperStore.getState();
+      expect(names()).toEqual(['master', 'A', 'B']);
+      expect(state.tracks[2]).toMatchObject({ guid: 'B', index: 2, volume: 0.25 });
+      expect(state.trackSkeleton.map((t) => t.g)).toEqual(['master', 'A', 'B']);
+      expect(state.guidToIndex.get('A')).toBe(1);
+      expect(state.totalTracks).toBe(2);
+    });
+
+    it('applies the latest held skeleton and tracks event when the hold is released', () => {
+      const release = useReaperStore.getState().holdTrackLayout();
+      useReaperStore.getState().applyTracksEvent(rows('master', 'N', 'A', 'B'), 3);
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'N', 'A', 'B'));
+      useReaperStore.getState().applyTracksEvent(rows('master', 'A', 'N', 'B'), 3);
+      release();
+
+      const state = useReaperStore.getState();
+      expect(names()).toEqual(['master', 'A', 'N', 'B']);
+      expect(state.trackSkeleton.map((t) => t.g)).toEqual(['master', 'N', 'A', 'B']);
+      expect(state.totalTracks).toBe(3);
+      expect(state.trackCount).toBe(4);
+      expect(state.trackLayoutHolds).toBe(0);
+      expect(state.heldTrackSkeleton).toBeNull();
+      expect(state.heldTracksEvent).toBeNull();
+    });
+
+    it('holds until every hold is released, and a second call of one release does not count', () => {
+      const first = useReaperStore.getState().holdTrackLayout();
+      const second = useReaperStore.getState().holdTrackLayout();
+      useReaperStore.getState().applyTracksEvent(rows('master', 'N', 'A', 'B'), 3);
+
+      first();
+      first();
+      expect(names()).toEqual(['master', 'A', 'B']);
+
+      second();
+      expect(names()).toEqual(['master', 'N', 'A', 'B']);
+    });
+
+    it('marks a held row whose track a skeleton no longer lists, until the hold ends', () => {
+      const release = useReaperStore.getState().holdTrackLayout();
+      useReaperStore.getState().applyTracksEvent(rows('master', 'B'), 1);
+      expect(useReaperStore.getState().removedHeldTrackGuids.has('A')).toBe(false);
+
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'B'));
+      expect([...useReaperStore.getState().removedHeldTrackGuids]).toEqual(['A']);
+      // The row stays on A with its last values.
+      expect(names()).toEqual(['master', 'A', 'B']);
+
+      // A later skeleton listing it again does not clear the mark mid-hold.
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'A', 'B'));
+      expect(useReaperStore.getState().removedHeldTrackGuids.has('A')).toBe(true);
+
+      release();
+      expect(useReaperStore.getState().removedHeldTrackGuids.size).toBe(0);
+    });
+
+    it('puts meters on the held rows by GUID', () => {
+      useReaperStore.getState().holdTrackLayout();
+      useReaperStore.getState().applyTracksEvent(rows('master', 'N', 'A', 'B'), 3);
+      useReaperStore.getState().updateMeters({
+        N: { i: 1, l: 0.9, r: 0.9, c: true },
+        A: { i: 2, l: 0.5, r: 0.2, c: false },
+      });
+      const { tracks } = useReaperStore.getState();
+      expect(tracks[1]).toMatchObject({ guid: 'A', lastMeterPeak: 0.5, clipped: false });
+      expect(tracks[2]).toMatchObject({ guid: 'B', lastMeterPeak: 0 });
+    });
+
+    it('keeps an optimistic selection made during the hold once the held skeleton applies', () => {
+      const release = useReaperStore.getState().holdTrackLayout();
+      useReaperStore.getState().setTrackSkeleton(skel('master', 'N', 'A', 'B'));
+      useReaperStore.getState().optimisticSelectTrack('A');
+      release();
+      expect(useReaperStore.getState().trackSkeleton.find((t) => t.g === 'A')?.sel).toBe(true);
     });
   });
 });

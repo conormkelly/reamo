@@ -1,0 +1,230 @@
+/**
+ * Mixer drag layout hold E2E Tests
+ *
+ * While a fader is dragged, the mixer's strips keep the tracks they showed
+ * when the drag began, so a track inserted, removed or moved in REAPER
+ * cannot slide another track under the finger. The held changes apply when
+ * the drag ends, by release or by the browser cancelling the touch. If the
+ * dragged track itself is deleted, its fader greys out and sends nothing
+ * more.
+ *
+ * Runs against a fake extension over a routed WebSocket: it pushes the
+ * track events a test asks for and records the volume and gesture commands
+ * the page sends.
+ */
+
+import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
+
+interface Sent {
+  command: string;
+  trackGuid?: string;
+}
+
+type Row = { g: string; name: string };
+
+const MASTER: Row = { g: 'master', name: 'MASTER' };
+const DRUMS: Row = { g: '{DRUMS}', name: 'Drums' };
+const BASS: Row = { g: '{BASS}', name: 'Bass' };
+const KEYS: Row = { g: '{KEYS}', name: 'Keys' };
+const NEW: Row = { g: '{NEW}', name: 'New track' };
+
+const RECORDED = new Set(['track/setVolume', 'gesture/start', 'gesture/end']);
+
+interface FakeReaper {
+  sent: Sent[];
+  /** Sends REAPER's track list as both a skeleton and a tracks event. */
+  setTracks: (rows: Row[]) => void;
+}
+
+async function installFakeReaper(page: Page): Promise<FakeReaper> {
+  const sent: Sent[] = [];
+  let socket: WebSocketRoute | null = null;
+  let current: Row[] = [MASTER, DRUMS, BASS, KEYS];
+
+  const send = (msg: unknown) => socket?.send(JSON.stringify(msg));
+  const pushTracks = () => {
+    send({
+      type: 'event',
+      event: 'trackSkeleton',
+      payload: {
+        tracks: current.map((r) => ({
+          n: r.name, g: r.g, m: false, sl: null, sel: false, r: false,
+          fd: 0, sc: 0, hc: 0, cl: false, ic: 0, fm: 0, c: 0,
+        })),
+      },
+    });
+    send({
+      type: 'event',
+      event: 'tracks',
+      payload: {
+        total: current.length - 1,
+        tracks: current.map((r, idx) => ({
+          idx, g: r.g, name: r.name, color: 0, volume: 1.0, pan: 0,
+          mute: false, solo: 0, recArm: false, recMon: 0, fxEnabled: true, selected: false,
+          fxCount: 0, sendCount: 0, receiveCount: 0, hwOutCount: 0,
+        })),
+      },
+    });
+  };
+
+  await page.routeWebSocket(/\/ws$/, (ws: WebSocketRoute) => {
+    socket = ws;
+    ws.onMessage((raw) => {
+      const msg = JSON.parse(String(raw)) as Record<string, unknown>;
+      if (msg.type === 'hello') {
+        send({ type: 'hello', extensionVersion: '0.0.0-e2e', protocolVersion: 1 });
+        pushTracks();
+        return;
+      }
+      if (msg.type === 'ping') {
+        send({ type: 'pong' });
+        return;
+      }
+      if (msg.type !== 'command') return;
+      const command = msg.command as string;
+      if (RECORDED.has(command)) {
+        sent.push({ command, trackGuid: msg.trackGuid as string | undefined });
+      }
+      const id = msg.id as string | undefined;
+      if (id) send({ type: 'response', id, success: true, payload: {} });
+    });
+  });
+
+  return {
+    sent,
+    setTracks: (rows) => {
+      current = rows;
+      pushTracks();
+    },
+  };
+}
+
+async function openMixer(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__REAPER_STORE__?.getState().connected === true, {
+    timeout: 10000,
+  });
+  await page.getByRole('button', { name: 'Mixer' }).click();
+  await expect(stripAt(page, 2)).toBeVisible();
+}
+
+function stripAt(page: Page, index: number): Locator {
+  return page.locator(`[data-testid="mixer-strip"][data-track-index="${index}"]`);
+}
+
+/** The name shown on the strip at an index. */
+function nameAt(page: Page, index: number): Locator {
+  return stripAt(page, index).getByTitle(/ - tap to (de)?select$/);
+}
+
+function faderAt(page: Page, index: number): Locator {
+  return stripAt(page, index).getByTitle('Volume - double-tap to reset to 0dB');
+}
+
+async function centre(el: Locator): Promise<{ x: number; y: number }> {
+  const box = await el.boundingBox();
+  if (!box) throw new Error('element has no box');
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** Lets pushed events reach the page and sent commands reach the fake. */
+async function settle(page: Page): Promise<void> {
+  await page.waitForTimeout(300);
+}
+
+test.describe('Mixer drag holds the track layout, mouse', () => {
+  test.use({ viewport: { width: 414, height: 896 } });
+
+  test('a track inserted above the dragged one moves nothing until the release', async ({ page }) => {
+    const fake = await installFakeReaper(page);
+    await openMixer(page);
+    await expect(nameAt(page, 2)).toHaveText('Bass');
+
+    const at = await centre(faderAt(page, 2));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    fake.setTracks([MASTER, NEW, DRUMS, BASS, KEYS]);
+    await settle(page);
+
+    await expect(nameAt(page, 1)).toHaveText('Drums');
+    await expect(nameAt(page, 2)).toHaveText('Bass');
+    await page.mouse.move(at.x, at.y - 30, { steps: 3 });
+    await settle(page);
+
+    await page.mouse.up();
+    await expect(nameAt(page, 2)).toHaveText('Drums');
+    await expect(nameAt(page, 1)).toHaveText('New track');
+
+    const volumeGuids = new Set(fake.sent.filter((s) => s.command === 'track/setVolume').map((s) => s.trackGuid));
+    expect(volumeGuids).toEqual(new Set(['{BASS}']));
+    expect(fake.sent.filter((s) => s.command === 'gesture/end')).toEqual([{ command: 'gesture/end', trackGuid: '{BASS}' }]);
+  });
+
+  test('a dragged track deleted mid-drag greys its fader, which sends nothing more', async ({ page }) => {
+    const fake = await installFakeReaper(page);
+    await openMixer(page);
+
+    const fader = faderAt(page, 2);
+    const at = await centre(fader);
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x, at.y - 10, { steps: 2 });
+    await settle(page);
+    const writesBefore = fake.sent.filter((s) => s.command === 'track/setVolume').length;
+    expect(writesBefore).toBeGreaterThan(0);
+
+    fake.setTracks([MASTER, DRUMS, KEYS]);
+    await settle(page);
+
+    await expect(nameAt(page, 2)).toHaveText('Bass');
+    await expect(fader).toHaveAttribute('aria-disabled', 'true');
+    await page.mouse.move(at.x, at.y - 60, { steps: 4 });
+    await page.mouse.up();
+    await settle(page);
+
+    expect(fake.sent.filter((s) => s.command === 'track/setVolume')).toHaveLength(writesBefore);
+    expect(fake.sent.filter((s) => s.command === 'gesture/end')).toEqual([]);
+    await expect(nameAt(page, 2)).toHaveText('Keys');
+    await expect(fader).not.toHaveAttribute('aria-disabled');
+  });
+
+  test('the window losing focus mid-drag ends it and applies the held changes', async ({ page }) => {
+    const fake = await installFakeReaper(page);
+    await openMixer(page);
+
+    const at = await centre(faderAt(page, 2));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    fake.setTracks([MASTER, NEW, DRUMS, BASS, KEYS]);
+    await settle(page);
+    await expect(nameAt(page, 2)).toHaveText('Bass');
+
+    // Cmd/Alt-Tab to another app: the window blurs and no release comes.
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await expect(nameAt(page, 2)).toHaveText('Drums');
+    expect(fake.sent.filter((s) => s.command === 'gesture/end')).toHaveLength(1);
+    await page.mouse.up();
+  });
+});
+
+test.describe('Mixer drag holds the track layout, touch', () => {
+  test.use({ viewport: { width: 414, height: 896 }, hasTouch: true, isMobile: true });
+
+  test('a touch the browser cancels mid-drag ends it and applies the held changes', async ({ page }) => {
+    const fake = await installFakeReaper(page);
+    await openMixer(page);
+
+    const at = await centre(faderAt(page, 2));
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...at, id: 1 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: at.x, y: at.y - 10, id: 1 }] });
+    fake.setTracks([MASTER, NEW, DRUMS, BASS, KEYS]);
+    await settle(page);
+    await expect(nameAt(page, 2)).toHaveText('Bass');
+
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await expect(nameAt(page, 2)).toHaveText('Drums');
+    await settle(page);
+    expect(fake.sent.filter((s) => s.command === 'gesture/end')).toEqual([{ command: 'gesture/end', trackGuid: '{BASS}' }]);
+  });
+});

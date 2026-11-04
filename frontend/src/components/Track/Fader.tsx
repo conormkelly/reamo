@@ -9,6 +9,7 @@ import { useTrack } from '../../hooks/useTrack';
 import { useReaperStore } from '../../store';
 import { gesture, track as trackCmd } from '../../core/WebSocketCommands';
 import { faderToVolume } from '../../utils/volume';
+import { listenToTrackDrag } from './listenToTrackDrag';
 
 /** Linear volume for unity gain (0dB) - exactly 1.0 */
 const UNITY_GAIN_VOLUME = 1.0;
@@ -37,6 +38,13 @@ export function Fader({
   const { faderPosition, volumeDb, setVolume, guid } = useTrack(trackIndex);
   const mixerLocked = useReaperStore((s) => s.mixerLocked);
   const [isDragging, setIsDragging] = useState(false);
+  // The GUID the current drag writes to, or null when no drag is under way
+  const [draggedGuid, setDraggedGuid] = useState<string | null>(null);
+  // The dragged track was deleted mid-drag: the drag writes nothing more
+  const draggedTrackRemoved = useReaperStore(
+    (s) => draggedGuid !== null && s.removedHeldTrackGuids.has(draggedGuid)
+  );
+  const disabled = mixerLocked || draggedTrackRemoved;
   const [isFineMode, setIsFineMode] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,10 +99,17 @@ export function Fader({
       }
 
       e.preventDefault();
+      // One drag per fader: a new press ends any drag still under way.
+      cleanupRef.current?.();
       setIsDragging(true);
 
       // Lock GUID at gesture start - use this for ALL commands during gesture
       gestureGuidRef.current = guid;
+      setDraggedGuid(guid);
+      // Rows keep their tracks until the drag ends, so the strip under the
+      // finger stays the track this drag writes to.
+      const releaseLayout = useReaperStore.getState().holdTrackLayout();
+      const isRemoved = (lockedGuid: string) => useReaperStore.getState().removedHeldTrackGuids.has(lockedGuid);
 
       // Signal gesture start for undo coalescing (with locked GUID)
       sendCommand(gesture.start('volume', trackIndex, gestureGuidRef.current));
@@ -124,6 +139,7 @@ export function Fader({
 
       const updatePosition = (clientX: number, clientY: number) => {
         if (!containerRef.current || !gestureGuidRef.current || !dragStartRef.current) return;
+        if (isRemoved(gestureGuidRef.current)) return;
         const rect = containerRef.current.getBoundingClientRect();
 
         // Calculate horizontal offset from start position
@@ -159,25 +175,22 @@ export function Fader({
       };
 
       const handleUp = () => {
+        stopListening();
         setIsDragging(false);
         setIsFineMode(false);
+        setDraggedGuid(null);
         dragStartRef.current = null;
-        // Signal gesture end with locked GUID - triggers undo point creation
-        if (gestureGuidRef.current) {
+        // Signal gesture end with locked GUID - triggers undo point creation.
+        // A deleted track's GUID resolves to nothing, so it gets no message.
+        if (gestureGuidRef.current && !isRemoved(gestureGuidRef.current)) {
           sendCommand(gesture.end('volume', trackIndex, gestureGuidRef.current));
         }
         gestureGuidRef.current = null;
-        document.removeEventListener('mousemove', handleMove);
-        document.removeEventListener('mouseup', handleUp);
-        document.removeEventListener('touchmove', handleMove);
-        document.removeEventListener('touchend', handleUp);
+        releaseLayout();
         cleanupRef.current = null;
       };
 
-      document.addEventListener('mousemove', handleMove);
-      document.addEventListener('mouseup', handleUp);
-      document.addEventListener('touchmove', handleMove, { passive: false });
-      document.addEventListener('touchend', handleUp);
+      const stopListening = listenToTrackDrag(handleMove, handleUp);
 
       // Store cleanup function for unmount
       cleanupRef.current = handleUp;
@@ -193,10 +206,11 @@ export function Fader({
         ref={containerRef}
         className={`relative w-8 rounded touch-none ${
           isSelected ? 'bg-bg-disabled' : 'bg-bg-elevated'
-        } ${mixerLocked ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'} ${
+        } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-ns-resize'} ${
           isDragging ? 'ring-2 ring-control-ring' : ''
         }`}
         style={{ height }}
+        aria-disabled={disabled || undefined}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
         title="Volume - double-tap to reset to 0dB"
