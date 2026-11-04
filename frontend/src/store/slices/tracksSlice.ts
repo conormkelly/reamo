@@ -30,17 +30,11 @@ export interface TracksSlice {
   removedHeldTrackGuids: ReadonlySet<string>;
 
   // Actions
-  setTrackCount: (count: number) => void;
-  updateTrack: (track: Track) => void;
-  updateTracks: (tracks: Track[]) => void;
-  removeTrack: (index: number) => void;
-  clearTracks: () => void;
   setMixerLocked: (locked: boolean) => void;
   toggleMixerLock: () => void;
 
   // Viewport-driven subscription actions
   setTrackSkeleton: (skeleton: SkeletonTrack[]) => void;
-  setTotalTracks: (total: number) => void;
   /**
    * Apply a tracks event: the subscribed tracks keyed by index, and the user
    * track total. While the layout is held, values reach the rows by GUID and
@@ -91,45 +85,6 @@ export const createTracksSlice: StateCreator<TracksSlice> = (set, get) => ({
   removedHeldTrackGuids: EMPTY_GUID_SET,
 
   // Actions
-  setTrackCount: (trackCount) =>
-    set((state) => {
-      // Remove tracks beyond the new count
-      const newTracks = { ...state.tracks };
-      for (const key of Object.keys(newTracks)) {
-        const index = parseInt(key, 10);
-        if (index > trackCount) {
-          delete newTracks[index];
-        }
-      }
-      return { trackCount, tracks: newTracks };
-    }),
-
-  updateTrack: (track) =>
-    set((state) => ({
-      tracks: {
-        ...state.tracks,
-        [track.index]: track,
-      },
-    })),
-
-  updateTracks: (tracks) =>
-    set((state) => {
-      const newTracks = { ...state.tracks };
-      for (const track of tracks) {
-        newTracks[track.index] = track;
-      }
-      return { tracks: newTracks };
-    }),
-
-  removeTrack: (index) =>
-    set((state) => {
-      const newTracks = { ...state.tracks };
-      delete newTracks[index];
-      return { tracks: newTracks };
-    }),
-
-  clearTracks: () => set({ tracks: {}, trackCount: 0 }),
-
   setMixerLocked: (locked) => set({ mixerLocked: locked }),
 
   toggleMixerLock: () => set((state) => ({ mixerLocked: !state.mixerLocked })),
@@ -152,8 +107,6 @@ export const createTracksSlice: StateCreator<TracksSlice> = (set, get) => ({
       removedHeldTrackGuids: removed.size === removedHeldTrackGuids.size ? removedHeldTrackGuids : removed,
     });
   },
-
-  setTotalTracks: (total) => set({ totalTracks: total }),
 
   applyTracksEvent: (incoming, total) => {
     const { trackLayoutHolds, tracks } = get();

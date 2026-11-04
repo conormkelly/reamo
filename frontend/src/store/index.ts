@@ -153,14 +153,6 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           get().updateTransport(response.data);
           break;
 
-        case 'NTRACK':
-          get().setTrackCount(response.count);
-          break;
-
-        case 'TRACK':
-          get().updateTrack(response.data);
-          break;
-
         case 'BEATPOS':
           get().updateBeatPosition(response.data);
           break;

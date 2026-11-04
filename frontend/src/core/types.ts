@@ -154,8 +154,6 @@ export interface ExtState {
 export type ParsedResponse =
   | { type: 'TRANSPORT'; data: TransportState }
   | { type: 'BEATPOS'; data: BeatPosition }
-  | { type: 'NTRACK'; count: number }
-  | { type: 'TRACK'; data: Track }
   | { type: 'SEND'; data: Send }
   | { type: 'MARKER'; data: Marker }
   | { type: 'REGION'; data: Region }

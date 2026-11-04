@@ -2,9 +2,6 @@
  * Tests for tracksSlice — track state management.
  *
  * Key contracts:
- * - setTrackCount trims tracks beyond the new count
- * - updateTrack/updateTracks merge into existing record
- * - removeTrack deletes by index
  * - setTrackSkeleton builds guidToIndex map
  * - updateMeters only writes when peak/clip changes, to the row showing the meter's GUID
  * - holdTrackLayout keeps each row on its track until every hold is released
@@ -50,104 +47,6 @@ describe('tracksSlice', () => {
       heldTrackSkeleton: null,
       heldTracksEvent: null,
       removedHeldTrackGuids: new Set(),
-    });
-  });
-
-  // ===========================================================================
-  // setTrackCount
-  // ===========================================================================
-
-  describe('setTrackCount', () => {
-    it('sets the track count', () => {
-      useReaperStore.getState().setTrackCount(5);
-      expect(useReaperStore.getState().trackCount).toBe(5);
-    });
-
-    it('trims tracks beyond the new count', () => {
-      useReaperStore.setState({
-        tracks: {
-          1: makeTrack({ index: 1 }),
-          2: makeTrack({ index: 2 }),
-          3: makeTrack({ index: 3 }),
-        },
-      });
-      useReaperStore.getState().setTrackCount(2);
-      const tracks = useReaperStore.getState().tracks;
-      expect(tracks[1]).toBeDefined();
-      expect(tracks[2]).toBeDefined();
-      expect(tracks[3]).toBeUndefined();
-    });
-
-    it('keeps tracks at or below the count', () => {
-      useReaperStore.setState({
-        tracks: {
-          1: makeTrack({ index: 1 }),
-          2: makeTrack({ index: 2 }),
-        },
-      });
-      useReaperStore.getState().setTrackCount(5);
-      const tracks = useReaperStore.getState().tracks;
-      expect(tracks[1]).toBeDefined();
-      expect(tracks[2]).toBeDefined();
-    });
-  });
-
-  // ===========================================================================
-  // updateTrack / updateTracks
-  // ===========================================================================
-
-  describe('updateTrack', () => {
-    it('adds a track by index', () => {
-      useReaperStore.getState().updateTrack(makeTrack({ index: 3, name: 'Guitar' }));
-      expect(useReaperStore.getState().tracks[3]?.name).toBe('Guitar');
-    });
-
-    it('replaces existing track at same index', () => {
-      useReaperStore.getState().updateTrack(makeTrack({ index: 1, name: 'Old' }));
-      useReaperStore.getState().updateTrack(makeTrack({ index: 1, name: 'New' }));
-      expect(useReaperStore.getState().tracks[1]?.name).toBe('New');
-    });
-  });
-
-  describe('updateTracks', () => {
-    it('merges multiple tracks', () => {
-      useReaperStore.getState().updateTracks([
-        makeTrack({ index: 1, name: 'A' }),
-        makeTrack({ index: 2, name: 'B' }),
-      ]);
-      const tracks = useReaperStore.getState().tracks;
-      expect(tracks[1]?.name).toBe('A');
-      expect(tracks[2]?.name).toBe('B');
-    });
-
-    it('preserves existing tracks not in update', () => {
-      useReaperStore.getState().updateTrack(makeTrack({ index: 5, name: 'Existing' }));
-      useReaperStore.getState().updateTracks([makeTrack({ index: 1, name: 'New' })]);
-      expect(useReaperStore.getState().tracks[5]?.name).toBe('Existing');
-    });
-  });
-
-  // ===========================================================================
-  // removeTrack / clearTracks
-  // ===========================================================================
-
-  describe('removeTrack', () => {
-    it('removes a track by index', () => {
-      useReaperStore.getState().updateTrack(makeTrack({ index: 2 }));
-      useReaperStore.getState().removeTrack(2);
-      expect(useReaperStore.getState().tracks[2]).toBeUndefined();
-    });
-  });
-
-  describe('clearTracks', () => {
-    it('removes all tracks and resets count', () => {
-      useReaperStore.setState({
-        tracks: { 1: makeTrack({ index: 1 }), 2: makeTrack({ index: 2 }) },
-        trackCount: 2,
-      });
-      useReaperStore.getState().clearTracks();
-      expect(useReaperStore.getState().tracks).toEqual({});
-      expect(useReaperStore.getState().trackCount).toBe(0);
     });
   });
 
