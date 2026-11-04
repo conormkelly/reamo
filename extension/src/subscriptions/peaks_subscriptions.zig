@@ -487,6 +487,8 @@ pub const PeaksSubscriptions = struct {
         // Use a hash set to dedupe indices
         var seen = std.AutoHashMap(c_int, void).init(self.allocator);
         defer seen.deinit();
+        // An index the set had no room for (out of memory) makes the list incomplete.
+        var dropped = false;
 
         const track_count = api.trackCount();
         const max_idx = track_count; // Unified: 0=master, 1..track_count = user tracks
@@ -504,7 +506,9 @@ pub const PeaksSubscriptions = struct {
                     var idx = @max(0, client.range_start);
                     const end = @min(client.range_end, max_idx);
                     while (idx <= end) : (idx += 1) {
-                        seen.put(idx, {}) catch {};
+                        seen.put(idx, {}) catch {
+                            dropped = true;
+                        };
                     }
                 },
                 .guids => {
@@ -516,7 +520,9 @@ pub const PeaksSubscriptions = struct {
                         // Get index from pointer
                         const idx = api.getTrackIdx(track);
                         if (idx >= 0 and idx <= max_idx) {
-                            seen.put(idx, {}) catch {};
+                            seen.put(idx, {}) catch {
+                                dropped = true;
+                            };
                         }
                     }
                 },
@@ -529,7 +535,9 @@ pub const PeaksSubscriptions = struct {
             var grace_iter = self.grace_until.iterator();
             while (grace_iter.next()) |entry| {
                 if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
-                    seen.put(entry.key_ptr.*, {}) catch {};
+                    seen.put(entry.key_ptr.*, {}) catch {
+                        dropped = true;
+                    };
                 }
             }
         }
@@ -546,7 +554,7 @@ pub const PeaksSubscriptions = struct {
         // Sort for consistent ordering
         std.mem.sort(c_int, out_buf[0..count], {}, std.sort.asc(c_int));
 
-        return .{ .indices = out_buf[0..count], .complete = seen.count() <= out_buf.len };
+        return .{ .indices = out_buf[0..count], .complete = !dropped and seen.count() <= out_buf.len };
     }
 
     /// Clean up expired grace period entries. Call periodically (e.g., in LOW tier).
