@@ -79,13 +79,21 @@ pub fn pollToggleSubscriptions(
 
 /// Poll peaks subscriptions and broadcast waveform data to subscribed clients.
 /// Uses tile-based LOD cache for efficient pan/zoom operations.
-/// Broadcasts when: force_broadcast is set OR track audio source changed.
+/// Sends a client its tiles when it subscribes or moves its viewport
+/// (forced), and every client fresh tiles when a subscribed track's items
+/// or a take's audio source change, at most once per
+/// CHANGE_BROADCAST_INTERVAL_MS; a change that limit holds back goes out on
+/// the first tick it allows.
 pub fn pollPeaksSubscriptions(
     ctx: *const PollingContext,
     peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
     tile_cache: *peaks_tile.TileCache,
 ) !void {
-    if (!peaks_subs.hasSubscriptions()) return;
+    if (!peaks_subs.hasSubscriptions()) {
+        // Nobody is left to owe a held change to.
+        peaks_subs.change_pending = false;
+        return;
+    }
 
     // Tick the cache for LRU tracking
     tile_cache.tick();
@@ -97,55 +105,76 @@ pub fn pollPeaksSubscriptions(
     var indices_buf: [128]c_int = undefined;
     const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, &indices_buf);
 
-    // Check if any track has epoch changes (audio source modified); that goes to
-    // every client. Skipped on a forced tick, as before: the next tick sees it.
+    // Check every subscribed track for a change (items, or a take's audio
+    // source); that goes to every client. Every track, not just up to the
+    // first change: trackChanged also drops a changed take's stale tiles,
+    // which the broadcast below must not send.
+    //
+    // A forced tick skips the check (the next tick sees any change). The
+    // first check of a track counts as a change, so it remembers a track
+    // never checked as it is, if only clients due their tiles now watch
+    // it: the forced send gives it to each of them with a viewport (one
+    // without gets it when it sets one). A track an unforced client also
+    // watches is left to the next tick's check, which sends it to everyone.
+    var unforced_buf: [128]c_int = undefined;
+    const unforced_indices: ?[]const c_int = if (any_forced)
+        peaks_subs.getUnforcedIndices(ctx.guid_cache_ptr, ctx.backend, &unforced_buf)
+    else
+        null;
     var any_track_changed = false;
-    if (!any_forced) {
-        for (subscribed_indices) |track_idx| {
-            // Unified index (0 = master), as the generator resolves it.
-            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
-            var guid_buf: [64]u8 = undefined;
-            const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
-            if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
-                any_track_changed = true;
-                break;
+    for (subscribed_indices) |track_idx| {
+        // Unified index (0 = master), as the generator resolves it.
+        const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
+        var guid_buf: [64]u8 = undefined;
+        const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
+        if (any_forced) {
+            if (peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced_indices, track_idx)) {
+                tile_cache.rememberTrack(track_guid, ctx.backend, track);
             }
+        } else if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
+            any_track_changed = true;
         }
     }
 
-    // Only broadcast if something changed, with rate limiting (forced
-    // per-client sends bypass the limit, as initial data always did)
-    if (any_track_changed or any_forced) {
-        const now_ms = std.time.milliTimestamp();
-        if (!any_forced and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
+    // A change goes to every client, rate-limited; one the limit holds back
+    // goes out on the first tick it allows. Forced per-client sends bypass
+    // the limit, as initial data always did.
+    const now_ms = std.time.milliTimestamp();
+    var send_change = false;
+    if (any_forced) {
+        // Leaves change_pending alone: a held change goes out on a later
+        // tick, after this send's interval.
         peaks_subs.last_broadcast_ms = now_ms;
+    } else {
+        send_change = peaks_subs.changeBroadcastDue(any_track_changed, now_ms);
+        if (!send_change) return;
+    }
 
-        logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ any_track_changed, any_forced, subscribed_indices.len });
-        var iter = peaks_subs.activeSubscriptions();
-        while (iter.next()) |entry| {
-            const forced = peaks_subs.consumeForceBroadcast(entry.slot);
-            if (!forced and !any_track_changed) continue;
+    logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ send_change, any_forced, subscribed_indices.len });
+    var iter = peaks_subs.activeSubscriptions();
+    while (iter.next()) |entry| {
+        const forced = peaks_subs.consumeForceBroadcast(entry.slot);
+        if (!forced and !send_change) continue;
 
-            const scratch = ctx.scratchAllocator();
+        const scratch = ctx.scratchAllocator();
 
-            if (!entry.sub.hasViewport()) {
-                logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});
-                continue;
-            }
+        if (!entry.sub.hasViewport()) {
+            logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});
+            continue;
+        }
 
-            const bin = peaks_generator.generateTilesForSubscriptionBinary(
-                scratch,
-                ctx.backend,
-                ctx.guid_cache_ptr,
-                tile_cache,
-                entry.sub,
-            );
-            if (bin) |b| {
-                logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
-                ctx.shared_state.sendBinToClient(entry.client_id, b);
-            } else {
-                logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
-            }
+        const bin = peaks_generator.generateTilesForSubscriptionBinary(
+            scratch,
+            ctx.backend,
+            ctx.guid_cache_ptr,
+            tile_cache,
+            entry.sub,
+        );
+        if (bin) |b| {
+            logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
+            ctx.shared_state.sendBinToClient(entry.client_id, b);
+        } else {
+            logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
         }
     }
 }

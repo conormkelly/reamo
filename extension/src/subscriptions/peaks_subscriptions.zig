@@ -154,8 +154,17 @@ pub const PeaksSubscriptions = struct {
     /// doesn't regenerate and resend every other client's tiles.
     force_broadcast_clients: [MAX_CLIENTS]bool = [_]bool{false} ** MAX_CLIENTS,
 
-    /// Timestamp of last peaks broadcast (milliseconds) for rate limiting
+    /// When tiles last went out (a change broadcast or a forced send), in
+    /// milliseconds, for the change-broadcast rate limit.
     last_broadcast_ms: i64 = 0,
+
+    /// A track change the rate limit held back, still owed to every client.
+    /// TileCache.trackChanged has already stored the change, so no later
+    /// check finds it again: this flag is all that remembers it.
+    change_pending: bool = false,
+
+    /// Shortest gap between a send and a change broadcast after it.
+    pub const CHANGE_BROADCAST_INTERVAL_MS: i64 = 100;
 
     pub fn init(allocator: Allocator) PeaksSubscriptions {
         var subs = PeaksSubscriptions{
@@ -440,9 +449,46 @@ pub const PeaksSubscriptions = struct {
         api: anytype,
         out_buf: []c_int,
     ) []c_int {
+        return self.collectIndices(cache, api, out_buf, .all).indices;
+    }
+
+    /// Track indices (sorted) of the clients not due fresh tiles this tick,
+    /// without grace-period tracks: the tracks a forced send doesn't give
+    /// to everyone who watches them. Null if they don't all fit `out_buf`.
+    pub fn getUnforcedIndices(
+        self: *PeaksSubscriptions,
+        cache: *const GuidCache,
+        api: anytype,
+        out_buf: []c_int,
+    ) ?[]c_int {
+        const got = self.collectIndices(cache, api, out_buf, .unforced);
+        return if (got.complete) got.indices else null;
+    }
+
+    /// Whether only clients due their tiles this tick watch `track_idx`,
+    /// given getUnforcedIndices' result. When that is null (too many tracks
+    /// to list), no track can be shown to be unwatched by the others.
+    pub fn onlyForcedClientsWatch(unforced_indices: ?[]const c_int, track_idx: c_int) bool {
+        const unforced = unforced_indices orelse return false;
+        return std.sort.binarySearch(c_int, unforced, track_idx, orderCInt) == null;
+    }
+
+    fn orderCInt(a: c_int, b: c_int) std.math.Order {
+        return std.math.order(a, b);
+    }
+
+    fn collectIndices(
+        self: *PeaksSubscriptions,
+        cache: *const GuidCache,
+        api: anytype,
+        out_buf: []c_int,
+        which: enum { all, unforced },
+    ) struct { indices: []c_int, complete: bool } {
         // Use a hash set to dedupe indices
         var seen = std.AutoHashMap(c_int, void).init(self.allocator);
         defer seen.deinit();
+        // An index the set had no room for (out of memory) makes the list incomplete.
+        var dropped = false;
 
         const track_count = api.trackCount();
         const max_idx = track_count; // Unified: 0=master, 1..track_count = user tracks
@@ -450,6 +496,7 @@ pub const PeaksSubscriptions = struct {
         // Process each client's subscription
         var slot_iter = self.client_id_to_slot.valueIterator();
         while (slot_iter.next()) |slot| {
+            if (which == .unforced and self.force_broadcast_clients[slot.*]) continue;
             const client = &self.clients[slot.*];
 
             switch (client.mode) {
@@ -459,7 +506,9 @@ pub const PeaksSubscriptions = struct {
                     var idx = @max(0, client.range_start);
                     const end = @min(client.range_end, max_idx);
                     while (idx <= end) : (idx += 1) {
-                        seen.put(idx, {}) catch {};
+                        seen.put(idx, {}) catch {
+                            dropped = true;
+                        };
                     }
                 },
                 .guids => {
@@ -471,7 +520,9 @@ pub const PeaksSubscriptions = struct {
                         // Get index from pointer
                         const idx = api.getTrackIdx(track);
                         if (idx >= 0 and idx <= max_idx) {
-                            seen.put(idx, {}) catch {};
+                            seen.put(idx, {}) catch {
+                                dropped = true;
+                            };
                         }
                     }
                 },
@@ -479,11 +530,15 @@ pub const PeaksSubscriptions = struct {
         }
 
         // Add grace period tracks
-        const now = std.time.nanoTimestamp();
-        var grace_iter = self.grace_until.iterator();
-        while (grace_iter.next()) |entry| {
-            if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
-                seen.put(entry.key_ptr.*, {}) catch {};
+        if (which == .all) {
+            const now = std.time.nanoTimestamp();
+            var grace_iter = self.grace_until.iterator();
+            while (grace_iter.next()) |entry| {
+                if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
+                    seen.put(entry.key_ptr.*, {}) catch {
+                        dropped = true;
+                    };
+                }
             }
         }
 
@@ -499,7 +554,7 @@ pub const PeaksSubscriptions = struct {
         // Sort for consistent ordering
         std.mem.sort(c_int, out_buf[0..count], {}, std.sort.asc(c_int));
 
-        return out_buf[0..count];
+        return .{ .indices = out_buf[0..count], .complete = !dropped and seen.count() <= out_buf.len };
     }
 
     /// Clean up expired grace period entries. Call periodically (e.g., in LOW tier).
@@ -534,6 +589,25 @@ pub const PeaksSubscriptions = struct {
             return true;
         }
         return false;
+    }
+
+    /// Whether this tick sends a track change to every client. `changed`:
+    /// this tick's check found one. Within CHANGE_BROADCAST_INTERVAL_MS of
+    /// the last send it says no and holds the change; the first tick the
+    /// limit allows says yes, whether or not that tick found anything new.
+    /// On yes, records the send.
+    pub fn changeBroadcastDue(self: *PeaksSubscriptions, changed: bool, now_ms: i64) bool {
+        if (!changed and !self.change_pending) return false;
+        // A clock that stepped back (now before the last send) doesn't hold
+        // a change until it catches up.
+        const since_ms = now_ms - self.last_broadcast_ms;
+        if (since_ms >= 0 and since_ms < CHANGE_BROADCAST_INTERVAL_MS) {
+            self.change_pending = true;
+            return false;
+        }
+        self.change_pending = false;
+        self.last_broadcast_ms = now_ms;
+        return true;
     }
 
     /// Whether any client is due fresh tiles (does not consume).
@@ -684,6 +758,45 @@ test "getSubscribedIndices with range" {
     try std.testing.expectEqual(@as(c_int, 4), indices[4]);
 }
 
+test "a track only a forced client watches is told apart from one another client watches too" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 10 };
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    const vp = PeaksSubscriptions.ViewportParams{ .start = 0, .end = 30, .width_px = 400 };
+    _ = try subs.subscribeRangeWithViewport(1, 1, 3, 30, vp);
+    const slot1 = subs.client_id_to_slot.get(1).?;
+    _ = subs.consumeForceBroadcast(slot1);
+    // Client 2 subscribes (forced) to 2..6, overlapping client 1's 1..3.
+    _ = try subs.subscribeRangeWithViewport(2, 2, 6, 30, vp);
+    // A grace-period track no client watches.
+    try subs.grace_until.put(9, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
+
+    var buf: [32]c_int = undefined;
+    const unforced = subs.getUnforcedIndices(&cache, &mock, &buf).?;
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3 }, unforced);
+    // Tracks 4..6 only the forced client watches; 2 and 3 client 1 watches too.
+    for ([_]c_int{ 4, 5, 6 }) |t| try std.testing.expect(PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
+    for ([_]c_int{ 1, 2, 3 }) |t| try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
+    // Too many to list: none counts as only the forced client's.
+    var small: [2]c_int = undefined;
+    try std.testing.expect(subs.getUnforcedIndices(&cache, &mock, &small) == null);
+    try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(null, 5));
+
+    var all_buf: [32]c_int = undefined;
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6, 9 }, subs.getSubscribedIndices(&cache, &mock, &all_buf));
+
+    // Once client 2's send is done, every track it watches is unforced.
+    _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(2).?);
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6 }, subs.getUnforcedIndices(&cache, &mock, &buf).?);
+}
+
 test "getSubscribedIndices with GUIDs" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
@@ -772,6 +885,52 @@ test "force broadcast is per client: one client's viewport change doesn't regene
     _ = subs.updateViewport(2, .{ .start = 20, .end = 50, .width_px = 400 });
     subs.unsubscribe(2);
     try std.testing.expect(!subs.anyForceBroadcast());
+}
+
+test "a track change found inside the rate limit goes out on the first tick the limit allows" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const gap = PeaksSubscriptions.CHANGE_BROADCAST_INTERVAL_MS;
+
+    // A change outside the limit goes out at once.
+    try std.testing.expect(subs.changeBroadcastDue(true, 1000));
+    // The next change is found 50 ms later, inside the limit: held back.
+    try std.testing.expect(!subs.changeBroadcastDue(true, 1050));
+    // The track's hash already holds that change, so later ticks find
+    // nothing new; the held change must still go out once the limit allows.
+    try std.testing.expect(!subs.changeBroadcastDue(false, 1000 + gap - 1));
+    try std.testing.expect(subs.changeBroadcastDue(false, 1000 + gap));
+    // Once.
+    try std.testing.expect(!subs.changeBroadcastDue(false, 1000 + 3 * gap));
+}
+
+test "a track change held behind a forced send goes out after it" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const gap = PeaksSubscriptions.CHANGE_BROADCAST_INTERVAL_MS;
+
+    // A forced send to one client at 1000, as the poll records it.
+    subs.last_broadcast_ms = 1000;
+    try std.testing.expect(!subs.changeBroadcastDue(true, 1033));
+    try std.testing.expect(subs.changeBroadcastDue(false, 1000 + gap));
+}
+
+test "a wall clock stepped back doesn't hold a track change until it catches up" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try std.testing.expect(subs.changeBroadcastDue(true, 1_000_000));
+    // The clock steps back an hour: the next change still goes out.
+    try std.testing.expect(subs.changeBroadcastDue(true, 1_000_000 - 3_600_000));
+}
+
+test "no track change, no change broadcast" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try std.testing.expect(!subs.changeBroadcastDue(false, 1000));
+    try std.testing.expect(!subs.changeBroadcastDue(false, 5000));
+    try std.testing.expectEqual(@as(i64, 0), subs.last_broadcast_ms);
 }
 
 test "activeSubscriptions iterator" {

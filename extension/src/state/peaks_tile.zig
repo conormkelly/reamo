@@ -383,19 +383,7 @@ pub const TileCache = struct {
             changed = true;
         }
 
-        // Store/update hash
-        if (!self.track_hashes.contains(track_guid)) {
-            const owned_guid = self.allocator.dupe(u8, track_guid) catch {
-                logging.warn("peaks_tile: failed to store track hash key", .{});
-                return true; // Assume changed on error
-            };
-            self.track_hashes.put(owned_guid, current_hash) catch {
-                self.allocator.free(owned_guid);
-                return true;
-            };
-        } else {
-            self.track_hashes.put(track_guid, current_hash) catch {};
-        }
+        if (!self.storeTrackHash(track_guid, current_hash)) return true; // Assume changed on error
 
         // Check 2: Source epochs for each take (audio content changes)
         // This detects when source audio is edited (render, normalize, etc.)
@@ -422,6 +410,34 @@ pub const TileCache = struct {
         }
 
         return changed;
+    }
+
+    /// Record the item hash of a track not checked before, so the next
+    /// trackChanged finds no change unless the items change. A track already
+    /// recorded keeps its hash, so a change not yet checked for isn't lost.
+    /// For a forced send: it gives the client the track as it is now, so
+    /// first seeing the track isn't a change for every client.
+    pub fn rememberTrack(self: *TileCache, track_guid: []const u8, api: anytype, track: *anyopaque) void {
+        if (self.track_hashes.contains(track_guid)) return;
+        _ = self.storeTrackHash(track_guid, computeTrackItemsHash(api, track));
+    }
+
+    /// Store a track's item hash, owning the key for a new track. False if a
+    /// new track's hash couldn't be stored.
+    fn storeTrackHash(self: *TileCache, track_guid: []const u8, hash: u64) bool {
+        if (self.track_hashes.getPtr(track_guid)) |stored| {
+            stored.* = hash;
+            return true;
+        }
+        const owned_guid = self.allocator.dupe(u8, track_guid) catch {
+            logging.warn("peaks_tile: failed to store track hash key", .{});
+            return false;
+        };
+        self.track_hashes.put(owned_guid, hash) catch {
+            self.allocator.free(owned_guid);
+            return false;
+        };
+        return true;
     }
 
     /// Clear hash for a track (call when track is deleted or subscription removed).
@@ -851,6 +867,41 @@ test "tilesForViewport returns null when the buffered viewport's tile indices do
     try std.testing.expect(tilesForViewport(-1e308, 0, 400, 0.5) == null);
     // A realistic long viewport still resolves.
     try std.testing.expect(tilesForViewport(0, 3600, 400, 0.5) != null);
+}
+
+test "a remembered track isn't a change until its items change, and remembering keeps a pending change" {
+    const reaper = @import("../reaper.zig");
+    var m = reaper.MockBackend{ .track_count = 2 };
+    m.tracks[1].item_count = 1;
+    m.tracks[1].items[0].take_count = 1;
+    m.tracks[2].item_count = 1;
+    m.tracks[2].items[0].take_count = 1;
+    // Distinct take GUIDs: epochs are tracked per take GUID.
+    for ([_]usize{ 1, 2 }, [_][]const u8{ "{take-1}", "{take-2}" }) |ti, guid| {
+        const tk = &m.tracks[ti].items[0].takes[0];
+        @memcpy(tk.guid[0..guid.len], guid);
+        tk.guid_len = guid.len;
+    }
+    var cache = TileCache.init(std.testing.allocator);
+    defer cache.deinit();
+    const t1 = m.getTrackByUnifiedIdx(1).?;
+    const t2 = m.getTrackByUnifiedIdx(2).?;
+
+    // Never seen: a change. Remembered: not one.
+    try std.testing.expect(cache.trackChanged("t1", &m, t1));
+    cache.rememberTrack("t2", &m, t2);
+    try std.testing.expect(!cache.trackChanged("t2", &m, t2));
+
+    // Its items change: a change.
+    m.tracks[2].items[0].position = 3.0;
+    try std.testing.expect(cache.trackChanged("t2", &m, t2));
+    try std.testing.expect(!cache.trackChanged("t2", &m, t2));
+
+    // Remembering a known track whose items changed since its last check
+    // doesn't hide that change.
+    m.tracks[2].items[0].position = 4.0;
+    cache.rememberTrack("t2", &m, t2);
+    try std.testing.expect(cache.trackChanged("t2", &m, t2));
 }
 
 test "a slip edit or playrate change gives the take a new epoch" {
