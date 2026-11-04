@@ -289,6 +289,19 @@ The `peaks-*` scenarios named `…-match(es)-reaper` or `…-refresh-the-wavefor
 check a rule each; `…-known-gap` and `…-known-stale` ones pin differences not
 fixed yet, and say what to change when they are.
 
+### Checking item moves
+
+REAPER's own nudge of a selected item (`ApplyNudge` by a delta) is the
+oracle for the phone's nudge buttons, which send `item/moveByGuid`: it
+applies the user's ripple, grouping and envelope settings, and ignores the
+snap toggle. `item_moves.py` builds a small layout afresh with given
+settings (`setup`), moves an item REAPER's way (`reaper_move`) or REAmo's
+(`reamo_move`), and compares where every item and the marker end up
+(`moved`, `moved_exactly`, `diff`). The `items-move-*-known-gap` scenarios
+pin where REAmo's move doesn't follow REAPER yet (RV1-39);
+`items-move-to-a-typed-position-ignores-snap` pins a rule it already
+follows.
+
 ### Acting in REAPER mid-test
 
 `reaper(lua)` runs a Lua chunk on REAPER's main thread while the test is
