@@ -102,9 +102,11 @@ export function ToolbarButton({
   }, []);
 
   const handlePointerDown = useCallback(() => {
+    // Each press starts unswallowed: a long press that ended without a click
+    // must not take the next tap's click, in edit mode or out of it.
+    longPressFired.current = false;
     if (editMode || !onLongPress) return;
     cancelLongPress();
-    longPressFired.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressTimer.current = null;
       longPressFired.current = true;
