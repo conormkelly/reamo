@@ -555,3 +555,15 @@ test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
         };
     }
 }
+
+test "a mono source in reverse stereo gets the second channel REAPER returns, where its audio is" {
+    var api = mock.MockBackend{};
+    var result = fetchWithChannelMode(&api, 1, 1);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 32), result.num_peaks);
+    try std.testing.expectEqual(@as(usize, 1), result.channels);
+    for (0..32) |p| {
+        try std.testing.expectEqual(mockPeak(p, 1), result.peak_max[p]);
+        try std.testing.expectEqual(-mockPeak(p, 1), result.peak_min[p]);
+    }
+}
