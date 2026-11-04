@@ -11,6 +11,7 @@ import { Copy, Trash, Folder } from 'lucide-react';
 import { useReaperStore } from '../../store';
 import { useReaper } from '../../hooks/useReaper';
 import { useTrack } from '../../hooks/useTrack';
+import { useLongPress } from '../../hooks/useLongPress';
 import { track as trackCmd } from '../../core/WebSocketCommands';
 import { reaperColorToHex, hexToReaperColor, formatInputLabel } from '../../utils';
 import { DEFAULT_TRACK_COLOR } from '../../constants/colors';
@@ -103,6 +104,58 @@ function RoutingIndicator({
   );
 }
 
+/** How long a press on the FX button is held to open the FX list (ms) */
+const FX_HOLD_DURATION = 500;
+
+/**
+ * FxButton - tap toggles the track's FX (when it has any), hold opens the FX
+ * list. Keyed by track by its parent, so a hold belongs to the track it
+ * started on: changing the shown track mid-hold abandons it.
+ */
+function FxButton({
+  fxCount,
+  isFxDisabled,
+  onToggle,
+  onOpenList,
+}: {
+  fxCount: number;
+  isFxDisabled: boolean;
+  onToggle: () => void;
+  onOpenList: () => void;
+}) {
+  const { handlers } = useLongPress({
+    // A track with no FX has nothing to toggle: a tap does nothing (hold to add FX)
+    onTap: () => {
+      if (fxCount > 0) onToggle();
+    },
+    onLongPress: onOpenList,
+    duration: FX_HOLD_DURATION,
+  });
+
+  return (
+    <button
+      type="button"
+      {...handlers}
+      className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
+        fxCount === 0
+          ? 'text-text-muted border-border-default hover:bg-bg-elevated hover:text-text-secondary'
+          : isFxDisabled
+            ? 'text-error-text border-error-text hover:bg-bg-elevated'
+            : 'text-success border-success hover:bg-bg-elevated'
+      }`}
+      title={
+        fxCount === 0
+          ? 'No FX - hold to add'
+          : isFxDisabled
+            ? `FX bypassed (${fxCount} FX) - tap to toggle, hold for details`
+            : `FX enabled (${fxCount} FX) - tap to toggle, hold for details`
+      }
+    >
+      <span className="text-xs font-bold">FX</span>
+    </button>
+  );
+}
+
 export function TrackInfoBar({
   selectedTrackIdx,
   selectedTrackGuid,
@@ -150,8 +203,6 @@ export function TrackInfoBar({
 
   // State for FX modal (long-press to open)
   const [isFxModalOpen, setIsFxModalOpen] = useState(false);
-  const fxPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fxLongPressTriggeredRef = useRef(false);
 
   // State for FX browser modal (opened from FxModal)
   const [isFxBrowserOpen, setIsFxBrowserOpen] = useState(false);
@@ -181,10 +232,6 @@ export function TrackInfoBar({
       clearTimeout(deleteTimeoutRef.current);
       deleteTimeoutRef.current = null;
     }
-    if (fxPressTimerRef.current) {
-      clearTimeout(fxPressTimerRef.current);
-      fxPressTimerRef.current = null;
-    }
   }, [selectedTrackGuid]);
 
   // Cleanup on unmount
@@ -192,9 +239,6 @@ export function TrackInfoBar({
     return () => {
       if (deleteTimeoutRef.current) {
         clearTimeout(deleteTimeoutRef.current);
-      }
-      if (fxPressTimerRef.current) {
-        clearTimeout(fxPressTimerRef.current);
       }
     };
   }, []);
@@ -294,41 +338,15 @@ export function TrackInfoBar({
     }
   }, [selectedTrackIdx, onShowRouting]);
 
-  // FX button handlers - tap to toggle (if has FX), long-press to open modal (always)
-  const handleFxPointerDown = useCallback(() => {
+  const handleFxToggle = useCallback(() => {
     if (selectedTrackIdx === null || !trackData.exists) return;
-
-    fxLongPressTriggeredRef.current = false;
-    fxPressTimerRef.current = setTimeout(() => {
-      fxLongPressTriggeredRef.current = true;
-      setIsFxModalOpen(true);
-      fxPressTimerRef.current = null;
-    }, 500);
-  }, [selectedTrackIdx, trackData.exists]);
-
-  const handleFxPointerUp = useCallback(() => {
-    // Cancel long-press timer if still pending
-    if (fxPressTimerRef.current) {
-      clearTimeout(fxPressTimerRef.current);
-      fxPressTimerRef.current = null;
-    }
-  }, []);
-
-  const handleFxClick = useCallback(() => {
-    if (selectedTrackIdx === null || !trackData.exists) return;
-
-    // If long-press triggered, don't toggle (modal is already open)
-    if (fxLongPressTriggeredRef.current) {
-      fxLongPressTriggeredRef.current = false;
-      return;
-    }
-
-    // Only toggle if track has FX - otherwise tap does nothing (hold to add FX)
-    if (trackData.fxCount === 0) return;
-
     // Toggle FX enabled state (undefined = toggle)
     sendCommand(trackCmd.setFxEnabled(selectedTrackIdx, undefined, trackData.guid));
-  }, [selectedTrackIdx, trackData.exists, trackData.fxCount, trackData.guid, sendCommand]);
+  }, [selectedTrackIdx, trackData.exists, trackData.guid, sendCommand]);
+
+  const handleFxOpenList = useCallback(() => {
+    setIsFxModalOpen(true);
+  }, []);
 
   const handleFxModalClose = useCallback(() => {
     setIsFxModalOpen(false);
@@ -386,29 +404,13 @@ export function TrackInfoBar({
   );
 
   const fxButton = (
-    <button
-      onClick={handleFxClick}
-      onPointerDown={handleFxPointerDown}
-      onPointerUp={handleFxPointerUp}
-      onPointerCancel={handleFxPointerUp}
-      onPointerLeave={handleFxPointerUp}
-      className={`w-8 h-8 flex items-center justify-center rounded-lg border-2 transition-colors ${
-        trackData.fxCount === 0
-          ? 'text-text-muted border-border-default hover:bg-bg-elevated hover:text-text-secondary'
-          : trackData.isFxDisabled
-            ? 'text-error-text border-error-text hover:bg-bg-elevated'
-            : 'text-success border-success hover:bg-bg-elevated'
-      }`}
-      title={
-        trackData.fxCount === 0
-          ? 'No FX - hold to add'
-          : trackData.isFxDisabled
-            ? `FX bypassed (${trackData.fxCount} FX) - tap to toggle, hold for details`
-            : `FX enabled (${trackData.fxCount} FX) - tap to toggle, hold for details`
-      }
-    >
-      <span className="text-xs font-bold">FX</span>
-    </button>
+    <FxButton
+      key={selectedTrackGuid}
+      fxCount={trackData.fxCount}
+      isFxDisabled={trackData.isFxDisabled}
+      onToggle={handleFxToggle}
+      onOpenList={handleFxOpenList}
+    />
   );
 
   const folderIndicator = isFolder && trackData.guid && (
