@@ -78,6 +78,29 @@ describe('ToolbarButton', () => {
     expect(onLongPress).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the editor on the first tap in edit mode after a long press that ended without a click', () => {
+    const onEdit = vi.fn();
+    const { rerender } = render(
+      <ToolbarButton action={ACTION} editMode={false} onEdit={onEdit} onLongPress={vi.fn()} />,
+      { wrapper: withConnection }
+    );
+    const button = screen.getByTitle('Play');
+
+    // The hold enters edit mode, then the finger slides off: no click follows.
+    fireEvent.pointerDown(button);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    fireEvent.pointerLeave(button);
+    rerender(<ToolbarButton action={ACTION} editMode onEdit={onEdit} onLongPress={vi.fn()} />);
+
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
+    fireEvent.click(button);
+
+    expect(onEdit).toHaveBeenCalledTimes(1);
+  });
+
   it('does not report a long press after the button is removed mid-hold', () => {
     const onLongPress = vi.fn();
     const { unmount } = render(
