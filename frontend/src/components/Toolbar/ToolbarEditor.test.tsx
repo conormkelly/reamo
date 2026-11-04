@@ -5,13 +5,23 @@
  * before the editor or its action search pane removes it, so a phone keyboard
  * closes the normal way.
  *
- * Escape closes only the topmost dialog.
+ * Escape closes only the topmost dialog, and the delete confirmation's reset
+ * timer doesn't outlive the editor.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { useReaperStore } from '../../store';
+import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { ToolbarEditor } from './ToolbarEditor';
+
+const EXISTING_ACTION: ToolbarAction = {
+  id: 'tb_1',
+  label: 'Play',
+  type: 'reaper_action',
+  actionId: '40044',
+  sectionId: 0,
+};
 
 /** Records whether the element was still on the page each time it blurred. */
 function trackBlur(el: HTMLElement): boolean[] {
@@ -82,6 +92,49 @@ describe('ToolbarEditor', () => {
       fireEvent.keyDown(window, { key: 'Escape' });
 
       expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('delete confirmation', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function renderExisting() {
+      const utils = render(
+        <ToolbarEditor action={EXISTING_ACTION} isNew={false} onClose={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} />
+      );
+      // Let the dialog's own mount-time focus timer run so only the
+      // confirmation's timer can be pending afterwards.
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+      return utils;
+    }
+
+    it('returns to Delete 3 s after the first tap', () => {
+      renderExisting();
+      fireEvent.click(screen.getByText('Delete'));
+      expect(screen.getByText('Confirm?')).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      expect(screen.getByText('Delete')).toBeInTheDocument();
+    });
+
+    it('leaves no reset timer pending once the editor is closed', () => {
+      const { unmount } = renderExisting();
+      fireEvent.click(screen.getByText('Delete'));
+
+      unmount();
+
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 });
