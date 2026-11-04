@@ -4,8 +4,9 @@
  * The Record button's presses in a real browser, against a fake extension
  * over a routed WebSocket that records each command the page sends. A tap
  * toggles recording and a hold sets the next record mode; a press that is
- * neither (a release with no press on the button, a right-click, a drag)
- * sends nothing, because a stray toggle starts a take.
+ * neither (a release with no press on the button, a right-click, a drag, a
+ * press ended by the window losing focus) sends nothing, because a stray
+ * toggle starts a take.
  */
 
 import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
@@ -120,7 +121,6 @@ test.describe('Record button, mouse', () => {
 
     await record.hover();
     await page.mouse.down();
-    await page.waitForTimeout(100);
     // Cmd/Alt-Tab to another app: the window blurs and no pointer event comes.
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await page.waitForTimeout(500);

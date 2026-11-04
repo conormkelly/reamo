@@ -168,6 +168,14 @@ describe('useRecordButton', () => {
       expect(firstNotPrevented).toBe(true);
       expect(repeatNotPrevented).toBe(false);
     });
+
+    it("a held Space's key repeats are cancelled too", () => {
+      const { el } = setup();
+
+      fireEvent.keyDown(el, { key: ' ', repeat: false });
+
+      expect(fireEvent.keyDown(el, { key: ' ', repeat: true })).toBe(false);
+    });
   });
 
   describe('hold sets the next record mode', () => {
