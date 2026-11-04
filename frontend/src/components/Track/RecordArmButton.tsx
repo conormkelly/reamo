@@ -55,6 +55,7 @@ export function RecordArmButton({
   return (
     <>
       <button
+        type="button"
         {...handlers}
         aria-pressed={isRecordArmed}
         title={isRecordArmed ? 'Disarm Track (long-press for input)' : 'Arm Track for Recording (long-press for input)'}

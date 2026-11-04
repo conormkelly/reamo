@@ -57,6 +57,7 @@ export function SoloButton({
 
   return (
     <button
+      type="button"
       {...handlers}
       aria-pressed={isSoloed}
       title={isSoloed ? 'Unsolo Track' : 'Solo Track (hold for exclusive)'}
