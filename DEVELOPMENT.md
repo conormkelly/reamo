@@ -249,7 +249,9 @@ make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart
   next poll; no stable-ID bookkeeping.
 - **GUIDs for writes:** a fader drag sends `trackGuid`, resolved per command
   (`tracks.resolveTrack`, `state/guid_cache.zig`), so a reorder mid-drag still
-  hits the right track. Gesture commands resolve the GUID at gesture start.
+  hits the right track. Gestures are tracked by the track's GUID
+  (`gesture_state.trackKey`), never its index, so a drag's start, value
+  changes and end find the same gesture however the tracks above it move.
 - **Master is `"master"`**, not its GUID: `GetTrackGUID` is inconsistent for
   the master track, so the server maps `"master"` to `GetMasterTrack()`.
 - **No structure versioning:** new skeletons arrive within ~1 s and GUID

@@ -31,11 +31,10 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     }
 
-    const control = gesture_state.ControlId.sendVolume(track_idx, send_idx);
-    const in_gesture = mod.inGesture(response, control);
-    if (!in_gesture) api.undoBeginBlock();
+    const gesture = mod.activeGesture(api, response, track, gesture_state.ControlId.sendVolume, send_idx);
+    if (gesture == null) api.undoBeginBlock();
     _ = api.trackSendSetVolume(track, send_idx, volume);
-    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send volume");
+    if (gesture) |control| response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send volume");
 
     logging.debug("Send volume set: track {} send {} volume {d:.3}", .{ track_idx, send_idx, volume });
     response.success(null);
@@ -109,11 +108,10 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
-    const control = gesture_state.ControlId.sendPan(track_idx, send_idx);
-    const in_gesture = mod.inGesture(response, control);
-    if (!in_gesture) api.undoBeginBlock();
+    const gesture = mod.activeGesture(api, response, track, gesture_state.ControlId.sendPan, send_idx);
+    if (gesture == null) api.undoBeginBlock();
     _ = api.trackSendSetPan(track, send_idx, clamped);
-    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send pan");
+    if (gesture) |control| response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust send pan");
 
     logging.debug("Send pan set: track {} send {} pan {d:.3}", .{ track_idx, send_idx, clamped });
     response.success(null);

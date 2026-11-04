@@ -13,8 +13,10 @@ pub fn getTrackFromCmd(api: anytype, cmd: protocol.CommandMessage) ?*anyopaque {
     return api.getTrackByUnifiedIdx(track_idx);
 }
 
-/// Result of resolving track from command - includes both pointer and index.
-/// Index is needed for gesture tracking (ControlId).
+/// Result of resolving track from command - includes both pointer and its
+/// unified index (0 = master) at the time of the command. Gestures are keyed
+/// by GUID instead (gesture_state.trackKey): the index moves with the tracks
+/// above it.
 pub const TrackResolution = struct {
     track: *anyopaque,
     idx: c_int,
@@ -65,7 +67,7 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.volume(resolution.idx));
+        if (gesture_state.trackKey(api, resolution.track)) |key| gestures.recordActivity(gesture_state.ControlId.volume(key));
     }
 
     logging.debug("Set track volume to {d:.3}", .{clamped});
@@ -92,7 +94,7 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.pan(resolution.idx));
+        if (gesture_state.trackKey(api, resolution.track)) |key| gestures.recordActivity(gesture_state.ControlId.pan(key));
     }
 
     logging.debug("Set track pan to {d:.2}", .{clamped});

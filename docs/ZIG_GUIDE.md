@@ -284,6 +284,8 @@ const resolution = tracks.resolveTrack(api, cmd) orelse {
 ```
 
 Frontend sends `trackGuid` when available (preferred), falls back to `trackIdx`.
+Gesture state is keyed by the track's GUID, never its index: build a
+`ControlId` from `gesture_state.trackKey(api, resolution.track)`.
 
 ### 6. Use Undo Blocks for State Changes
 

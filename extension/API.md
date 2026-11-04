@@ -2119,6 +2119,7 @@ Track volume and pan go through REAPER's control surface API, and the gesture's 
 - If client disconnects during gesture, server flushes undo automatically
 - If `gesture/end` is missed, a gesture is flushed after 10 seconds without any value change from any client
 - Multiple clients can gesture the same control (reference counted)
+- A gesture belongs to the track, not its index: `trackIdx` and `trackGuid` both resolve to the track when each command arrives, so a gesture started at one index ends, and its value changes count toward it, after tracks above it are inserted, deleted or reordered
 
 ### `gesture/start`
 
