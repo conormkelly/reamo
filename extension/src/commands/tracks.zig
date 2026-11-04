@@ -40,7 +40,7 @@ pub fn resolveTrack(api: anytype, cmd: protocol.CommandMessage) ?TrackResolution
 
     const track = cache.resolve(api, guid) orelse return null;
 
-    // Get the index for gesture tracking
+    // The index the track is at now (TrackResolution.idx)
     const idx = api.getTrackIdx(track);
     if (idx < 0) return null;
 

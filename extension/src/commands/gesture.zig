@@ -118,9 +118,12 @@ pub fn handleEnd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
 
 const guid_cache = @import("../state/guid_cache.zig");
 const hw_output = @import("hw_output.zig");
+const send_cmds = @import("send.zig");
+const receive_cmds = @import("receive.zig");
 
 /// A project whose tracks can move: a track's pointer and GUID belong to the
-/// track, not to its position. Every track has one hardware output.
+/// track, not to its position. Every track has one send, one receive and one
+/// hardware output, and remembers the last value written to each.
 const MovableTracks = struct {
     /// order[i] is the id of the user track at unified index i + 1; id 0 is master.
     order: [8]u8 = .{ 1, 2, 0, 0, 0, 0, 0, 0 },
@@ -129,6 +132,9 @@ const MovableTracks = struct {
     csurf_flushes: usize = 0,
     undo_points: usize = 0,
     undo_blocks: usize = 0,
+    /// route_values[kind][track id]: the last volume or pan written to the
+    /// track's send (0), receive (1) or hardware output (2).
+    route_values: [3][8]?f64 = .{.{null} ** 8} ** 3,
 
     fn ptr(id: u8) *anyopaque {
         return @ptrFromInt(0x1000 + @as(usize, id) * 16);
@@ -185,16 +191,35 @@ const MovableTracks = struct {
         self.undo_blocks += 1;
     }
     pub fn trackSendCount(_: *MovableTracks, _: *anyopaque) c_int {
-        return 0;
+        return 1;
     }
     pub fn trackReceiveCount(_: *MovableTracks, _: *anyopaque) c_int {
-        return 0;
+        return 1;
     }
     pub fn trackHwOutputCount(_: *MovableTracks, _: *anyopaque) c_int {
         return 1;
     }
-    pub fn trackHwOutputSetVolume(_: *MovableTracks, _: *anyopaque, _: c_int, _: f64) bool {
+    fn setRoute(self: *MovableTracks, kind: usize, track: *anyopaque, value: f64) bool {
+        self.route_values[kind][idOf(track)] = value;
         return true;
+    }
+    pub fn trackSendSetVolume(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
+        return self.setRoute(0, track, v);
+    }
+    pub fn trackSendSetPan(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
+        return self.setRoute(0, track, v);
+    }
+    pub fn trackReceiveSetVolume(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
+        return self.setRoute(1, track, v);
+    }
+    pub fn trackReceiveSetPan(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
+        return self.setRoute(1, track, v);
+    }
+    pub fn trackHwOutputSetVolume(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
+        return self.setRoute(2, track, v);
+    }
+    pub fn trackHwOutputSetPan(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
+        return self.setRoute(2, track, v);
     }
 };
 
@@ -216,6 +241,30 @@ fn runWithGestures(api: *MovableTracks, gestures: *gesture_state.GestureState, c
 }
 
 const GUITAR = "{00000000-0000-0000-0000-000000000002}";
+const VOCALS_ID = 1;
+const GUITAR_ID = 2;
+
+/// Each routing control: its gesture controlType, the parameter naming the
+/// route, the value parameter, which route it writes (as in
+/// MovableTracks.route_values) and the handler of its value command.
+const route_controls = .{
+    .{ "send", "sendIdx", "volume", 0, send_cmds.handleSetVolume },
+    .{ "sendPan", "sendIdx", "pan", 0, send_cmds.handleSetPan },
+    .{ "receive", "recvIdx", "volume", 1, receive_cmds.handleSetVolume },
+    .{ "receivePan", "recvIdx", "pan", 1, receive_cmds.handleSetPan },
+    .{ "hwOutputVolume", "hwIdx", "volume", 2, hw_output.handleSetVolume },
+    .{ "hwOutputPan", "hwIdx", "pan", 2, hw_output.handleSetPan },
+};
+
+/// A routing control's gesture/start or gesture/end, by Guitar's GUID.
+fn routeGesture(buf: []u8, command: []const u8, control: []const u8, idx_key: []const u8) []const u8 {
+    return std.fmt.bufPrint(buf, "{{\"command\":\"{s}\",\"controlType\":\"{s}\",\"trackGuid\":\"{s}\",\"{s}\":0}}", .{ command, control, GUITAR, idx_key }) catch unreachable;
+}
+
+/// A routing value command addressed by `track` (a JSON member).
+fn routeValue(buf: []u8, track: []const u8, idx_key: []const u8, value_key: []const u8, value: f64) []const u8 {
+    return std.fmt.bufPrint(buf, "{{\"command\":\"set\",{s},\"{s}\":0,\"{s}\":{d}}}", .{ track, idx_key, value_key, value }) catch unreachable;
+}
 
 test "a volume drag ends at gesture/end when a track is inserted above it mid-drag" {
     var api = MovableTracks{};
@@ -232,28 +281,57 @@ test "a volume drag ends at gesture/end when a track is inserted above it mid-dr
     try std.testing.expectEqual(@as(usize, 1), api.csurf_flushes);
 }
 
-test "a hardware-output drag on a track that moves mid-drag is one undo point, and frees the old index" {
+test "routing drags addressed by GUID stay on their track and end at gesture/end when a track is inserted above it" {
+    inline for (route_controls) |c| {
+        var api = MovableTracks{};
+        var gestures = gesture_state.GestureState.init(std.testing.allocator);
+        defer gestures.deinit();
+        var buf: [256]u8 = undefined;
+        const by_guid = "\"trackGuid\":\"" ++ GUITAR ++ "\"";
+
+        // The routing faders send the gesture and every value by the GUID
+        // captured at gesture start.
+        runWithGestures(&api, &gestures, handleStart, routeGesture(&buf, "gesture/start", c[0], c[1]));
+        runWithGestures(&api, &gestures, c[4], routeValue(&buf, by_guid, c[1], c[2], 0.25));
+        api.insertAtTop(); // Guitar moves from index 2 to 3; Vocals from 1 to 2
+        runWithGestures(&api, &gestures, c[4], routeValue(&buf, by_guid, c[1], c[2], 0.5));
+        runWithGestures(&api, &gestures, handleEnd, routeGesture(&buf, "gesture/end", c[0], c[1]));
+
+        errdefer std.debug.print("control {s}\n", .{c[0]});
+        try std.testing.expectEqual(@as(?f64, 0.5), api.route_values[c[3]][GUITAR_ID]);
+        try std.testing.expectEqual(@as(?f64, null), api.route_values[c[3]][VOCALS_ID]);
+        try std.testing.expectEqual(@as(usize, 0), api.undo_blocks); // every change belongs to the drag
+        try std.testing.expectEqual(@as(usize, 1), api.undo_points); // recorded at gesture/end
+        try std.testing.expect(!gestures.hasActiveGestures());
+
+        // A change on the track now at Guitar's old index is an undo step of its own.
+        runWithGestures(&api, &gestures, c[4], routeValue(&buf, "\"trackIdx\":2", c[1], c[2], 0.75));
+        try std.testing.expectEqual(@as(?f64, 0.75), api.route_values[c[3]][VOCALS_ID]);
+        try std.testing.expectEqual(@as(usize, 1), api.undo_blocks);
+    }
+}
+
+test "an index-addressed routing value sent after its track moved changes the track now at that index, outside the drag" {
+    // A client that addresses values by the index it saw at mousedown.
     var api = MovableTracks{};
     var gestures = gesture_state.GestureState.init(std.testing.allocator);
     defer gestures.deinit();
+    var buf: [256]u8 = undefined;
 
-    // HardwareTab sends gestures by GUID and values by the index it shows.
-    runWithGestures(&api, &gestures, handleStart, "{\"command\":\"gesture/start\",\"controlType\":\"hwOutputVolume\",\"trackGuid\":\"" ++ GUITAR ++ "\",\"hwIdx\":0}");
-    runWithGestures(&api, &gestures, hw_output.handleSetVolume, "{\"command\":\"hw/setVolume\",\"trackIdx\":2,\"hwIdx\":0,\"volume\":0.9}");
-    api.insertAtTop(); // Guitar moves from index 2 to 3
-    runWithGestures(&api, &gestures, hw_output.handleSetVolume, "{\"command\":\"hw/setVolume\",\"trackIdx\":3,\"hwIdx\":0,\"volume\":0.8}");
-    try std.testing.expectEqual(@as(usize, 0), api.undo_blocks); // every change belongs to the drag
-    runWithGestures(&api, &gestures, handleEnd, "{\"command\":\"gesture/end\",\"controlType\":\"hwOutputVolume\",\"trackGuid\":\"" ++ GUITAR ++ "\",\"hwIdx\":0}");
+    runWithGestures(&api, &gestures, handleStart, routeGesture(&buf, "gesture/start", "hwOutputVolume", "hwIdx"));
+    runWithGestures(&api, &gestures, hw_output.handleSetVolume, routeValue(&buf, "\"trackIdx\":2", "hwIdx", "volume", 0.25));
+    api.insertAtTop(); // index 2 is now Vocals
+    runWithGestures(&api, &gestures, hw_output.handleSetVolume, routeValue(&buf, "\"trackIdx\":2", "hwIdx", "volume", 0.5));
+    runWithGestures(&api, &gestures, handleEnd, routeGesture(&buf, "gesture/end", "hwOutputVolume", "hwIdx"));
 
+    try std.testing.expectEqual(@as(?f64, 0.25), api.route_values[2][GUITAR_ID]);
+    try std.testing.expectEqual(@as(?f64, 0.5), api.route_values[2][VOCALS_ID]);
+    try std.testing.expectEqual(@as(usize, 1), api.undo_blocks); // Vocals' change, outside the drag
+    try std.testing.expectEqual(@as(usize, 1), api.undo_points); // the drag still ends at gesture/end
     try std.testing.expect(!gestures.hasActiveGestures());
-    try std.testing.expectEqual(@as(usize, 1), api.undo_points);
-
-    // A double-tap reset on the track now at Guitar's old index is its own undo step.
-    runWithGestures(&api, &gestures, hw_output.handleSetVolume, "{\"command\":\"hw/setVolume\",\"trackIdx\":2,\"hwIdx\":0,\"volume\":1.0}");
-    try std.testing.expectEqual(@as(usize, 1), api.undo_blocks);
 }
 
-test "a master drag is one gesture whether it is addressed by index or by \"master\"" {
+test "trackIdx 0 and \"master\" name the same gesture" {
     var api = MovableTracks{};
     var gestures = gesture_state.GestureState.init(std.testing.allocator);
     defer gestures.deinit();

@@ -693,11 +693,13 @@ export const midi = {
 // Send Commands
 // =============================================================================
 
+// Volume and pan take an optional trackGuid: a drag sends the GUID it locked at
+// gesture start, so its values stay on its track if the track list changes.
 export const send = {
   /** Set the volume level for a track send */
-  setVolume: (trackIdx: number, sendIdx: number, volume: number): WSCommand => ({
+  setVolume: (trackIdx: number, sendIdx: number, volume: number, trackGuid?: string): WSCommand => ({
     command: 'send/setVolume',
-    params: { trackIdx, sendIdx, volume },
+    params: trackGuid ? { trackGuid, sendIdx, volume } : { trackIdx, sendIdx, volume },
   }),
   /** Set the mute state for a track send */
   setMute: (trackIdx: number, sendIdx: number, muted: number): WSCommand => ({
@@ -705,9 +707,9 @@ export const send = {
     params: { trackIdx, sendIdx, muted },
   }),
   /** Set the pan for a track send (-1.0 to 1.0) */
-  setPan: (trackIdx: number, sendIdx: number, pan: number): WSCommand => ({
+  setPan: (trackIdx: number, sendIdx: number, pan: number, trackGuid?: string): WSCommand => ({
     command: 'send/setPan',
-    params: { trackIdx, sendIdx, pan },
+    params: trackGuid ? { trackGuid, sendIdx, pan } : { trackIdx, sendIdx, pan },
   }),
   /** Set the mode for a track send (0=post-fader, 1=pre-FX, 3=post-FX) */
   setMode: (trackIdx: number, sendIdx: number, mode: number): WSCommand => ({
@@ -732,9 +734,9 @@ export const send = {
 
 export const receive = {
   /** Set the volume level for a track receive */
-  setVolume: (trackIdx: number, recvIdx: number, volume: number): WSCommand => ({
+  setVolume: (trackIdx: number, recvIdx: number, volume: number, trackGuid?: string): WSCommand => ({
     command: 'receive/setVolume',
-    params: { trackIdx, recvIdx, volume },
+    params: trackGuid ? { trackGuid, recvIdx, volume } : { trackIdx, recvIdx, volume },
   }),
   /** Set the mute state for a track receive */
   setMute: (trackIdx: number, recvIdx: number, muted: number): WSCommand => ({
@@ -742,9 +744,9 @@ export const receive = {
     params: { trackIdx, recvIdx, muted },
   }),
   /** Set the pan for a track receive (-1.0 to 1.0) */
-  setPan: (trackIdx: number, recvIdx: number, pan: number): WSCommand => ({
+  setPan: (trackIdx: number, recvIdx: number, pan: number, trackGuid?: string): WSCommand => ({
     command: 'receive/setPan',
-    params: { trackIdx, recvIdx, pan },
+    params: trackGuid ? { trackGuid, recvIdx, pan } : { trackIdx, recvIdx, pan },
   }),
   /** Set the mode for a track receive (0=post-fader, 1=pre-FX, 3=post-FX) */
   setMode: (trackIdx: number, recvIdx: number, mode: number): WSCommand => ({
@@ -769,9 +771,9 @@ export const receive = {
 
 export const hw = {
   /** Set the volume level for a hardware output */
-  setVolume: (trackIdx: number, hwIdx: number, volume: number): WSCommand => ({
+  setVolume: (trackIdx: number, hwIdx: number, volume: number, trackGuid?: string): WSCommand => ({
     command: 'hw/setVolume',
-    params: { trackIdx, hwIdx, volume },
+    params: trackGuid ? { trackGuid, hwIdx, volume } : { trackIdx, hwIdx, volume },
   }),
   /** Set the mute state for a hardware output */
   setMute: (trackIdx: number, hwIdx: number, muted: number): WSCommand => ({
@@ -779,9 +781,9 @@ export const hw = {
     params: { trackIdx, hwIdx, muted },
   }),
   /** Set the pan for a hardware output (-1.0 to 1.0) */
-  setPan: (trackIdx: number, hwIdx: number, pan: number): WSCommand => ({
+  setPan: (trackIdx: number, hwIdx: number, pan: number, trackGuid?: string): WSCommand => ({
     command: 'hw/setPan',
-    params: { trackIdx, hwIdx, pan },
+    params: trackGuid ? { trackGuid, hwIdx, pan } : { trackIdx, hwIdx, pan },
   }),
   /** Set the mode for a hardware output (0=post-fader, 1=pre-FX, 3=post-FX) */
   setMode: (trackIdx: number, hwIdx: number, mode: number): WSCommand => ({

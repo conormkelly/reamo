@@ -78,8 +78,8 @@ export function SendFader({
   // Handle double-tap to reset to unity
   const handleDoubleTap = useCallback(() => {
     if (!hasSend) return;
-    sendCommand(send.setVolume(trackIndex, sendIndex, 1.0));
-  }, [sendCommand, trackIndex, sendIndex, hasSend]);
+    sendCommand(send.setVolume(trackIndex, sendIndex, 1.0, guid));
+  }, [sendCommand, trackIndex, sendIndex, hasSend, guid]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
@@ -125,7 +125,7 @@ export function SendFader({
         const y = clientY - rect.top;
         const position = 1 - Math.max(0, Math.min(1, y / rect.height));
         const linearVolume = faderToVolume(position);
-        sendCommand(send.setVolume(trackIndex, sendIndexRef.current, linearVolume));
+        sendCommand(send.setVolume(trackIndex, sendIndexRef.current, linearVolume, gestureGuidRef.current));
       };
 
       // Handle initial click position

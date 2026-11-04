@@ -7,12 +7,12 @@ const gesture_state = @import("../server/gesture_state.zig");
 const logging = @import("../core/logging.zig");
 
 /// Set HW output volume for the specified hardware output
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), hwIdx (0-based), volume (linear, 1.0 = 0dB)
+/// Params: trackIdx (unified: 0=master, 1+=user tracks) or trackGuid, hwIdx (0-based), volume (linear, 1.0 = 0dB)
 pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const hw_idx = cmd.getInt("hwIdx") orelse {
         response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
@@ -22,10 +22,12 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
         response.err("NOT_FOUND", "Hardware output not found");
@@ -46,12 +48,12 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
 }
 
 /// Set HW output mute state for the specified hardware output
-/// Params: trackIdx, hwIdx, muted (boolean)
+/// Params: trackIdx or trackGuid, hwIdx, muted (boolean)
 pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const hw_idx = cmd.getInt("hwIdx") orelse {
         response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
@@ -62,10 +64,12 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     };
     const muted = muted_int != 0;
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
         response.err("NOT_FOUND", "Hardware output not found");
@@ -86,12 +90,12 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
 }
 
 /// Set HW output pan for the specified hardware output
-/// Params: trackIdx, hwIdx, pan (-1.0 to 1.0)
+/// Params: trackIdx or trackGuid, hwIdx, pan (-1.0 to 1.0)
 pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const hw_idx = cmd.getInt("hwIdx") orelse {
         response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
@@ -101,10 +105,12 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
         response.err("NOT_FOUND", "Hardware output not found");
@@ -128,12 +134,12 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
 }
 
 /// Set HW output mode for the specified hardware output
-/// Params: trackIdx, hwIdx, mode (0=post-fader, 1=pre-FX, 3=post-FX)
+/// Params: trackIdx or trackGuid, hwIdx, mode (0=post-fader, 1=pre-FX, 3=post-FX)
 pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const hw_idx = cmd.getInt("hwIdx") orelse {
         response.err("MISSING_HW_IDX", "hwIdx is required");
         return;
@@ -149,10 +155,12 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     }
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .hw_output, hw_idx)) {
         response.err("NOT_FOUND", "Hardware output not found");

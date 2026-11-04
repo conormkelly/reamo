@@ -247,9 +247,12 @@ make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart
 - **Slots, not entities, for reads:** "tracks 20-30" means whatever is in
   those slots now. A delete or reorder just shows new slot contents on the
   next poll; no stable-ID bookkeeping.
-- **GUIDs for writes:** a fader drag sends `trackGuid`, resolved per command
-  (`tracks.resolveTrack`, `state/guid_cache.zig`), so a reorder mid-drag still
-  hits the right track. Gestures are tracked by the track's GUID
+- **GUIDs for writes:** a fader drag (track, send, receive, hardware output
+  or FX parameter) sends `trackGuid`, locked at gesture start, with its
+  gesture and every value, resolved per command (`tracks.resolveTrack`,
+  `state/guid_cache.zig`), so a reorder mid-drag still hits the right track.
+  The routing modal follows a track index, so its rows lock the GUID with
+  `RoutingModal/useGestureGuid.ts`. Gestures are tracked by the track's GUID
   (`gesture_state.trackKey`), never its index, so a drag's start, value
   changes and end find the same gesture however the tracks above it move.
 - **Master is `"master"`**, not its GUID: `GetTrackGUID` is inconsistent for
@@ -702,7 +705,7 @@ REAPER at startup on older ones) and checks them with
       and when the last open manual-undo gesture ends, one
       `Undo_OnStateChangeEx2` point is recorded (`gesture_state.zig`
       `beginManualUndo`/`endManualUndo`, `commands/gesture.zig`).
-14. **Gesture commands take `trackGuid`** (resolved with
+14. **Gesture and drag value commands take `trackGuid`** (resolved with
     `tracks.resolveTrack()`), so a reorder mid-drag can't hit another track.
     The frontend sends `trackGuid` when it has one, else `trackIdx`.
 15. **Responses grow to fit.** `ResponseWriter.success()` formats into an
