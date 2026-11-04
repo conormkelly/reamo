@@ -158,13 +158,61 @@ pub const PeaksSubscriptions = struct {
     /// milliseconds, for the change-broadcast rate limit.
     last_broadcast_ms: i64 = 0,
 
-    /// A track change the rate limit held back, still owed to every client.
-    /// TileCache.trackChanged has already stored the change, so no later
-    /// check finds it again: this flag is all that remembers it.
+    /// A track change still owed to every client: one the rate limit held
+    /// back, or a take a send found changed before the check reached it.
+    /// The tile cache has already stored the change, so no later check finds
+    /// it again: this flag is all that remembers it.
     change_pending: bool = false,
+
+    /// The track the next change check starts at (or at the first after it)
+    /// when there are more subscribed tracks than one tick reads.
+    change_check_from: c_int = 0,
+
+    /// A poll skipped for want of scratch memory has said so, and won't
+    /// again until a poll gets what it needs.
+    scratch_shortage_logged: bool = false,
 
     /// Shortest gap between a send and a change broadcast after it.
     pub const CHANGE_BROADCAST_INTERVAL_MS: i64 = 100;
+
+    /// Most subscribed tracks one tick's change check reads. Reading a
+    /// track walks every item on it through REAPER's API, so this bounds the
+    /// check's cost per tick however many tracks the phones watch.
+    pub const CHANGE_CHECK_TRACKS_PER_TICK: usize = 128;
+
+    /// The subscribed tracks this tick's change check reads, given every
+    /// subscribed track (sorted). Up to CHANGE_CHECK_TRACKS_PER_TICK, all of
+    /// them. Past that, that many, starting from the first track at or after
+    /// the one the last such tick stopped before, wrapping round to the
+    /// start: every track is read within ceil(n / CHANGE_CHECK_TRACKS_PER_TICK)
+    /// ticks that run the check (a tick with a forced send skips it). Where
+    /// it stopped is kept as a track index rather than a list position, so
+    /// tracks subscribed or dropped in between don't skip any.
+    pub fn changeCheckBatch(self: *PeaksSubscriptions, indices: []const c_int) ChangeCheckBatch {
+        if (indices.len <= CHANGE_CHECK_TRACKS_PER_TICK) {
+            return .{ .indices = indices, .start = 0, .count = indices.len };
+        }
+        var start = std.sort.lowerBound(c_int, indices, self.change_check_from, orderCInt);
+        if (start == indices.len) start = 0;
+        const end = (start + CHANGE_CHECK_TRACKS_PER_TICK) % indices.len;
+        self.change_check_from = indices[end];
+        return .{ .indices = indices, .start = start, .count = CHANGE_CHECK_TRACKS_PER_TICK };
+    }
+
+    /// One tick's tracks to check, in order, from changeCheckBatch.
+    pub const ChangeCheckBatch = struct {
+        indices: []const c_int,
+        start: usize,
+        count: usize,
+        taken: usize = 0,
+
+        pub fn next(self: *ChangeCheckBatch) ?c_int {
+            if (self.taken >= self.count) return null;
+            const i = (self.start + self.taken) % self.indices.len;
+            self.taken += 1;
+            return self.indices[i];
+        }
+    };
 
     pub fn init(allocator: Allocator) PeaksSubscriptions {
         var subs = PeaksSubscriptions{
@@ -441,120 +489,99 @@ pub const PeaksSubscriptions = struct {
         return client;
     }
 
-    /// Get all track indices that should be polled for peaks.
-    /// Combines all client subscriptions (range + GUID resolved) plus grace period.
+    /// Every subscribed track (unified indices, sorted, each once): all
+    /// clients' subscriptions (range, and GUIDs resolved) and the grace
+    /// period's tracks. The list is allocated from `scratch`.
     pub fn getSubscribedIndices(
         self: *PeaksSubscriptions,
+        scratch: Allocator,
         cache: *const GuidCache,
         api: anytype,
-        out_buf: []c_int,
-    ) []c_int {
-        return self.collectIndices(cache, api, out_buf, .all).indices;
+    ) Allocator.Error![]c_int {
+        return self.collectIndices(scratch, cache, api);
     }
 
-    /// Track indices (sorted) of the clients not due fresh tiles this tick,
-    /// without grace-period tracks: the tracks a forced send doesn't give
-    /// to everyone who watches them. Null if they don't all fit `out_buf`.
-    pub fn getUnforcedIndices(
-        self: *PeaksSubscriptions,
-        cache: *const GuidCache,
-        api: anytype,
-        out_buf: []c_int,
-    ) ?[]c_int {
-        const got = self.collectIndices(cache, api, out_buf, .unforced);
-        return if (got.complete) got.indices else null;
+    /// Whether a client not due fresh tiles this tick subscribes to the
+    /// track at unified index `track_idx`, whose GUID is `track_guid`: by
+    /// range, or by GUID ("master" for index 0). Grace-period tracks don't
+    /// count. Compares stored GUIDs as strings, with no REAPER calls, as
+    /// GuidCache.resolve matches them exactly.
+    pub fn watchedByUnforcedClient(self: *const PeaksSubscriptions, track_idx: c_int, track_guid: []const u8) bool {
+        var slot_iter = self.client_id_to_slot.valueIterator();
+        while (slot_iter.next()) |slot| {
+            if (self.force_broadcast_clients[slot.*]) continue;
+            const client = &self.clients[slot.*];
+            switch (client.mode) {
+                .none => {},
+                .range => if (track_idx >= client.range_start and track_idx <= client.range_end) return true,
+                .guids => for (0..client.guid_count) |i| {
+                    const guid = client.getGuid(i) orelse continue;
+                    if (std.mem.eql(u8, guid, track_guid)) return true;
+                    if (track_idx == 0 and std.mem.eql(u8, guid, "master")) return true;
+                },
+            }
+        }
+        return false;
     }
 
-    /// Whether only clients due their tiles this tick watch `track_idx`,
-    /// given getUnforcedIndices' result. When that is null (too many tracks
-    /// to list), no track can be shown to be unwatched by the others.
-    pub fn onlyForcedClientsWatch(unforced_indices: ?[]const c_int, track_idx: c_int) bool {
-        const unforced = unforced_indices orelse return false;
-        return std.sort.binarySearch(c_int, unforced, track_idx, orderCInt) == null;
+    /// Whether the client in `slot` is due fresh tiles this tick (does not consume).
+    pub fn isForced(self: *const PeaksSubscriptions, slot: usize) bool {
+        return slot < MAX_CLIENTS and self.force_broadcast_clients[slot];
     }
 
     fn orderCInt(a: c_int, b: c_int) std.math.Order {
         return std.math.order(a, b);
     }
 
+    /// Marks each wanted unified index (0 = master .. trackCount) in a
+    /// bitset, then lists the set bits: deduplicated and sorted, in time
+    /// linear in the indices, with both allocations from `scratch`.
     fn collectIndices(
         self: *PeaksSubscriptions,
+        scratch: Allocator,
         cache: *const GuidCache,
         api: anytype,
-        out_buf: []c_int,
-        which: enum { all, unforced },
-    ) struct { indices: []c_int, complete: bool } {
-        // Use a hash set to dedupe indices
-        var seen = std.AutoHashMap(c_int, void).init(self.allocator);
-        defer seen.deinit();
-        // An index the set had no room for (out of memory) makes the list incomplete.
-        var dropped = false;
+    ) Allocator.Error![]c_int {
+        const max_idx: c_int = @max(0, api.trackCount()); // Unified: 0=master, 1..track_count = user tracks
+        var seen = try std.DynamicBitSetUnmanaged.initEmpty(scratch, @as(usize, @intCast(max_idx)) + 1);
+        defer seen.deinit(scratch);
 
-        const track_count = api.trackCount();
-        const max_idx = track_count; // Unified: 0=master, 1..track_count = user tracks
-
-        // Process each client's subscription
         var slot_iter = self.client_id_to_slot.valueIterator();
         while (slot_iter.next()) |slot| {
-            if (which == .unforced and self.force_broadcast_clients[slot.*]) continue;
             const client = &self.clients[slot.*];
 
             switch (client.mode) {
                 .none => {},
                 .range => {
-                    // Add all indices in range (clamped to valid)
-                    var idx = @max(0, client.range_start);
+                    const start = @max(0, client.range_start);
                     const end = @min(client.range_end, max_idx);
-                    while (idx <= end) : (idx += 1) {
-                        seen.put(idx, {}) catch {
-                            dropped = true;
-                        };
+                    if (start <= end) {
+                        seen.setRangeValue(.{ .start = @intCast(start), .end = @as(usize, @intCast(end)) + 1 }, true);
                     }
                 },
                 .guids => {
-                    // Resolve each GUID to an index
                     for (0..client.guid_count) |i| {
                         const guid = client.getGuid(i) orelse continue;
                         const track = cache.resolve(api, guid) orelse continue;
-
-                        // Get index from pointer
                         const idx = api.getTrackIdx(track);
-                        if (idx >= 0 and idx <= max_idx) {
-                            seen.put(idx, {}) catch {
-                                dropped = true;
-                            };
-                        }
+                        if (idx >= 0 and idx <= max_idx) seen.set(@intCast(idx));
                     }
                 },
             }
         }
 
-        // Add grace period tracks
-        if (which == .all) {
-            const now = std.time.nanoTimestamp();
-            var grace_iter = self.grace_until.iterator();
-            while (grace_iter.next()) |entry| {
-                if (entry.value_ptr.* > now and entry.key_ptr.* <= max_idx) {
-                    seen.put(entry.key_ptr.*, {}) catch {
-                        dropped = true;
-                    };
-                }
-            }
+        const now = std.time.nanoTimestamp();
+        var grace_iter = self.grace_until.iterator();
+        while (grace_iter.next()) |entry| {
+            const idx = entry.key_ptr.*;
+            if (entry.value_ptr.* > now and idx >= 0 and idx <= max_idx) seen.set(@intCast(idx));
         }
 
-        // Copy to output buffer
-        var count: usize = 0;
-        var key_iter = seen.keyIterator();
-        while (key_iter.next()) |key| {
-            if (count >= out_buf.len) break;
-            out_buf[count] = key.*;
-            count += 1;
-        }
-
-        // Sort for consistent ordering
-        std.mem.sort(c_int, out_buf[0..count], {}, std.sort.asc(c_int));
-
-        return .{ .indices = out_buf[0..count], .complete = !dropped and seen.count() <= out_buf.len };
+        const out = try scratch.alloc(c_int, seen.count());
+        var bits = seen.iterator(.{});
+        var n: usize = 0;
+        while (bits.next()) |idx| : (n += 1) out[n] = @intCast(idx);
+        return out;
     }
 
     /// Clean up expired grace period entries. Call periodically (e.g., in LOW tier).
@@ -749,8 +776,9 @@ test "getSubscribedIndices with range" {
 
     _ = try subs.subscribeRange(1, 0, 4, 30);
 
-    var buf: [32]c_int = undefined;
-    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const indices = try subs.getSubscribedIndices(arena.allocator(), &cache, &mock);
 
     try std.testing.expectEqual(@as(usize, 5), indices.len);
     // Should be sorted
@@ -778,23 +806,26 @@ test "a track only a forced client watches is told apart from one another client
     // A grace-period track no client watches.
     try subs.grace_until.put(9, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
 
-    var buf: [32]c_int = undefined;
-    const unforced = subs.getUnforcedIndices(&cache, &mock, &buf).?;
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3 }, unforced);
-    // Tracks 4..6 only the forced client watches; 2 and 3 client 1 watches too.
-    for ([_]c_int{ 4, 5, 6 }) |t| try std.testing.expect(PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
-    for ([_]c_int{ 1, 2, 3 }) |t| try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
-    // Too many to list: none counts as only the forced client's.
-    var small: [2]c_int = undefined;
-    try std.testing.expect(subs.getUnforcedIndices(&cache, &mock, &small) == null);
-    try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(null, 5));
+    // Client 3 (unforced) watches master and track 8 by GUID.
+    const guids = [_][]const u8{ "master", "{00000000-0000-0000-0000-000000000008}" };
+    _ = try subs.subscribeGuids(3, &guids, 30);
+    _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(3).?);
 
-    var all_buf: [32]c_int = undefined;
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6, 9 }, subs.getSubscribedIndices(&cache, &mock, &all_buf));
+    const watched = struct {
+        fn byUnforced(s: *const PeaksSubscriptions, idx: c_int) bool {
+            var buf: [64]u8 = undefined;
+            const guid = std.fmt.bufPrint(&buf, "{{00000000-0000-0000-0000-{d:0>12}}}", .{@as(u32, @intCast(idx))}) catch unreachable;
+            return s.watchedByUnforcedClient(idx, guid);
+        }
+    }.byUnforced;
+    // Tracks 4..6 only the forced client watches; 2 and 3 client 1 watches
+    // too; 0 and 8 client 3 does by GUID; 9 is only in the grace period.
+    for ([_]c_int{ 4, 5, 6, 7, 9 }) |t| try std.testing.expect(!watched(&subs, t));
+    for ([_]c_int{ 0, 1, 2, 3, 8 }) |t| try std.testing.expect(watched(&subs, t));
 
-    // Once client 2's send is done, every track it watches is unforced.
+    // Once client 2's send is done, every track it watches is an unforced client's.
     _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(2).?);
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6 }, subs.getUnforcedIndices(&cache, &mock, &buf).?);
+    for ([_]c_int{ 4, 5, 6 }) |t| try std.testing.expect(watched(&subs, t));
 }
 
 test "getSubscribedIndices with GUIDs" {
@@ -813,8 +844,9 @@ test "getSubscribedIndices with GUIDs" {
     const guids = [_][]const u8{ "master", "{00000000-0000-0000-0000-000000000003}" };
     _ = try subs.subscribeGuids(1, &guids, 30);
 
-    var buf: [32]c_int = undefined;
-    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const indices = try subs.getSubscribedIndices(arena.allocator(), &cache, &mock);
 
     try std.testing.expectEqual(@as(usize, 2), indices.len);
     // Sorted: master (0) then track 3
@@ -839,8 +871,9 @@ test "multiple clients combined" {
     // Client 2: range 2-4 (overlaps)
     _ = try subs.subscribeRange(2, 2, 4, 30);
 
-    var buf: [32]c_int = undefined;
-    const indices = subs.getSubscribedIndices(&cache, &mock, &buf);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const indices = try subs.getSubscribedIndices(arena.allocator(), &cache, &mock);
 
     // Should have 0,1,2,3,4 (deduped)
     try std.testing.expectEqual(@as(usize, 5), indices.len);
@@ -1017,4 +1050,126 @@ test "removeClient after a range ending at maxInt(c_int) terminates with bounded
     // A one-index range at the very top must not overflow the loop counter.
     _ = try subs.subscribeRange(1, std.math.maxInt(c_int), std.math.maxInt(c_int), 30);
     subs.removeClient(1);
+}
+
+fn batchIndices(batch: *PeaksSubscriptions.ChangeCheckBatch, out: []c_int) []c_int {
+    var n: usize = 0;
+    while (batch.next()) |idx| : (n += 1) out[n] = idx;
+    return out[0..n];
+}
+
+test "past CHANGE_CHECK_TRACKS_PER_TICK subscribed tracks, every one is checked within a full turn" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    var indices: [300]c_int = undefined;
+    for (&indices, 1..) |*idx, i| idx.* = @intCast(i);
+
+    const per_tick = PeaksSubscriptions.CHANGE_CHECK_TRACKS_PER_TICK;
+    const ticks = (indices.len + per_tick - 1) / per_tick;
+    var checked = std.StaticBitSet(301).initEmpty();
+    var out: [300]c_int = undefined;
+    for (0..ticks) |_| {
+        var batch = subs.changeCheckBatch(&indices);
+        const got = batchIndices(&batch, &out);
+        try std.testing.expect(got.len <= per_tick);
+        for (got) |idx| checked.set(@intCast(idx));
+    }
+    for (indices) |idx| {
+        if (!checked.isSet(@intCast(idx))) {
+            std.debug.print("track {d} was not checked in {d} ticks\n", .{ idx, ticks });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "with no more subscribed tracks than one tick checks, every tick checks them all" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    var indices: [PeaksSubscriptions.CHANGE_CHECK_TRACKS_PER_TICK]c_int = undefined;
+    for (&indices, 0..) |*idx, i| idx.* = @intCast(i * 2);
+
+    var out: [indices.len]c_int = undefined;
+    for (0..3) |_| {
+        var batch = subs.changeCheckBatch(&indices);
+        try std.testing.expectEqualSlices(c_int, &indices, batchIndices(&batch, &out));
+    }
+}
+
+test "the change check carries on from the first track after the last one checked, as the subscribed set changes" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const per_tick = PeaksSubscriptions.CHANGE_CHECK_TRACKS_PER_TICK;
+
+    var all: [200]c_int = undefined;
+    for (&all, 1..) |*idx, i| idx.* = @intCast(i);
+    var out: [200]c_int = undefined;
+
+    // 1..128 first.
+    var batch = subs.changeCheckBatch(&all);
+    var got = batchIndices(&batch, &out);
+    try std.testing.expectEqual(@as(c_int, 1), got[0]);
+    try std.testing.expectEqual(@as(c_int, per_tick), got[got.len - 1]);
+
+    // Tracks 120..160 are no longer subscribed: the next tick starts at 161,
+    // then wraps round to the start.
+    var fewer: [159]c_int = undefined;
+    var n: usize = 0;
+    for (all) |idx| {
+        if (idx >= 120 and idx <= 160) continue;
+        fewer[n] = idx;
+        n += 1;
+    }
+    batch = subs.changeCheckBatch(fewer[0..n]);
+    got = batchIndices(&batch, &out);
+    try std.testing.expectEqual(per_tick, got.len);
+    try std.testing.expectEqual(@as(c_int, 161), got[0]);
+    try std.testing.expectEqual(@as(c_int, 200), got[39]);
+    try std.testing.expectEqual(@as(c_int, 1), got[40]);
+    try std.testing.expectEqual(@as(c_int, 88), got[got.len - 1]);
+
+    // And on from 89.
+    batch = subs.changeCheckBatch(fewer[0..n]);
+    got = batchIndices(&batch, &out);
+    try std.testing.expectEqual(@as(c_int, 89), got[0]);
+}
+
+test "every subscribed track is listed once, in order, however many there are and however clients and grace tracks overlap" {
+    const allocator = std.testing.allocator;
+    var subs = PeaksSubscriptions.init(allocator);
+    defer subs.deinit();
+
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 300 };
+    var cache = GuidCache.init(allocator);
+    defer cache.deinit();
+    try cache.rebuild(&mock);
+
+    _ = try subs.subscribeRange(1, 1, 200, 30);
+    _ = try subs.subscribeRange(2, 150, std.math.maxInt(c_int), 30);
+    const guids = [_][]const u8{"master"};
+    _ = try subs.subscribeGuids(3, &guids, 30);
+    // A grace track past the project's last, and one inside it.
+    try subs.grace_until.put(301, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
+    try subs.grace_until.put(300, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const indices = try subs.getSubscribedIndices(arena.allocator(), &cache, &mock);
+    try std.testing.expectEqual(@as(usize, 301), indices.len);
+    for (indices, 0..) |idx, i| try std.testing.expectEqual(@as(c_int, @intCast(i)), idx);
+}
+
+test "listing subscribed tracks without the memory for it fails rather than returning some of them" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const reaper = @import("../reaper.zig");
+    var mock = reaper.MockBackend{ .track_count = 300 };
+    var cache = GuidCache.init(std.testing.allocator);
+    defer cache.deinit();
+    _ = try subs.subscribeRange(1, 1, 300, 30);
+
+    var fail = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    try std.testing.expectError(error.OutOfMemory, subs.getSubscribedIndices(fail.allocator(), &cache, &mock));
 }

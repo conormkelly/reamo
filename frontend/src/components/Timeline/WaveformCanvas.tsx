@@ -328,9 +328,11 @@ export function WaveformCanvas({
         const tile = tileCache.get(keyStr);
         if (!tile || tile.peaks.length === 0) continue;
 
-        // Calculate tile's absolute time range
-        const tileAbsStart = tile.itemPosition + tile.startTime;
-        const tileAbsEnd = tile.itemPosition + tile.endTime;
+        // Tile times are relative to the item's start, so the tile goes where
+        // the item is now. The take's epoch covers what the item plays from
+        // its start; where the item sits is the items state's to say.
+        const tileAbsStart = itemStart + tile.startTime;
+        const tileAbsEnd = itemStart + tile.endTime;
 
         // Skip tiles outside viewport
         if (tileAbsEnd <= viewportStart || tileAbsStart >= viewportEnd) continue;
