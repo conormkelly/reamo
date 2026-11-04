@@ -284,9 +284,9 @@ test "peaks/subscribe rejects malformed parameters rather than falling back to d
     const malformed = [_][]const u8{
         peaksCommand("\"range\":{\"start\":0,\"end\":3},\"sampleCount\":30.5"),
         peaksCommand("\"range\":{\"start\":0,\"end\":3},\"sampleCount\":\"30\""),
-        peaksCommand("\"range\":{\"start\":1.5,\"end\":3}"),
-        peaksCommand("\"range\":{\"end\":3}"),
-        peaksCommand("\"range\":7"),
+        peaksCommand("\"range\":{\"start\":1.5,\"end\":3},\"guids\":[\"{A}\"]"),
+        peaksCommand("\"range\":{\"end\":3},\"guids\":[\"{A}\"]"),
+        peaksCommand("\"range\":7,\"guids\":[\"{A}\"]"),
         peaksCommand("\"guids\":[\"{A}\",]"),
         peaksCommand("\"guids\":[{\"g\":\"{A}\"}]"),
         peaksCommand("\"guids\":[\"{00000000-0000-0000-0000-000000000000}xyz\"]"),

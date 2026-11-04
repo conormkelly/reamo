@@ -29,13 +29,16 @@ pub const MessageType = enum {
 // Hello message from client (for handshake)
 pub const HelloMessage = struct {
     client_version: ?[]const u8,
-    protocol_version: ?u32,
+    /// null when the client didn't say; error.Malformed when it sent
+    /// something other than an integer, which matches no version.
+    protocol_version: error{Malformed}!?u32,
     token: ?[]const u8,
 
     pub fn parse(data: []const u8) HelloMessage {
+        const version = jsonGetIntStrict(data, "protocolVersion");
         return .{
             .client_version = jsonGetString(data, "clientVersion"),
-            .protocol_version = if (jsonGetInt(data, "protocolVersion")) |v| @intCast(@as(u32, @bitCast(v))) else null,
+            .protocol_version = if (version) |v| (if (v) |n| @as(u32, @bitCast(n)) else null) else |err| err,
             .token = jsonGetString(data, "token"),
         };
     }
@@ -404,6 +407,7 @@ pub fn jsonGetStringArray(
         if (data[pos] == ']') return count;
         if (data[pos] != ',') return error.Malformed;
         pos = skipJsonWhitespace(data, pos + 1, data.len);
+        if (pos < data.len and data[pos] == ']') return error.Malformed;
     }
 }
 
@@ -966,8 +970,14 @@ test "HelloMessage.parse extracts fields" {
     const data = "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"abc123\"}";
     const msg = HelloMessage.parse(data);
     try std.testing.expectEqualStrings("1.0.0", msg.client_version.?);
-    try std.testing.expectEqual(@as(u32, 1), msg.protocol_version.?);
+    try std.testing.expectEqual(@as(?u32, 1), try msg.protocol_version);
     try std.testing.expectEqualStrings("abc123", msg.token.?);
+}
+
+test "HelloMessage.parse tells an absent protocolVersion from one that isn't an integer" {
+    try std.testing.expectEqual(@as(?u32, null), try HelloMessage.parse("{\"type\":\"hello\"}").protocol_version);
+    try std.testing.expectError(error.Malformed, HelloMessage.parse("{\"type\":\"hello\",\"protocolVersion\":\"2\"}").protocol_version);
+    try std.testing.expectError(error.Malformed, HelloMessage.parse("{\"type\":\"hello\",\"protocolVersion\":1.5}").protocol_version);
 }
 
 test "buildHelloResponse" {
@@ -1182,6 +1192,8 @@ test "jsonGetStringArray reports an array longer than max_items instead of cutti
     var bufs: [2][64]u8 = undefined;
     var lens: [2]usize = undefined;
     try std.testing.expectError(error.TooManyItems, jsonGetStringArray("{\"guids\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}", "guids", 2, 64, &bufs, &lens));
+    // A full array with a trailing comma is malformed, not too long
+    try std.testing.expectError(error.Malformed, jsonGetStringArray("{\"guids\":[\"a\",\"b\",]}", "guids", 2, 64, &bufs, &lens));
 }
 
 test "jsonGetStringArray reports a string longer than max_str_len instead of cutting it short" {

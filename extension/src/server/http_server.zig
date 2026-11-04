@@ -415,18 +415,27 @@ const WsHandler = struct {
                     return;
                 }
 
-                if (hello.protocol_version) |client_version| {
-                    if (client_version != protocol.PROTOCOL_VERSION) {
-                        logging.warn("Client {d} refused: it speaks protocol {d}, REAmo {d} (a cached page from another version?)", .{ self.id, client_version, protocol.PROTOCOL_VERSION });
-                        var buf: [128]u8 = undefined;
-                        const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch {
-                            logging.warn("http_server: protocol mismatch response buffer overflow", .{});
-                            return;
-                        };
-                        self.conn.writeText(err_json) catch {};
-                        self.conn.close(.{ .code = 4002, .reason = "Protocol mismatch" }) catch {};
-                        return;
+                // A client that doesn't say is let in; one that sends
+                // something other than its version number is not.
+                const protocol_ok = if (hello.protocol_version) |client_version| blk: {
+                    const v = client_version orelse break :blk true;
+                    if (v != protocol.PROTOCOL_VERSION) {
+                        logging.warn("Client {d} refused: it speaks protocol {d}, REAmo {d} (a cached page from another version?)", .{ self.id, v, protocol.PROTOCOL_VERSION });
                     }
+                    break :blk v == protocol.PROTOCOL_VERSION;
+                } else |_| blk: {
+                    logging.warn("Client {d} refused: its protocolVersion isn't an integer", .{self.id});
+                    break :blk false;
+                };
+                if (!protocol_ok) {
+                    var buf: [128]u8 = undefined;
+                    const err_json = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"error\":{{\"code\":\"PROTOCOL_MISMATCH\",\"message\":\"Expected protocol version {d}\"}}}}", .{protocol.PROTOCOL_VERSION}) catch {
+                        logging.warn("http_server: protocol mismatch response buffer overflow", .{});
+                        return;
+                    };
+                    self.conn.writeText(err_json) catch {};
+                    self.conn.close(.{ .code = 4002, .reason = "Protocol mismatch" }) catch {};
+                    return;
                 }
 
                 // Too late: the hello deadline has ended this connection.

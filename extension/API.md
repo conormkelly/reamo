@@ -4650,7 +4650,7 @@ Common error codes:
 
 - `INVALID_POSITION` - Position is negative, NaN, or Inf
 - `MISSING_*` - Required parameter not provided
-- `INVALID_PARAMS` - An optional parameter is present but not of its type: an integer that is a fraction, a string or `null`; an on/off flag that is neither `true`/`false` nor an integer (0 is off); an array with a trailing comma or an element of the wrong type, or longer than its limit. It is never read as absent and given its default. The exceptions: `tempo/barsToTime` reads a malformed `beat` or `ticks` as absent, and a `viewport` with a malformed `widthPx` is treated as missing
+- `INVALID_PARAMS` - An optional integer, on/off or array parameter is present but not of its type: an integer that is a fraction, a string or `null`; an on/off flag that is neither `true`/`false` nor an integer (0 is off); an array with a trailing comma or an element of the wrong type, or longer than its limit. Such a value is not read as absent and given its default. The exceptions: `tempo/barsToTime` reads a malformed `beat` or `ticks` as absent, and a `viewport` with a malformed `widthPx` is treated as missing. Optional number (float) parameters are not covered: one that isn't a number is still read as absent
 - `NOT_FOUND` - Referenced track/item/marker/region/route doesn't exist (including a send, receive or hardware output index that is stale)
 - `INVALID_RANGE` - End before start
 - `INVALID_BAR` - Bar out of range, or before the project start

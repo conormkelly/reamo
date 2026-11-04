@@ -10,7 +10,7 @@ const track_subscriptions = @import("../subscriptions/track_subscriptions.zig");
 
 const MAX_GUIDS = track_subscriptions.MAX_GUIDS_PER_CLIENT;
 const MAX_EXTRA_GUIDS = track_subscriptions.MAX_EXTRA_GUIDS;
-const GUID_LEN = 40;
+const GUID_LEN = track_subscriptions.GUID_LEN;
 
 /// Subscribe to track updates. Supports two mutually exclusive modes:
 ///
@@ -194,7 +194,7 @@ fn guidsCommand(allocator: std.mem.Allocator, comptime prefix: []const u8, key: 
     return out.toOwnedSlice(allocator);
 }
 
-test "track/subscribe accepts exactly 64 guids and 8 extraGuids in range mode" {
+test "track/subscribe accepts exactly 64 guids, and exactly 8 extraGuids with a range" {
     var store = TestStore.init();
     defer store.deinit();
     const guids = try guidsCommand(std.testing.allocator, "", "guids", MAX_GUIDS);
@@ -250,13 +250,13 @@ test "track/subscribe rejects malformed parameters rather than falling back" {
     defer store.deinit();
     _ = try store.expectSubscribed(subscribeCommand("\"guids\":[\"{A}\"],\"includeMaster\":true"));
     const malformed = [_][]const u8{
-        subscribeCommand("\"range\":{\"start\":1.5,\"end\":7}"),
-        subscribeCommand("\"range\":{\"start\":0,\"end\":\"7\"}"),
-        subscribeCommand("\"range\":{\"start\":0}"),
-        subscribeCommand("\"range\":[0,7]"),
+        subscribeCommand("\"range\":{\"start\":1.5,\"end\":7},\"guids\":[\"{A}\"]"),
+        subscribeCommand("\"range\":{\"start\":0,\"end\":\"7\"},\"guids\":[\"{A}\"]"),
+        subscribeCommand("\"range\":{\"start\":0},\"guids\":[\"{A}\"]"),
+        subscribeCommand("\"range\":[0,7],\"guids\":[\"{A}\"]"),
         subscribeCommand("\"guids\":[\"{A}\",]"),
         subscribeCommand("\"guids\":[\"{A}\",7]"),
-        subscribeCommand("\"guids\":\"{A}\""),
+        subscribeCommand("\"guids\":\"{A}\",\"extraGuids\":[\"{E}\"]"),
         subscribeCommand("\"range\":{\"start\":0,\"end\":7},\"extraGuids\":[null]"),
         subscribeCommand("\"range\":{\"start\":0,\"end\":7},\"includeMaster\":\"yes\""),
     };

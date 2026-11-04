@@ -103,14 +103,6 @@ pub fn inGesture(response: *const ResponseWriter, control: gesture_state.Control
     return gestures.isActive(control);
 }
 
-/// The colour a marker or region update stores, from its `current` colour
-/// and the colour the client sent (null: unchanged). 0 asks for the theme's
-/// colour, which REAPER's own "Set marker/region to default color" gives by
-/// clearing the custom flag and keeping the RGB, so the marker or region
-/// keeps its GUID and render routing. SetProjectMarker4 reads 0 as
-/// "unchanged": a black custom colour (RGB 0) clears to 1, which shows the
-/// theme's colour too, and one already showing it stays as it is (the UI
-/// sends 0 with every rename).
 /// An inclusive track index range.
 pub const IndexRange = struct { start: c_int, end: c_int };
 
@@ -133,6 +125,14 @@ pub fn answerGuidListError(response: *ResponseWriter, comptime key: []const u8, 
     }
 }
 
+/// The colour a marker or region update stores, from its `current` colour
+/// and the colour the client sent (null: unchanged). 0 asks for the theme's
+/// colour, which REAPER's own "Set marker/region to default color" gives by
+/// clearing the custom flag and keeping the RGB, so the marker or region
+/// keeps its GUID and render routing. SetProjectMarker4 reads 0 as
+/// "unchanged": a black custom colour (RGB 0) clears to 1, which shows the
+/// theme's colour too, and one already showing it stays as it is (the UI
+/// sends 0 with every rename).
 pub fn markerColor(current: c_int, requested: ?c_int) c_int {
     const want = requested orelse return current;
     if (want != 0) return want;
@@ -586,7 +586,7 @@ test "optional parameters that are present but malformed answer INVALID_PARAMS i
         .{ preferences_cmds.handleSetSeekSettings, "{\"command\":\"preferences/setSeekSettings\",\"mode\":\"1\"}" },
         .{ preferences_cmds.handleSetSeekSettings, "{\"command\":\"preferences/setSeekSettings\",\"enabled\":\"yes\"}" },
         .{ repeat_cmds.handleSet, "{\"command\":\"repeat/set\",\"enabled\":0.5}" },
-        .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"raw\":1.5}" },
+        .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"inputType\":\"none\",\"raw\":1.5}" },
         .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"inputType\":\"audio\",\"channel\":0,\"stereo\":\"true\"}" },
         .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"inputType\":\"midi\",\"device\":0,\"channel\":2.5}" },
         .{ track_cmds.handleSetMute, "{\"command\":\"track/setMute\",\"trackIdx\":1,\"mute\":\"1\"}" },
