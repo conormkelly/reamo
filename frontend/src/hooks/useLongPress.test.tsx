@@ -270,6 +270,20 @@ describe('useLongPress', () => {
       expect(down).toBe(false);
     });
 
+    it('a tap leaves a text field being typed in focused', () => {
+      const { el, onTap } = setup();
+      const field = document.createElement('input');
+      document.body.appendChild(field);
+      field.focus();
+
+      fingerDown(el);
+      fingerUp(el);
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(field);
+      field.remove();
+    });
+
     it('a long hold without onLongPress is still a tap on release', () => {
       const { el, onTap } = setup({ onLongPress: undefined });
 
@@ -679,5 +693,60 @@ describe('useLongPress', () => {
 
     expect(seen).toHaveLength(2);
     expect(seen[1]).toBe(seen[0]);
+  });
+
+  describe('takeFocus', () => {
+    /** A field being edited elsewhere, and the order things happen in. */
+    function setupWithField(options: Partial<UseLongPressOptions> = {}) {
+      const order: string[] = [];
+      const onTap = vi.fn(() => order.push('tap'));
+      const onLongPress = vi.fn(() => order.push('long press'));
+      const utils = render(
+        <>
+          <input aria-label="field" onBlur={() => order.push('field blur')} />
+          <Probe onTap={onTap} onLongPress={onLongPress} duration={400} takeFocus {...options} />
+        </>
+      );
+      const field = utils.getByLabelText('field');
+      field.focus();
+      return { el: utils.getByRole('button'), field, order, onTap, onLongPress };
+    }
+
+    it('a press keeps the mousedown default, which focuses the element', () => {
+      const { el } = setup({ takeFocus: true });
+
+      expect(fireEvent.mouseDown(el)).toBe(true);
+    });
+
+    it('a finger tap moves focus to the element before the tap runs, so a field being edited blurs first', () => {
+      const { el, order } = setupWithField();
+
+      fingerDown(el);
+      fingerUp(el);
+
+      expect(document.activeElement).toBe(el);
+      expect(order).toEqual(['field blur', 'tap']);
+    });
+
+    it('a hold moves focus to the element before the long press runs', () => {
+      const { el, order } = setupWithField();
+
+      fingerDown(el);
+      wait(400);
+
+      expect(document.activeElement).toBe(el);
+      expect(order).toEqual(['field blur', 'long press']);
+    });
+
+    it('a press that turns into a scroll leaves the field focused', () => {
+      const { el, field, order } = setupWithField();
+
+      fingerDown(el);
+      fingerMove(el, { x: AT.x, y: AT.y + 30 });
+      fingerUp(el, { x: AT.x, y: AT.y + 30 });
+
+      expect(document.activeElement).toBe(field);
+      expect(order).toEqual([]);
+    });
   });
 });

@@ -26,7 +26,11 @@
  * cancelled, which cancels their clicks. Holding a key never long-presses.
  *
  * Pressing the element doesn't take focus, so a text field being typed in
- * keeps it and a phone's keyboard stays up.
+ * keeps it and a phone's keyboard stays up. With `takeFocus` it does, as a
+ * button press does by default, and the element is focused before the tap or
+ * long press runs: a field being edited elsewhere blurs, and commits, before
+ * the element acts. A finger's emulated mousedown, which would focus it, comes
+ * only after the release that taps.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -38,6 +42,8 @@ export interface UseLongPressOptions {
   onLongPress?: () => void;
   /** Duration in ms before long press triggers (default: 400) */
   duration?: number;
+  /** Pressing the element focuses it, before the tap or long press runs (default: false) */
+  takeFocus?: boolean;
 }
 
 export interface UseLongPressResult {
@@ -62,6 +68,8 @@ const LONG_PRESS_MOVE_TOLERANCE = 10;
 const CLICK_AFTER_TAP_MS = 500;
 
 interface Press {
+  /** The element pressed. */
+  el: HTMLElement;
   pointerId: number;
   x: number;
   y: number;
@@ -90,6 +98,7 @@ export function useLongPress({
   onTap,
   onLongPress,
   duration = 400,
+  takeFocus = false,
 }: UseLongPressOptions): UseLongPressResult {
   // The press under way; null when there is none, or once it has ended in a
   // long press or been cancelled.
@@ -103,10 +112,15 @@ export function useLongPress({
 
   // The callbacks of the latest render: they read state, such as the mixer
   // lock, that can change while a press is held.
-  const latest = useRef({ onTap, onLongPress, duration });
+  const latest = useRef({ onTap, onLongPress, duration, takeFocus });
   useLayoutEffect(() => {
-    latest.current = { onTap, onLongPress, duration };
+    latest.current = { onTap, onLongPress, duration, takeFocus };
   });
+
+  // A field being edited elsewhere blurs, and commits, before the press acts.
+  const focusIfTaking = useCallback((el: HTMLElement) => {
+    if (latest.current.takeFocus) el.focus({ preventScroll: true });
+  }, []);
 
   const cancel = useCallback(() => {
     const press = pressRef.current;
@@ -136,6 +150,7 @@ export function useLongPress({
       document.addEventListener('visibilitychange', onVisibilityChange);
 
       const press: Press = {
+        el: e.currentTarget as HTMLElement,
         pointerId: e.pointerId,
         x: e.clientX,
         y: e.clientY,
@@ -150,12 +165,13 @@ export function useLongPress({
         press.timer = setTimeout(() => {
           if (pressRef.current !== press) return;
           cancel();
+          focusIfTaking(press.el);
           latest.current.onLongPress?.();
         }, latest.current.duration);
       }
       pressRef.current = press;
     },
-    [cancel]
+    [cancel, focusIfTaking]
   );
 
   const onPointerMove = useCallback(
@@ -184,9 +200,10 @@ export function useLongPress({
       // A release can move the pointer without a pointermove before it.
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) return;
       pointerTappedAtRef.current = Date.now();
+      focusIfTaking(press.el);
       latest.current.onTap?.();
     },
-    [cancel]
+    [cancel, focusIfTaking]
   );
 
   const onPointerEnd = useCallback(
@@ -220,7 +237,7 @@ export function useLongPress({
   );
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
+    if (!latest.current.takeFocus) e.preventDefault();
   }, []);
 
   // Only the element's own keys: a field inside it keeps its key repeats.

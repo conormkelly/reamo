@@ -142,4 +142,34 @@ describe('TimelineFooter selection mode button', () => {
     expect(onSelectionModeToggle).not.toHaveBeenCalled();
     expect(onSelectionLongPress).not.toHaveBeenCalled();
   });
+
+  it('a tap moves focus to the button first, so a name being edited elsewhere blurs and commits before the toggle', () => {
+    const order: string[] = [];
+    const onSelectionModeToggle = vi.fn(() => order.push('toggle'));
+    render(
+      <>
+        <input aria-label="marker name" onBlur={() => order.push('name blur')} />
+        <TimelineFooter
+          onPrevMarker={vi.fn()}
+          onNextMarker={vi.fn()}
+          followPlayhead={false}
+          onFollowPlayheadToggle={vi.fn()}
+          selectionModeActive={false}
+          onSelectionModeToggle={onSelectionModeToggle}
+          onSelectionLongPress={vi.fn()}
+          visibleDuration={30}
+          onZoomIn={vi.fn()}
+          onZoomOut={vi.fn()}
+          onFitToContent={vi.fn()}
+        />
+      </>
+    );
+    screen.getByLabelText('marker name').focus();
+    const button = screen.getByTestId('selection-toggle');
+
+    fireEvent.pointerDown(button, pointer(AT));
+    fireEvent.pointerUp(button, pointer(AT, 'touch', { buttons: 0 }));
+
+    expect(order).toEqual(['name blur', 'toggle']);
+  });
 });

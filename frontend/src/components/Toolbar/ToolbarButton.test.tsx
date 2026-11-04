@@ -123,13 +123,33 @@ describe('ToolbarButton', () => {
       return { pointerId: 1, pointerType, isPrimary: true, clientX: at.x, clientY: at.y, button: 0, buttons: 1, ...extra };
     }
 
+    const noop = () => {};
+    /** What useListReorder gives a button: draggable in edit mode only. */
+    const dragProps = (editMode: boolean) => ({
+      draggable: editMode,
+      onDragStart: noop,
+      onDragOver: noop,
+      onDrop: noop,
+      onDragEnd: noop,
+      onTouchStart: noop,
+      onTouchMove: noop,
+      onTouchEnd: noop,
+    });
+
     function setup(editMode = false) {
       const onLongPress = vi.fn();
       const onEdit = vi.fn();
       vi.mocked(connection.sendCommand).mockClear();
-      render(<ToolbarButton action={ACTION} editMode={editMode} onEdit={onEdit} onLongPress={onLongPress} />, {
-        wrapper: withConnection,
-      });
+      render(
+        <ToolbarButton
+          action={ACTION}
+          editMode={editMode}
+          onEdit={onEdit}
+          onLongPress={onLongPress}
+          dragProps={dragProps(editMode)}
+        />,
+        { wrapper: withConnection }
+      );
       return { button: screen.getByTitle('Play'), onLongPress, onEdit };
     }
 
@@ -203,28 +223,15 @@ describe('ToolbarButton', () => {
     });
 
     it('a draggable button keeps its mousedown default, which a browser needs to start a drag', () => {
-      const noop = () => {};
-      const dragProps = {
-        draggable: true,
-        onDragStart: noop,
-        onDragOver: noop,
-        onDrop: noop,
-        onDragEnd: noop,
-        onTouchStart: noop,
-        onTouchMove: noop,
-        onTouchEnd: noop,
-      };
-      render(<ToolbarButton action={ACTION} editMode onEdit={vi.fn()} dragProps={dragProps} />, {
-        wrapper: withConnection,
-      });
+      const { button } = setup(true);
 
-      expect(fireEvent.mouseDown(screen.getByTitle('Play'))).toBe(true);
+      expect(fireEvent.mouseDown(button)).toBe(true);
     });
 
-    it('a button that is not draggable does not take focus when pressed', () => {
+    it('a button that is not draggable keeps its mousedown default too, which focuses it', () => {
       const { button } = setup();
 
-      expect(fireEvent.mouseDown(button)).toBe(false);
+      expect(fireEvent.mouseDown(button)).toBe(true);
     });
 
     it('a tap in edit mode opens the editor and runs nothing', () => {
@@ -241,5 +248,24 @@ describe('ToolbarButton', () => {
       expect(onLongPress).not.toHaveBeenCalled();
       expect(connection.sendCommand).not.toHaveBeenCalled();
     });
+  });
+
+  it('a tap moves focus to the button first, so a name being edited elsewhere blurs and commits before the action', () => {
+    const order: string[] = [];
+    const sendCommand = vi.fn(() => order.push('action'));
+    const ordered = { sendCommand } as unknown as UseReaperConnectionReturn;
+    render(
+      <ReaperContext.Provider value={ordered}>
+        <input aria-label="marker name" onBlur={() => order.push('name blur')} />
+        <ToolbarButton action={ACTION} editMode={false} onEdit={vi.fn()} onLongPress={vi.fn()} />
+      </ReaperContext.Provider>
+    );
+    screen.getByLabelText('marker name').focus();
+    const button = screen.getByTitle('Play');
+
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1 });
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', isPrimary: true, button: 0, buttons: 0 });
+
+    expect(order).toEqual(['name blur', 'action']);
   });
 });

@@ -130,6 +130,8 @@ function FxButton({
     },
     onLongPress: onOpenList,
     duration: FX_HOLD_DURATION,
+    // A track name being edited commits before the button acts
+    takeFocus: true,
   });
 
   return (

@@ -159,6 +159,37 @@ describe('TrackInfoBar FX button', () => {
     expect(sendCommand).toHaveBeenCalledWith(TOGGLE);
   });
 
+  it('a tap while the track name is being edited commits the rename before toggling', () => {
+    const fx = setup();
+    fireEvent.click(screen.getByTitle('Click to edit name'));
+    const input = screen.getByDisplayValue('Vox');
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: 'Lead' } });
+
+    fireEvent.pointerDown(fx, pointer(AT));
+    fireEvent.pointerUp(fx, pointer(AT, 'touch', { buttons: 0 }));
+
+    expect(sendCommand.mock.calls.map(([c]) => c)).toEqual([
+      { command: 'track/rename', params: { trackGuid: '{VOX}', name: 'Lead' } },
+      TOGGLE,
+    ]);
+    expect(screen.queryByDisplayValue('Lead')).toBeNull();
+  });
+
+  it('a hold while the track name is being edited commits the rename before opening the FX list', () => {
+    const fx = setup();
+    fireEvent.click(screen.getByTitle('Click to edit name'));
+    fireEvent.change(screen.getByDisplayValue('Vox'), { target: { value: 'Lead' } });
+
+    fireEvent.pointerDown(fx, pointer(AT));
+    wait(600);
+
+    expect(sendCommand.mock.calls.map(([c]) => c)).toEqual([
+      { command: 'track/rename', params: { trackGuid: '{VOX}', name: 'Lead' } },
+    ]);
+    expect(fxModalOpen()).toBe(true);
+  });
+
   it('a right-button hold neither opens the FX list nor toggles', () => {
     const fx = setup();
 

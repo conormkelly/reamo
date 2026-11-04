@@ -45,11 +45,13 @@ export function TimelineFooter({
   onZoomOut,
   onFitToContent,
 }: TimelineFooterProps): ReactElement {
-  // Tap toggles selection mode, hold opens manual selection input
+  // Tap toggles selection mode, hold opens manual selection input. The
+  // button takes focus, so a marker or region name being edited commits first.
   const { handlers: selectionHandlers } = useLongPress({
     onTap: onSelectionModeToggle,
     onLongPress: onSelectionLongPress,
     duration: LONG_PRESS_DURATION,
+    takeFocus: true,
   });
 
   // Common button styles
