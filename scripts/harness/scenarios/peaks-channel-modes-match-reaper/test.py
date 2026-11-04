@@ -34,10 +34,10 @@ MONO = {"mono (downmix)": DOWNMIX, "mono (left)": STAIRS, "mono (right)": RIGHT,
         "mono (channel 3)": CH3, "mono (channel 4)": CH4}
 SILENT = [0.0] * 16
 # A mono source's takes: REAPER's peaks on both channels asked for, and the
-# one waveform it draws.
-MONO_SOURCE = {"mono source (normal)": ((STAIRS, SILENT), STAIRS),
-               "mono source (reverse stereo)": ((SILENT, STAIRS), STAIRS),
-               "mono source (mono channel 3)": ((SILENT, SILENT), SILENT)}
+# channel of them its one waveform is drawn from.
+MONO_SOURCE = {"mono source (normal)": ((STAIRS, SILENT), 0),
+               "mono source (reverse stereo)": ((SILENT, STAIRS), 1),
+               "mono source (mono channel 3)": ((SILENT, SILENT), 0)}
 
 with Client() as c:
     c.wait_event("items")
@@ -45,10 +45,11 @@ with Client() as c:
     stereo, bad = pk.compare(tiles, list(STEREO), channels=2)
     mono, b = pk.compare(tiles, list(MONO), channels=1)
     bad += b
-    # Checked below against the waveform REAPER draws, which for these isn't
-    # always on the first channel of its peaks.
-    mono_source, _ = pk.compare(tiles, list(MONO_SOURCE), channels=0)
-    profiles = {**stereo, **mono, **mono_source}
+    profiles = {**stereo, **mono}
+    for name, (_, drawn_from) in MONO_SOURCE.items():
+        p, b = pk.compare(tiles, [name], channels=1, first=drawn_from)
+        profiles.update(p)
+        bad += b
     pk.save("profiles", profiles)
     pk.save("reamo-tiles", tiles)
     pk.screenshot_arrange("reaper-arrange")
@@ -63,12 +64,6 @@ with Client() as c:
 
     for name in STEREO:
         assert profiles[name][0]["channels"] == [2], f"{name}: REAmo sent {profiles[name][0]['channels']} channels"
-    for name in MONO:
+    for name in [*MONO, *MONO_SOURCE]:
         assert profiles[name][0]["channels"] == [1], \
             f"{name}: REAmo sent {profiles[name][0]['channels']} channels; REAPER draws one waveform"
-    for name, (_, drawn) in MONO_SOURCE.items():
-        mine = profiles[name][0]
-        assert mine is not None, f"{name}: REAmo sent no tiles for its take"
-        assert mine["channels"] == [1], f"{name}: REAmo sent {mine['channels']} channels; REAPER draws one waveform"
-        assert pk.near(mine["max"][0], drawn) and pk.near(mine["min"][0], [-v for v in drawn]), \
-            f"{name}: REAPER draws {pk.fmt(drawn)}\n  REAmo max {pk.fmt(mine['max'][0])}\n  REAmo min {pk.fmt(mine['min'][0])}"

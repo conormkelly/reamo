@@ -171,8 +171,11 @@ def subscribe_all(client, start=0, end=14, width_px=1400):
     return wait_tiles(client, n)
 
 
-def compare(tiles, names, channels=1):
-    """REAmo's tiles against REAPER's peaks for each named track's item.
+def compare(tiles, names, channels=1, first=0):
+    """REAmo's tiles against REAPER's peaks for each named track's item:
+    REAmo's channel c against REAPER's channel first + c, `first` being the
+    channel of REAPER's two that its drawing starts from (1 for a mono
+    source in reverse stereo, whose audio REAPER returns on the second).
     Returns ({name: (reamo profile or None, REAPER profile)}, [mismatch lines])."""
     profiles, bad = {}, []
     for name in names:
@@ -184,7 +187,7 @@ def compare(tiles, names, channels=1):
             continue
         got = reamo_profile(mine, want["length"])
         profiles[name] = (got, want)
-        bad += mismatches(name, got, want, channels)
+        bad += mismatches(name, got, want, channels, first=first)
     return profiles, bad
 
 
@@ -201,14 +204,15 @@ def fmt(row):
     return " ".join(f"{v:+.2f}" for v in row)
 
 
-def mismatches(label, got, want, channels=1, tol=0.03):
-    """Lines describing the bins where REAmo's profile is off REAPER's."""
+def mismatches(label, got, want, channels=1, tol=0.03, first=0):
+    """Lines describing the bins where REAmo's profile is off REAPER's,
+    REAmo's channel c read against REAPER's channel first + c."""
     bad = []
     for c in range(channels):
         for kind in ("max", "min"):
-            g, w = got[kind][c], want[kind][c]
+            g, w = got[kind][c], want[kind][first + c]
             if len(g) != len(w) or any(abs(a - b) > tol for a, b in zip(g, w)):
-                bad.append(f"{label} ch{c} {kind}:\n  REAmo  {fmt(g)}\n  REAPER {fmt(w)}")
+                bad.append(f"{label} ch{c} {kind}:\n  REAmo  {fmt(g)}\n  REAPER ch{first + c} {fmt(w)}")
     return bad
 
 
