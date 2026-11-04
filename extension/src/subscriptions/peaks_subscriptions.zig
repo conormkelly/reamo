@@ -552,7 +552,10 @@ pub const PeaksSubscriptions = struct {
     /// On yes, records the send.
     pub fn changeBroadcastDue(self: *PeaksSubscriptions, changed: bool, now_ms: i64) bool {
         if (!changed and !self.change_pending) return false;
-        if (now_ms - self.last_broadcast_ms < CHANGE_BROADCAST_INTERVAL_MS) {
+        // A clock that stepped back (now before the last send) doesn't hold
+        // a change until it catches up.
+        const since_ms = now_ms - self.last_broadcast_ms;
+        if (since_ms >= 0 and since_ms < CHANGE_BROADCAST_INTERVAL_MS) {
             self.change_pending = true;
             return false;
         }
@@ -825,6 +828,15 @@ test "a track change held behind a forced send goes out after it" {
     subs.last_broadcast_ms = 1000;
     try std.testing.expect(!subs.changeBroadcastDue(true, 1033));
     try std.testing.expect(subs.changeBroadcastDue(false, 1000 + gap));
+}
+
+test "a wall clock stepped back doesn't hold a track change until it catches up" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try std.testing.expect(subs.changeBroadcastDue(true, 1_000_000));
+    // The clock steps back an hour: the next change still goes out.
+    try std.testing.expect(subs.changeBroadcastDue(true, 1_000_000 - 3_600_000));
 }
 
 test "no track change, no change broadcast" {
