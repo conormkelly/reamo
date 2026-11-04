@@ -692,23 +692,45 @@ pub const TracksMethods = struct {
         return source;
     }
 
+    /// Peaks in REAPER's layout: a block of `numchannels * numsamplesperchannel`
+    /// maximums, then the minimums starting at that offset. When the take's
+    /// audio ends before the span asked for, fewer peaks come back and the
+    /// minimums still start at the offset for the count asked for; the slots
+    /// between the two blocks are left as they were, as REAPER leaves them.
+    /// Peak p of channel ch has maximum `mockPeak(p, ch)` and minimum its negation.
     pub fn getMediaItemTakePeaks(self: anytype, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
         self.recordCall(.getMediaItemTakePeaks);
-        _ = take;
-        _ = peakrate;
-        _ = starttime;
-        // Fill buffer with mock peak data: alternating 0.5/-0.5 pattern
-        const num_peaks: usize = @intCast(numsamplesperchannel);
+        const info = state.decodeTakePtr(take);
+        if (info.track_idx >= state.MAX_TRACKS) return -1;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return -1;
+        if (info.take_idx >= state.MAX_TAKES_PER_ITEM) return -1;
+        const item = &self.tracks[info.track_idx].items[info.item_idx];
+        const asked: usize = @intCast(numsamplesperchannel);
         const num_chans: usize = @intCast(numchannels);
-        const total_values = num_chans * num_peaks * 2; // max + min per channel
-        if (buf.len >= total_values) {
-            for (0..total_values) |i| {
-                // Simple pattern: max values positive, min values negative
-                buf[i] = if (i < num_chans * num_peaks) 0.5 else -0.5;
+        if (buf.len < num_chans * asked * 2) return -1;
+
+        const returned: usize = if (item.takes[info.take_idx].audio_length) |audio_length| blk: {
+            const audio_left = item.position + audio_length - starttime;
+            if (audio_left <= 0) break :blk 0;
+            break :blk @min(asked, @as(usize, @intFromFloat(@ceil(audio_left * peakrate))));
+        } else asked;
+
+        const min_block = num_chans * asked;
+        for (0..returned) |p| {
+            for (0..num_chans) |ch| {
+                buf[p * num_chans + ch] = mockPeak(p, ch);
+                buf[min_block + p * num_chans + ch] = -mockPeak(p, ch);
             }
         }
         // Return format: sample_count in low 20 bits, mode in bits 20-23 (mode 1 = ready)
-        return @as(c_int, numsamplesperchannel) | (1 << 20);
+        return @as(c_int, @intCast(returned)) | (1 << 20);
+    }
+
+    /// The maximum the mock's getMediaItemTakePeaks writes for peak p of
+    /// channel ch (0 or 1): in (0, 0.5], and different for every peak and
+    /// channel, so a read from the wrong slot shows.
+    pub fn mockPeak(p: usize, ch: usize) f64 {
+        return 1.0 / (2.0 + @as(f64, @floatFromInt(p)) + 0.5 * @as(f64, @floatFromInt(ch)));
     }
 
     // Metering

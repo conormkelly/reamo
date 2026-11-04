@@ -26,8 +26,7 @@ const MAX_TRACKS_PER_BROADCAST = 32;
 
 /// Result from fetching full item peaks via GetMediaItemTake_Peaks
 const ItemPeaksResult = struct {
-    /// Interleaved peak data: peak_max then peak_min blocks
-    /// Layout: [ch0_max_0, ch1_max_0, ...][ch0_min_0, ch1_min_0, ...]
+    /// Peaks interleaved by channel: [ch0_p0, ch1_p0, ch0_p1, ch1_p1, ...]
     peak_min: []f64,
     peak_max: []f64,
     num_peaks: usize,
@@ -93,6 +92,9 @@ fn fetchItemPeaksViaTakePeaksAPI(
         return null;
     };
     defer allocator.free(reaper_buf);
+    // REAPER leaves slots it has no peaks for unwritten; zeroed, they read as
+    // silence rather than heap contents if anything ever reads one.
+    @memset(reaper_buf, 0);
 
     // GetMediaItemTake_Peaks
     const result = api.getMediaItemTakePeaks(
@@ -118,7 +120,6 @@ fn fetchItemPeaksViaTakePeaksAPI(
     // Allocate output buffers
     const data_size = peaks_to_use * actual_channels;
     const peak_min = allocator.alloc(f64, data_size) catch return null;
-    errdefer allocator.free(peak_min);
 
     const peak_max = allocator.alloc(f64, data_size) catch {
         allocator.free(peak_min);
@@ -129,9 +130,11 @@ fn fetchItemPeaksViaTakePeaksAPI(
 
     // Copy from REAPER buffer to our format
     // REAPER writes request_channels (always 2), we extract actual_channels (1 or 2)
-    // Use actual_peaks (not num_peaks) for min block offset — REAPER only writes
-    // actual_peaks worth of data, so the min block starts at actual_peaks * request_channels.
-    const reaper_block_size = actual_peaks * request_channels;
+    // The min block starts at num_peaks * request_channels, the count asked for,
+    // even when REAPER returns fewer peaks (an item past its audio, loop off);
+    // the slots between the returned maxes and the min block stay unwritten.
+    // Measured on REAPER 6.0 and 7.83 on Linux (harness: peaks-item-past-its-source-end-matches-reaper).
+    const reaper_block_size = num_peaks * request_channels;
     for (0..peaks_to_use) |p| {
         for (0..actual_channels) |ch| {
             const dst_idx = p * actual_channels + ch;
@@ -419,4 +422,65 @@ pub fn generateTilesForSubscriptionBinary(
     // Shrink to actual size
     const result = allocator.realloc(buf, offset) catch buf;
     return result[0..offset];
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+const mock = @import("../reaper/mock/mod.zig");
+const mock_state = @import("../reaper/mock/state.zig");
+const mockPeak = @import("../reaper/mock/tracks.zig").TracksMethods.mockPeak;
+
+fn expectPeaksMatchMock(result: *const ItemPeaksResult, num_peaks: usize, channels: usize) !void {
+    try std.testing.expectEqual(num_peaks, result.num_peaks);
+    try std.testing.expectEqual(channels, result.channels);
+    for (0..num_peaks) |p| {
+        for (0..channels) |ch| {
+            const i = p * channels + ch;
+            try std.testing.expectEqual(mockPeak(p, ch), result.peak_max[i]);
+            try std.testing.expectEqual(-mockPeak(p, ch), result.peak_min[i]);
+        }
+    }
+}
+
+test "an item past its audio gets REAPER's minimums, read where REAPER writes them for the count asked for" {
+    var api = mock.MockBackend{};
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].position = 1.0;
+    api.tracks[0].items[0].length = 12.0;
+    api.tracks[0].items[0].take_count = 1;
+    api.tracks[0].items[0].takes[0].audio_length = 8.0;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+
+    // 120 peaks asked for, 80 returned: the minimums start 240 slots in, not 160.
+    var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 1.0, 12.0, 10.0).?;
+    defer result.deinit();
+    try expectPeaksMatchMock(&result, 80, 2);
+}
+
+test "a mono item past its audio gets its channel's minimums out of REAPER's two-channel layout" {
+    var api = mock.MockBackend{};
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].length = 3.0;
+    api.tracks[0].items[0].take_count = 1;
+    api.tracks[0].items[0].takes[0].channel_count = 1;
+    api.tracks[0].items[0].takes[0].audio_length = 1.0;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+
+    var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 0.0, 3.0, 64.0).?;
+    defer result.deinit();
+    try expectPeaksMatchMock(&result, 64, 1);
+}
+
+test "an item whose audio covers it gets every peak asked for" {
+    var api = mock.MockBackend{};
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].length = 2.0;
+    api.tracks[0].items[0].take_count = 1;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+
+    var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 0.0, 2.0, 16.0).?;
+    defer result.deinit();
+    try expectPeaksMatchMock(&result, 32, 2);
 }

@@ -1256,6 +1256,7 @@ test {
     _ = @import("server/hello_deadline_test.zig");
     _ = @import("server/gesture_state.zig");
     _ = @import("subscriptions/toggle_subscriptions.zig");
+    _ = @import("subscriptions/peaks_generator.zig");
     _ = @import("server/subscription_polling.zig");
     _ = @import("server/tcp_nodelay_test.zig");
     _ = @import("server/socket_options.zig");

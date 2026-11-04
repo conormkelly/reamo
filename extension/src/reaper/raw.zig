@@ -2209,9 +2209,13 @@ pub const Api = struct {
 
     /// Get waveform peaks for a take
     /// peakrate: peaks per second (e.g., item_duration/desired_peaks)
-    /// starttime/numchannels: usually 0 and source channel count
+    /// starttime: project time of the first peak
+    /// numchannels: channels to return, interleaved in each block
     /// numsamplesperchannel: number of peak samples to get
     /// buf: buffer for peak data (needs numchannels * numsamplesperchannel * 2 floats for min+max)
+    /// Layout: the maxes, channel-interleaved, then the mins starting at
+    /// numchannels * numsamplesperchannel, even when fewer peaks are returned
+    /// (the slots between stay unwritten).
     /// Returns: sample_count in low 20 bits, mode in bits 20-23 (0=not yet ready, use previous)
     /// Returns -1 if function pointer not loaded (API unavailable)
     pub fn getMediaItemTakePeaks(self: *const Api, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, numsamplesperchannel: c_int, buf: []f64) c_int {
