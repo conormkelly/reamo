@@ -80,6 +80,10 @@ export function Fader({
     (e: React.MouseEvent | React.TouchEvent) => {
       // Ignore input when mixer is locked
       if (mixerLocked) return;
+      // A row whose track was deleted during a hold takes no input: no drag
+      // and no double-tap reset, as its GUID resolves to no track.
+      const isRemoved = (lockedGuid: string) => useReaperStore.getState().removedHeldTrackGuids.has(lockedGuid);
+      if (guid && isRemoved(guid)) return;
 
       // Check for double-tap
       const now = Date.now();
@@ -106,12 +110,6 @@ export function Fader({
       // with it guid, still shows the track the earlier drag held.
       const releaseLayout = useReaperStore.getState().holdTrackLayout();
       cleanupRef.current?.();
-      const isRemoved = (lockedGuid: string) => useReaperStore.getState().removedHeldTrackGuids.has(lockedGuid);
-      if (isRemoved(guid)) {
-        // The row's track was deleted during the hold: there is nothing to drag.
-        releaseLayout();
-        return;
-      }
       setIsDragging(true);
 
       // Lock GUID at gesture start - use this for ALL commands during gesture
@@ -186,7 +184,7 @@ export function Fader({
         try {
           stopListening();
           setIsDragging(false);
-        setIsFineMode(false);
+          setIsFineMode(false);
           setDraggedGuid(null);
           dragStartRef.current = null;
           // Signal gesture end with locked GUID - triggers undo point creation.

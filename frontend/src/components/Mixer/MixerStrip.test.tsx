@@ -171,6 +171,31 @@ describe('MixerStrip while its fader is dragged', () => {
     }
   );
 
+  it.each([
+    ['fader', 'Volume - double-tap to reset to 0dB'],
+    ['pan control', 'Pan - double-tap to center'],
+  ])('a double-tap on a deleted track\'s greyed %s sends nothing', (_what, title) => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      const { strip } = renderStripAt2();
+      const control = within(strip).getByTitle(title);
+      fireEvent.touchStart(control, { touches: [{ clientX: 10, clientY: 8 }] });
+      handle(tracksEvent([MASTER, DRUMS, KEYS]));
+      handle(skeletonEvent([MASTER, DRUMS, KEYS]));
+      expect(control).toHaveAttribute('aria-disabled', 'true');
+
+      // The second tap of a double-tap, inside its 300 ms.
+      now.mockReturnValue(1_100);
+      sendCommand.mockClear();
+      fireEvent.touchStart(control, { touches: [{ clientX: 10, clientY: 8 }] });
+
+      expect(sendCommand).not.toHaveBeenCalled();
+      fireEvent.touchEnd(document);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('a new press on a deleted track\'s greyed fader mid-hold sends nothing', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
     try {
