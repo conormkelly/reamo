@@ -9,8 +9,9 @@
  * more.
  *
  * Runs against a fake extension over a routed WebSocket: it pushes the
- * track events a test asks for and records the volume and gesture commands
- * the page sends.
+ * track events a test asks for, sends each tracks event for the page's
+ * current track subscription as the extension does, and records the volume
+ * and gesture commands the page sends.
  */
 
 import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
@@ -34,14 +35,51 @@ interface FakeReaper {
   sent: Sent[];
   /** Sends REAPER's track list as both a skeleton and a tracks event. */
   setTracks: (rows: Row[]) => void;
+  /** Sets a track's volume in REAPER and sends the tracks event. */
+  setVolume: (guid: string, volume: number) => void;
+}
+
+interface Subscription {
+  range?: { start: number; end: number };
+  guids?: string[];
+  extraGuids?: string[];
+  includeMaster?: boolean;
+}
+
+/** Whether the extension sends the track at idx to a page with this subscription. */
+function subscribed(sub: Subscription | null, row: Row, idx: number): boolean {
+  if (!sub) return false;
+  if (sub.includeMaster && row.g === 'master') return true;
+  if (sub.extraGuids?.includes(row.g)) return true;
+  if (sub.guids) return sub.guids.includes(row.g);
+  return !!sub.range && idx >= sub.range.start && idx <= sub.range.end;
 }
 
 async function installFakeReaper(page: Page): Promise<FakeReaper> {
   const sent: Sent[] = [];
   let socket: WebSocketRoute | null = null;
   let current: Row[] = [MASTER, DRUMS, BASS, KEYS];
+  let subscription: Subscription | null = null;
+  const volumes = new Map<string, number>();
 
   const send = (msg: unknown) => socket?.send(JSON.stringify(msg));
+  const pushTracksEvent = () => {
+    send({
+      type: 'event',
+      event: 'tracks',
+      payload: {
+        total: current.length - 1,
+        tracks: current
+          .map((r, idx) => ({ r, idx }))
+          .filter(({ r, idx }) => subscribed(subscription, r, idx))
+          .map(({ r, idx }) => ({
+            idx, g: r.g, name: r.name, color: 0, volume: volumes.get(r.g) ?? 1.0, pan: 0,
+            mute: false, solo: 0, recArm: false, recMon: 0, fxEnabled: true, selected: false,
+            fxCount: 0, sendCount: 0, receiveCount: 0, hwOutCount: 0,
+          })),
+      },
+    });
+  };
   const pushTracks = () => {
     send({
       type: 'event',
@@ -53,18 +91,7 @@ async function installFakeReaper(page: Page): Promise<FakeReaper> {
         })),
       },
     });
-    send({
-      type: 'event',
-      event: 'tracks',
-      payload: {
-        total: current.length - 1,
-        tracks: current.map((r, idx) => ({
-          idx, g: r.g, name: r.name, color: 0, volume: 1.0, pan: 0,
-          mute: false, solo: 0, recArm: false, recMon: 0, fxEnabled: true, selected: false,
-          fxCount: 0, sendCount: 0, receiveCount: 0, hwOutCount: 0,
-        })),
-      },
-    });
+    pushTracksEvent();
   };
 
   await page.routeWebSocket(/\/ws$/, (ws: WebSocketRoute) => {
@@ -82,6 +109,10 @@ async function installFakeReaper(page: Page): Promise<FakeReaper> {
       }
       if (msg.type !== 'command') return;
       const command = msg.command as string;
+      if (command === 'track/subscribe') {
+        subscription = msg as Subscription;
+        pushTracksEvent();
+      }
       if (RECORDED.has(command)) {
         sent.push({ command, trackGuid: msg.trackGuid as string | undefined });
       }
@@ -95,6 +126,10 @@ async function installFakeReaper(page: Page): Promise<FakeReaper> {
     setTracks: (rows) => {
       current = rows;
       pushTracks();
+    },
+    setVolume: (guid, volume) => {
+      volumes.set(guid, volume);
+      pushTracksEvent();
     },
   };
 }
@@ -226,5 +261,33 @@ test.describe('Mixer drag holds the track layout, touch', () => {
     await expect(nameAt(page, 2)).toHaveText('Drums');
     await settle(page);
     expect(fake.sent.filter((s) => s.command === 'gesture/end')).toEqual([{ command: 'gesture/end', trackGuid: '{BASS}' }]);
+  });
+});
+
+test.describe('Mixer drag holds the track layout, tablet', () => {
+  // A portrait tablet: every track fits in one bank, so the last is on screen.
+  test.use({ viewport: { width: 768, height: 1024 } });
+
+  test('the last track keeps receiving its values when an insert above moves it past the subscribed range', async ({ page }) => {
+    const fake = await installFakeReaper(page);
+    await openMixer(page);
+    await expect(nameAt(page, 3)).toHaveText('Keys');
+
+    const at = await centre(faderAt(page, 3));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    // Keys moves from index 3, the last, to 4.
+    fake.setTracks([MASTER, NEW, DRUMS, BASS, KEYS]);
+    await settle(page);
+    fake.setVolume('{KEYS}', 0.5);
+
+    await expect(nameAt(page, 3)).toHaveText('Keys');
+    await expect(stripAt(page, 3)).toContainText('-6.02 dB');
+    await page.mouse.up();
+
+    // The release subscribes the index range again: the new track arrives.
+    await expect(nameAt(page, 1)).toHaveText('New track');
+    await expect(nameAt(page, 4)).toHaveText('Keys');
+    await expect(stripAt(page, 4)).toContainText('-6.02 dB');
   });
 });

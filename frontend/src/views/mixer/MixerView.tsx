@@ -502,14 +502,37 @@ export function MixerView(): ReactElement {
     }
   }, [infoSelectedTrackIdx, infoSelectedTrackGuid, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd]);
 
+  // While a drag holds the track layout, each strip on screen keeps the
+  // track it showed, but REAPER may have moved that track out of the
+  // subscribed index range (an insert above the last track does). Those
+  // tracks are subscribed by GUID until the hold ends, so their values keep
+  // arriving. Keyed by a string so the list changes only when the GUIDs do.
+  const layoutHeld = useReaperStore((s) => s.trackLayoutHolds > 0);
+  const heldGuidsKey = layoutHeld
+    ? displayTrackIndices.map((i) => tracks[i]?.guid ?? '').filter(Boolean).join('\n')
+    : '';
+  const heldGuids = useMemo(
+    (): readonly string[] => (heldGuidsKey ? heldGuidsKey.split('\n') : EMPTY_STRING_ARRAY),
+    [heldGuidsKey]
+  );
+
   // Subscribe to tracks - range mode for unfiltered, GUID mode for filtered
+  // or for the strips on screen while the layout is held
   // When master is pinned, explicitly include it (it's outside the bank range)
   // When master is not pinned, it's included in the range naturally when on first banks
   // extraGuids keeps info-selected track subscribed even when paged out
   useEffect(() => {
     if (totalTracks === 0) return;
 
-    if (isFiltered) {
+    if (!isFiltered && heldGuids.length > 0) {
+      sendCommand(
+        track.subscribe({
+          guids: heldGuids,
+          extraGuids: extraGuidsForInfoTrack.length > 0 ? extraGuidsForInfoTrack : undefined,
+          includeMaster: pinMasterTrack,
+        })
+      );
+    } else if (isFiltered) {
       // Filtered: subscribe to specific GUIDs (scattered tracks)
       if (filteredGuidsToSubscribe.length > 0) {
         sendCommand(
@@ -530,7 +553,7 @@ export function MixerView(): ReactElement {
         })
       );
     }
-  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, extraGuidsForInfoTrack, prefetchStart, prefetchEnd, totalTracks, pinMasterTrack]);
+  }, [sendCommand, isFiltered, filteredGuidsToSubscribe, heldGuids, extraGuidsForInfoTrack, prefetchStart, prefetchEnd, totalTracks, pinMasterTrack]);
 
   // Check if we have data for a track
   const hasTrackData = (trackIndex: number): boolean => {
