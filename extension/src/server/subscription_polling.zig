@@ -97,8 +97,11 @@ pub fn pollPeaksSubscriptions(
     var indices_buf: [128]c_int = undefined;
     const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, &indices_buf);
 
-    // Check if any track has epoch changes (audio source modified); that goes to
-    // every client. Skipped on a forced tick, as before: the next tick sees it.
+    // Check every subscribed track for a change (items, or a take's audio
+    // source); that goes to every client. Every track, not just up to the
+    // first change: trackChanged also drops a changed take's stale tiles,
+    // which the broadcast below must not send. Skipped on a forced tick: the
+    // next tick sees it.
     var any_track_changed = false;
     if (!any_forced) {
         for (subscribed_indices) |track_idx| {
@@ -108,13 +111,13 @@ pub fn pollPeaksSubscriptions(
             const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
             if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
                 any_track_changed = true;
-                break;
             }
         }
     }
 
-    // A change goes to every client, rate-limited; forced per-client sends
-    // bypass the limit, as initial data always did.
+    // A change goes to every client, rate-limited; one the limit holds back
+    // goes out on the first tick it allows. Forced per-client sends bypass
+    // the limit, as initial data always did.
     const now_ms = std.time.milliTimestamp();
     var send_change = false;
     if (any_forced) {

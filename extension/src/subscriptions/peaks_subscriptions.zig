@@ -158,6 +158,11 @@ pub const PeaksSubscriptions = struct {
     /// milliseconds, for the change-broadcast rate limit.
     last_broadcast_ms: i64 = 0,
 
+    /// A track change the rate limit held back, still owed to every client.
+    /// TileCache.trackChanged has already stored the change, so no later
+    /// check finds it again: this flag is all that remembers it.
+    change_pending: bool = false,
+
     /// Shortest gap between a send and a change broadcast after it.
     pub const CHANGE_BROADCAST_INTERVAL_MS: i64 = 100;
 
@@ -541,12 +546,17 @@ pub const PeaksSubscriptions = struct {
     }
 
     /// Whether this tick sends a track change to every client. `changed`:
-    /// this tick's check found one. Says no within
-    /// CHANGE_BROADCAST_INTERVAL_MS of the last send; on yes, records the
-    /// send.
+    /// this tick's check found one. Within CHANGE_BROADCAST_INTERVAL_MS of
+    /// the last send it says no and holds the change; the first tick the
+    /// limit allows says yes, whether or not that tick found anything new.
+    /// On yes, records the send.
     pub fn changeBroadcastDue(self: *PeaksSubscriptions, changed: bool, now_ms: i64) bool {
-        if (!changed) return false;
-        if (now_ms - self.last_broadcast_ms < CHANGE_BROADCAST_INTERVAL_MS) return false;
+        if (!changed and !self.change_pending) return false;
+        if (now_ms - self.last_broadcast_ms < CHANGE_BROADCAST_INTERVAL_MS) {
+            self.change_pending = true;
+            return false;
+        }
+        self.change_pending = false;
         self.last_broadcast_ms = now_ms;
         return true;
     }
