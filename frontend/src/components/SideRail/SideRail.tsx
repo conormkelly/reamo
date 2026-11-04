@@ -67,7 +67,7 @@ export function SideRail({ currentView, onViewChange, className = '' }: SideRail
   const hiddenViews = useReaperStore((s) => s.hiddenViews);
   const viewOrder = useReaperStore((s) => s.viewOrder);
   const visibleViews = viewOrder.filter(v => !hiddenViews.includes(v));
-  const { pointerHandlers, recordMode, isRecording } = useRecordButton();
+  const { handlers: recordHandlers, recordMode, isRecording } = useRecordButton();
 
   // Transport handlers
   const handlePlay = () => sendCommand(play());
@@ -154,7 +154,7 @@ export function SideRail({ currentView, onViewChange, className = '' }: SideRail
 
         {/* Record - with long-press for record mode cycling */}
         <button
-          {...pointerHandlers}
+          {...recordHandlers}
           className={`
             w-10 h-10 rounded-full flex items-center justify-center transition-colors touch-none
             ${isRecording ? 'bg-record animate-pulse' : recordInactiveClass}
