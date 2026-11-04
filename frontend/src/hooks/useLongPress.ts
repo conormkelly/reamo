@@ -1,14 +1,26 @@
 /**
  * useLongPress Hook
- * Detects tap and long-press gestures with configurable duration
+ * Tells a tap from a long press, for mouse, touch and pen alike.
+ *
+ * Only pointer events drive it: they report each press once, where the mouse
+ * events a browser emulates after a touch would report it a second time.
+ *
+ * A press is a tap when it is released before the long press fires, and a
+ * long press when it is held still for `duration`. Either way it counts only
+ * while the pointer stays put: a press ends with neither when the pointer
+ * moves more than a few pixels (a scroll or drag, not a hold), when the
+ * browser cancels it (it took the touch over for a scroll), when the pointer
+ * leaves the element, when another press begins, or when the element unmounts.
+ * A right-button press, or a mouse Ctrl+click on macOS, opens the context
+ * menu, so it is neither.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 export interface UseLongPressOptions {
-  /** Callback when tap (short press) is detected */
+  /** Called when a press is released before it becomes a long press */
   onTap?: () => void;
-  /** Callback when long press is detected */
+  /** Called when a press is held still for `duration` */
   onLongPress?: () => void;
   /** Duration in ms before long press triggers (default: 400) */
   duration?: number;
@@ -17,12 +29,22 @@ export interface UseLongPressOptions {
 export interface UseLongPressResult {
   /** Event handlers to spread onto the element */
   handlers: {
-    onMouseDown: (e: React.MouseEvent) => void;
-    onMouseUp: () => void;
-    onMouseLeave: () => void;
-    onTouchStart: (e: React.TouchEvent) => void;
-    onTouchEnd: () => void;
+    onPointerDown: (e: React.PointerEvent) => void;
+    onPointerMove: (e: React.PointerEvent) => void;
+    onPointerUp: (e: React.PointerEvent) => void;
+    onPointerCancel: (e: React.PointerEvent) => void;
+    onPointerLeave: (e: React.PointerEvent) => void;
   };
+}
+
+/** How far, in CSS px, a press may drift and still count as holding still. */
+const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+interface Press {
+  pointerId: number;
+  x: number;
+  y: number;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -44,107 +66,86 @@ export function useLongPress({
   onLongPress,
   duration = 400,
 }: UseLongPressOptions): UseLongPressResult {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTriggeredRef = useRef(false);
-  const isTouchRef = useRef(false);
+  // The press under way; null when there is none, or once it has ended in a
+  // long press or been cancelled.
+  const pressRef = useRef<Press | null>(null);
 
-  const start = useCallback(
-    (isTouch: boolean) => {
-      // If this is a mouse event but we just had a touch, ignore it
-      // (synthesized mouse events come after touch events)
-      if (!isTouch && isTouchRef.current) return;
-
-      isTouchRef.current = isTouch;
-      longPressTriggeredRef.current = false;
-
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-
-      if (onLongPress) {
-        timeoutRef.current = setTimeout(() => {
-          longPressTriggeredRef.current = true;
-          onLongPress();
-        }, duration);
-      }
-    },
-    [onLongPress, duration]
-  );
-
-  const end = useCallback(
-    (isTouch: boolean) => {
-      // Ignore mouse events if we're in a touch interaction
-      if (!isTouch && isTouchRef.current) return;
-
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-
-      // If long press didn't trigger, it's a tap
-      if (!longPressTriggeredRef.current && onTap) {
-        onTap();
-      }
-
-      // Reset touch flag after a delay to block synthesized mouse events
-      if (isTouch) {
-        setTimeout(() => {
-          isTouchRef.current = false;
-        }, 300);
-      }
-    },
-    [onTap]
-  );
+  // The callbacks of the latest render: they read state, such as the mixer
+  // lock, that can change while a press is held.
+  const latest = useRef({ onTap, onLongPress, duration });
+  useLayoutEffect(() => {
+    latest.current = { onTap, onLongPress, duration };
+  });
 
   const cancel = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    longPressTriggeredRef.current = false;
-    isTouchRef.current = false;
+    const press = pressRef.current;
+    if (press?.timer) clearTimeout(press.timer);
+    pressRef.current = null;
   }, []);
 
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      start(false);
-    },
-    [start]
-  );
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Each press starts afresh.
+      cancel();
+      const opensMenu = e.button !== 0 || (e.ctrlKey && e.pointerType === 'mouse');
+      if (opensMenu) return;
 
-  const onMouseUp = useCallback(() => {
-    end(false);
-  }, [end]);
-
-  const onTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault();
-      start(true);
-    },
-    [start]
-  );
-
-  const onTouchEnd = useCallback(() => {
-    end(true);
-  }, [end]);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+      const press: Press = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, timer: null };
+      if (latest.current.onLongPress) {
+        press.timer = setTimeout(() => {
+          if (pressRef.current !== press) return;
+          pressRef.current = null;
+          latest.current.onLongPress?.();
+        }, latest.current.duration);
       }
-    };
-  }, []);
-
-  return {
-    handlers: {
-      onMouseDown,
-      onMouseUp,
-      onMouseLeave: cancel,
-      onTouchStart,
-      onTouchEnd,
+      pressRef.current = press;
     },
-  };
+    [cancel]
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const press = pressRef.current;
+      if (!press || e.pointerId !== press.pointerId) return;
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) {
+        cancel();
+      }
+    },
+    [cancel]
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const press = pressRef.current;
+      if (!press || e.pointerId !== press.pointerId) return;
+      cancel();
+      // A release can move the pointer without a pointermove before it.
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) return;
+      latest.current.onTap?.();
+    },
+    [cancel]
+  );
+
+  const onPointerEnd = useCallback(
+    (e: React.PointerEvent) => {
+      if (pressRef.current?.pointerId === e.pointerId) cancel();
+    },
+    [cancel]
+  );
+
+  // A hold still running when the element leaves the page is abandoned.
+  useEffect(() => cancel, [cancel]);
+
+  const handlers = useMemo(
+    () => ({
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onPointerCancel: onPointerEnd,
+      onPointerLeave: onPointerEnd,
+    }),
+    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd]
+  );
+
+  return { handlers };
 }
