@@ -789,6 +789,43 @@ test "force broadcast is per client: one client's viewport change doesn't regene
     try std.testing.expect(!subs.anyForceBroadcast());
 }
 
+test "a track change found inside the rate limit goes out on the first tick the limit allows" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const gap = PeaksSubscriptions.CHANGE_BROADCAST_INTERVAL_MS;
+
+    // A change outside the limit goes out at once.
+    try std.testing.expect(subs.changeBroadcastDue(true, 1000));
+    // The next change is found 50 ms later, inside the limit: held back.
+    try std.testing.expect(!subs.changeBroadcastDue(true, 1050));
+    // The track's hash already holds that change, so later ticks find
+    // nothing new; the held change must still go out once the limit allows.
+    try std.testing.expect(!subs.changeBroadcastDue(false, 1000 + gap - 1));
+    try std.testing.expect(subs.changeBroadcastDue(false, 1000 + gap));
+    // Once.
+    try std.testing.expect(!subs.changeBroadcastDue(false, 1000 + 3 * gap));
+}
+
+test "a track change held behind a forced send goes out after it" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+    const gap = PeaksSubscriptions.CHANGE_BROADCAST_INTERVAL_MS;
+
+    // A forced send to one client at 1000, as the poll records it.
+    subs.last_broadcast_ms = 1000;
+    try std.testing.expect(!subs.changeBroadcastDue(true, 1033));
+    try std.testing.expect(subs.changeBroadcastDue(false, 1000 + gap));
+}
+
+test "no track change, no change broadcast" {
+    var subs = PeaksSubscriptions.init(std.testing.allocator);
+    defer subs.deinit();
+
+    try std.testing.expect(!subs.changeBroadcastDue(false, 1000));
+    try std.testing.expect(!subs.changeBroadcastDue(false, 5000));
+    try std.testing.expectEqual(@as(i64, 0), subs.last_broadcast_ms);
+}
+
 test "activeSubscriptions iterator" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
