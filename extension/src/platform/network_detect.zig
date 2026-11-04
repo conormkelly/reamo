@@ -67,7 +67,13 @@ fn isInSubnet(ip: [4]u8, net_a: u8, net_b: u8, net_c: u8, prefix_len: u5) bool {
     return (ip_val & mask) == (net_val & mask);
 }
 
-/// Check if IP is a private address (RFC 1918 + CGNAT)
+/// 169.254.0.0/16: an address an adapter gives itself (RFC 3927).
+fn isLinkLocal(ip: [4]u8) bool {
+    return ip[0] == 169 and ip[1] == 254;
+}
+
+/// Check if IP is one REAmo counts as LAN: RFC 1918, CGNAT (100.64/10),
+/// link-local (169.254/16) and 192.0.0/24
 fn isPrivateIP(ip: [4]u8) bool {
     // 10.0.0.0/8
     if (ip[0] == 10) return true;
@@ -77,8 +83,7 @@ fn isPrivateIP(ip: [4]u8) bool {
     if (ip[0] == 192 and ip[1] == 168) return true;
     // 100.64.0.0/10 (CGNAT)
     if (ip[0] == 100 and (ip[1] >= 64 and ip[1] <= 127)) return true;
-    // 169.254.0.0/16 (link-local)
-    if (ip[0] == 169 and ip[1] == 254) return true;
+    if (isLinkLocal(ip)) return true;
     // 192.0.0.0/24 (iOS 17+ hotspot uses this - technically IETF documentation space)
     if (ip[0] == 192 and ip[1] == 0 and ip[2] == 0) return true;
     return false;
@@ -127,14 +132,19 @@ pub fn detectOrdered(buf: []NetworkInfo) usize {
 
 /// Order networks to offer the likeliest one first: USB tethering (a cable
 /// is the surest link at a venue), then `route`, the address this computer
-/// reaches other networks from, then every other address. Each group keeps
-/// the order the OS listed it in. The default route matters because the OS
-/// lists virtual adapters (VirtualBox, Hyper-V, Docker, VPNs) beside the real
-/// one, in no useful order, and a phone can't reach them.
+/// reaches other networks from, then every other address, then link-local
+/// ones (169.254/16), even the default route's. Each group keeps the order
+/// the OS listed it in. The default route matters because the OS lists
+/// virtual adapters (VirtualBox, Hyper-V, Docker, VPNs) beside the real one,
+/// in no useful order, and a phone can't reach them. A link-local address is
+/// what an adapter gives itself when no DHCP server answers (Windows can list
+/// such an adapter first when there's no default route), so it's rarely the
+/// one a phone is on; it stays in the list, last.
 pub fn order(networks: []NetworkInfo, route: ?[4]u8) void {
     std.sort.insertion(NetworkInfo, networks, route, struct {
         fn rank(r: ?[4]u8, n: NetworkInfo) u2 {
             if (n.network_type != .wifi_lan) return 0;
+            if (isLinkLocal(n.ip)) return 3;
             if (r) |ip| if (std.mem.eql(u8, &ip, &n.ip)) return 1;
             return 2;
         }
@@ -483,6 +493,57 @@ test "order keeps the OS's order without a default route, or when it's from no l
     networks = listed;
     order(&networks, .{ 81, 2, 3, 4 });
     try expectOrder(&networks, &os_order);
+}
+
+test "order offers a link-local address last when there's no default route" {
+    // A Windows adapter with no DHCP answer (APIPA), listed by the OS first.
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 169, 254, 10, 20 }, "Ethernet 2"),
+        testNetwork(.{ 192, 168, 1, 18 }, "Wi-Fi"),
+        testNetwork(.{ 169, 254, 0, 1 }, "Ethernet 3"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+    };
+    order(&networks, null);
+    try expectOrder(&networks, &.{
+        .{ 192, 168, 1, 18 }, .{ 192, 168, 56, 1 }, .{ 169, 254, 10, 20 }, .{ 169, 254, 0, 1 },
+    });
+}
+
+test "order offers a link-local address after the default route's and USB tethering's" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 169, 254, 10, 20 }, "Ethernet 2"),
+        testNetwork(.{ 192, 168, 1, 18 }, "Wi-Fi"),
+        testNetwork(.{ 172, 20, 10, 2 }, "iPhone USB"),
+    };
+    order(&networks, .{ 192, 168, 1, 18 });
+    try expectOrder(&networks, &.{ .{ 172, 20, 10, 2 }, .{ 192, 168, 1, 18 }, .{ 169, 254, 10, 20 } });
+}
+
+test "order offers a link-local address last even when the default route is from it" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 169, 254, 10, 20 }, "Ethernet 2"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+    };
+    order(&networks, .{ 169, 254, 10, 20 });
+    try expectOrder(&networks, &.{ .{ 192, 168, 56, 1 }, .{ 169, 254, 10, 20 } });
+}
+
+test "order puts USB tethering first and a cabled phone's link-local address after other LAN addresses" {
+    // A cabled phone without Personal Hotspot or USB tethering only gets a
+    // link-local address; the USB tier goes by subnet, so it isn't in it.
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 169, 254, 30, 40 }, "iPhone USB"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 192, 168, 42, 65 }, "Android USB"),
+    };
+    order(&networks, null);
+    try expectOrder(&networks, &.{ .{ 192, 168, 42, 65 }, .{ 192, 168, 56, 1 }, .{ 169, 254, 30, 40 } });
+}
+
+test "order still offers a link-local address when it's the only one" {
+    var networks = [_]NetworkInfo{testNetwork(.{ 169, 254, 10, 20 }, "Ethernet 2")};
+    order(&networks, null);
+    try expectOrder(&networks, &.{.{ 169, 254, 10, 20 }});
 }
 
 test "utf16ToUtf8Prefix keeps a whole adapter name and cuts a long one between characters" {
