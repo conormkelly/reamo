@@ -10,7 +10,8 @@ as soon as the limit allows, not wait for some later edit or a scroll.
 - two tracks' takes edited 50 ms apart.
 
 After each pair the phone's latest tiles for both takes must match
-REAPER's own peaks.
+REAPER's own peaks. Before the edits, subscribing sends the phone one
+frame: the change check meeting the tracks for the first time adds none.
 """
 import time
 
@@ -67,6 +68,10 @@ def edit_pair(first, second, delay):
 with Client() as c:
     c.wait_event("items")
     pk.subscribe_all(c)
+    # Subscribing sends the phone its tiles once. The tracks are new to
+    # REAmo's change check, but that is no change to send anyone.
+    c.drain(1.0)
+    assert len(c.binary) == 1, f"{len(c.binary)} peaks frames after one subscribe"
     bad, evidence = [], {}
     for label, first, second, delay, after in PAIRS:
         # A quiet second first, so the first edit's frame isn't itself held

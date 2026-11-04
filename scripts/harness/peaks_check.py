@@ -69,10 +69,9 @@ def wait_tiles(client, n=0, timeout=3.0, settle=0.5):
 
 
 def drain_until_quiet(client, quiet=1.0, timeout=10.0):
-    """Read until no peaks frame has arrived for `quiet` seconds. After a
-    subscribe, REAmo meets each subscribed track for the first time on a
-    later tick and may send a frame for it; an edit made before those stop
-    can't tell its own frame from theirs."""
+    """Read until no peaks frame has arrived for `quiet` seconds, so a frame
+    still on its way (a held-back change goes out up to 100 ms late) can't
+    be taken for the next edit's."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         n = len(client.binary)
