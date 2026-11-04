@@ -9,7 +9,7 @@ pub fn handleMarkerAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("INVALID_POSITION", "Position must be a non-negative number");
         return;
     };
-    const color = cmd.getInt("color") orelse 0;
+    const color = (cmd.getIntStrict("color") catch return response.err("INVALID_PARAMS", "color must be an integer")) orelse 0;
 
     const name = mod.resolveNameZ(cmd.getTextAlloc("name", std.heap.c_allocator) catch null, "") catch {
         response.err("ALLOC_FAILED", "Failed to read name");
@@ -69,7 +69,7 @@ pub fn handleMarkerUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     };
     defer std.heap.c_allocator.free(name);
 
-    const color = mod.markerColor(current_color, cmd.getInt("color"));
+    const color = mod.markerColor(current_color, cmd.getIntStrict("color") catch return response.err("INVALID_PARAMS", "color must be an integer"));
 
     api.undoBeginBlock();
     if (api.updateMarker(id, pos, name, color)) {

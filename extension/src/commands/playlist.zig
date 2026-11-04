@@ -133,7 +133,7 @@ pub fn handleAddEntry(api: anytype, cmd: protocol.CommandMessage, response: *mod
         return;
     };
 
-    const loop_count = cmd.getInt("loopCount") orelse 1;
+    const loop_count = (cmd.getIntStrict("loopCount") catch return response.err("INVALID_PARAMS", "loopCount must be an integer")) orelse 1;
     if (loop_count < -1) {
         response.err("INVALID_LOOP_COUNT", "loopCount must be -1 (infinite), 0 (skip) or a positive count");
         return;
@@ -145,7 +145,7 @@ pub fn handleAddEntry(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Optional atIdx for insert position
-    const entry_idx: usize = if (cmd.getInt("atIdx")) |at_idx| blk: {
+    const entry_idx: usize = if (cmd.getIntStrict("atIdx") catch return response.err("INVALID_PARAMS", "atIdx must be an integer")) |at_idx| blk: {
         if (at_idx < 0) {
             response.err("INVALID_IDX", "atIdx must be non-negative");
             return;
@@ -354,7 +354,7 @@ pub fn handleSetStopAfterLast(api: anytype, cmd: protocol.CommandMessage, respon
         return;
     };
 
-    const stop_after_last = cmd.getFlag("stopAfterLast") orelse {
+    const stop_after_last = (cmd.getFlag("stopAfterLast") catch return response.err("INVALID_PARAMS", "stopAfterLast must be a boolean")) orelse {
         response.err("MISSING_VALUE", "stopAfterLast is required (0 or 1)");
         return;
     };

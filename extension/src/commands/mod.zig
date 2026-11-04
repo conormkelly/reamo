@@ -111,6 +111,28 @@ pub fn inGesture(response: *const ResponseWriter, control: gesture_state.Control
 /// "unchanged": a black custom colour (RGB 0) clears to 1, which shows the
 /// theme's colour too, and one already showing it stays as it is (the UI
 /// sends 0 with every rename).
+/// An inclusive track index range.
+pub const IndexRange = struct { start: c_int, end: c_int };
+
+/// The `"range": {"start": int, "end": int}` parameter of a subscription:
+/// null when absent, error.Malformed when it isn't an object with integer
+/// start and end.
+pub fn getIndexRange(cmd: protocol.CommandMessage) error{Malformed}!?IndexRange {
+    const obj = try protocol.jsonGetObject(cmd.raw, "range") orelse return null;
+    return .{
+        .start = try protocol.jsonGetIntStrict(obj, "start") orelse return error.Malformed,
+        .end = try protocol.jsonGetIntStrict(obj, "end") orelse return error.Malformed,
+    };
+}
+
+/// Answer a GUID list parameter that couldn't be read.
+pub fn answerGuidListError(response: *ResponseWriter, comptime key: []const u8, comptime max_items: usize, err: protocol.ArrayError) void {
+    switch (err) {
+        error.TooManyItems => response.err("INVALID_PARAMS", std.fmt.comptimePrint("{s} holds more than {d} GUIDs", .{ key, max_items })),
+        error.Malformed => response.err("INVALID_PARAMS", key ++ " must be an array of GUID strings"),
+    }
+}
+
 pub fn markerColor(current: c_int, requested: ?c_int) c_int {
     const want = requested orelse return current;
     if (want != 0) return want;
@@ -549,4 +571,42 @@ test "markerColor clears only the custom flag to give the theme's colour back" {
     // A colour, or nothing sent.
     try std.testing.expectEqual(@as(c_int, 0x10000FF), markerColor(red, 0x10000FF));
     try std.testing.expectEqual(red, markerColor(red, null));
+}
+
+test "optional parameters that are present but malformed answer INVALID_PARAMS instead of taking their default" {
+    const mock = @import("../reaper/mock/mod.zig");
+    const inputs_cmds = @import("inputs.zig");
+    // Each case would act on its default (append, toggle, all channels...)
+    // if the malformed value were read as absent.
+    const cases = .{
+        .{ tempo_cmds.handleSnap, "{\"command\":\"tempo/snap\",\"time\":1,\"subdivision\":0.5}" },
+        .{ action_cmds.handleExecuteCommand, "{\"command\":\"action/execute\",\"commandId\":40001,\"sectionId\":0.5}" },
+        .{ action_cmds.handleExecuteByName, "{\"command\":\"action/executeByName\",\"name\":\"_X\",\"sectionId\":\"0\"}" },
+        .{ preferences_cmds.handleSetSeekSettings, "{\"command\":\"preferences/setSeekSettings\",\"measures\":2.5}" },
+        .{ preferences_cmds.handleSetSeekSettings, "{\"command\":\"preferences/setSeekSettings\",\"mode\":\"1\"}" },
+        .{ preferences_cmds.handleSetSeekSettings, "{\"command\":\"preferences/setSeekSettings\",\"enabled\":\"yes\"}" },
+        .{ repeat_cmds.handleSet, "{\"command\":\"repeat/set\",\"enabled\":0.5}" },
+        .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"raw\":1.5}" },
+        .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"inputType\":\"audio\",\"channel\":0,\"stereo\":\"true\"}" },
+        .{ inputs_cmds.handleSetInput, "{\"command\":\"track/setInput\",\"trackIdx\":1,\"inputType\":\"midi\",\"device\":0,\"channel\":2.5}" },
+        .{ track_cmds.handleSetMute, "{\"command\":\"track/setMute\",\"trackIdx\":1,\"mute\":\"1\"}" },
+        .{ track_cmds.handleSetSolo, "{\"command\":\"track/setSolo\",\"trackIdx\":1,\"solo\":1.5}" },
+        .{ track_cmds.handleSetRecArm, "{\"command\":\"track/setRecArm\",\"trackIdx\":1,\"arm\":null}" },
+        .{ track_cmds.handleSetRecMon, "{\"command\":\"track/setRecMon\",\"trackIdx\":1,\"mon\":\"2\"}" },
+        .{ track_cmds.handleSetFxEnabled, "{\"command\":\"track/setFxEnabled\",\"trackIdx\":1,\"enabled\":[1]}" },
+        .{ track_cmds.handleSetSelected, "{\"command\":\"track/setSelected\",\"trackIdx\":1,\"selected\":2.0}" },
+        .{ track_cmds.handleGetFx, "{\"command\":\"track/getFx\",\"trackIdx\":1,\"offset\":\"1\"}" },
+        .{ track_cmds.handleGetSends, "{\"command\":\"track/getSends\",\"trackIdx\":1,\"limit\":2.5}" },
+        .{ track_cmds.handleGetHwOutputs, "{\"command\":\"track/getHwOutputs\",\"trackIdx\":1,\"offset\":null}" },
+    };
+    var reply = TestReply{};
+    defer reply.deinit();
+    inline for (cases) |case| {
+        var m = mock.MockBackend{ .track_count = 1 };
+        testRunHandlerReply(&m, case[0], case[1], &reply);
+        std.testing.expectEqualStrings("INVALID_PARAMS", reply.errorCode() orelse "(no error)") catch |e| {
+            std.debug.print("reply to {s}:\n  {s}\n", .{ case[1], reply.json() });
+            return e;
+        };
+    }
 }

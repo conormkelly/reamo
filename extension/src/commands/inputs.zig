@@ -171,7 +171,7 @@ pub fn handleSetInput(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Check if raw value provided (bypass encoding)
-    if (cmd.getInt("raw")) |raw_value| {
+    if (cmd.getIntStrict("raw") catch return response.err("INVALID_PARAMS", "raw must be an integer")) |raw_value| {
         if (!api.setTrackRecInput(resolution.track, raw_value)) {
             response.err("SET_FAILED", "Failed to set track input");
             return;
@@ -196,9 +196,9 @@ pub fn handleSetInput(api: anytype, cmd: protocol.CommandMessage, response: *mod
             response.err("INVALID_PARAMS", "channel required for audio input");
             return;
         };
-        const stereo = cmd.getFlag("stereo") orelse false;
-        const multi = cmd.getFlag("multi") orelse false;
-        const rearoute = cmd.getFlag("rearoute") orelse false;
+        const stereo = (cmd.getFlag("stereo") catch return response.err("INVALID_PARAMS", "stereo must be a boolean")) orelse false;
+        const multi = (cmd.getFlag("multi") catch return response.err("INVALID_PARAMS", "multi must be a boolean")) orelse false;
+        const rearoute = (cmd.getFlag("rearoute") catch return response.err("INVALID_PARAMS", "rearoute must be a boolean")) orelse false;
 
         // Channel index occupies bits 0-8; bit 9 (REAROUTE_OFFSET) and up are flags.
         if (channel < 0 or channel >= REAROUTE_OFFSET) {
@@ -218,7 +218,7 @@ pub fn handleSetInput(api: anytype, cmd: protocol.CommandMessage, response: *mod
             response.err("INVALID_PARAMS", "device required for MIDI input (0-61, 62=VKB, 63=all)");
             return;
         };
-        const channel = cmd.getInt("channel") orelse 0; // 0 = all channels
+        const channel = (cmd.getIntStrict("channel") catch return response.err("INVALID_PARAMS", "channel must be an integer")) orelse 0; // 0 = all channels
 
         if (device < 0 or device > 63) {
             response.err("INVALID_PARAMS", "MIDI device must be 0-63");

@@ -177,7 +177,7 @@ pub fn handleItemLock(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Toggle lock state if no explicit value provided
-    const locked = cmd.getFlag("locked") orelse blk: {
+    const locked = (cmd.getFlag("locked") catch return response.err("INVALID_PARAMS", "locked must be a boolean")) orelse blk: {
         const current = api.getItemLocked(item_info.item) catch {
             response.err("CORRUPT_DATA", "Cannot read item lock state");
             return;
@@ -331,7 +331,7 @@ pub fn handleItemSelectNext(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_ITEM_IDX", "Item index required");
         return;
     };
-    const wrap = cmd.getFlag("wrap") orelse false;
+    const wrap = (cmd.getFlag("wrap") catch return response.err("INVALID_PARAMS", "wrap must be a boolean")) orelse false;
 
     const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");
@@ -410,7 +410,7 @@ pub fn handleItemSelectPrev(api: anytype, cmd: protocol.CommandMessage, response
         response.err("MISSING_ITEM_IDX", "Item index required");
         return;
     };
-    const wrap = cmd.getFlag("wrap") orelse false;
+    const wrap = (cmd.getFlag("wrap") catch return response.err("INVALID_PARAMS", "wrap must be a boolean")) orelse false;
 
     const track = api.getTrackByUnifiedIdx(track_idx) orelse {
         response.err("NOT_FOUND", "Track not found");

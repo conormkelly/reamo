@@ -19,7 +19,7 @@ pub fn handleRegionAdd(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("INVALID_POSITION", "Position must be a non-negative number of seconds in range");
         return;
     };
-    const color = cmd.getInt("color") orelse 0;
+    const color = (cmd.getIntStrict("color") catch return response.err("INVALID_PARAMS", "color must be an integer")) orelse 0;
 
     const name = mod.resolveNameZ(cmd.getTextAlloc("name", std.heap.c_allocator) catch null, "") catch {
         response.err("ALLOC_FAILED", "Failed to read name");
@@ -85,7 +85,7 @@ pub fn handleRegionUpdate(api: anytype, cmd: protocol.CommandMessage, response: 
     };
     defer std.heap.c_allocator.free(name);
 
-    const color = mod.markerColor(current_color, cmd.getInt("color"));
+    const color = mod.markerColor(current_color, cmd.getIntStrict("color") catch return response.err("INVALID_PARAMS", "color must be an integer"));
 
     api.undoBeginBlock();
     _ = api.updateRegion(id, start, end, name, color);
@@ -257,7 +257,7 @@ fn processUpdate(api: anytype, op_json: []const u8) OpResult {
     const name = mod.resolveNameZ(provided_name, current_name) catch return .{ .skipped = "out of memory" };
     defer std.heap.c_allocator.free(name);
 
-    const color = mod.markerColor(current_color, protocol.jsonGetInt(op_json, "color"));
+    const color = mod.markerColor(current_color, protocol.jsonGetIntStrict(op_json, "color") catch return .{ .skipped = "color must be an integer" });
     _ = api.updateRegion(id, start, end, name, color);
 
     return .success;
@@ -287,7 +287,7 @@ fn processCreate(api: anytype, op_json: []const u8) OpResult {
 
     const name = mod.resolveNameZ(protocol.jsonGetTextAlloc(op_json, "name", std.heap.c_allocator) catch null, "") catch return .{ .skipped = "out of memory" };
     defer std.heap.c_allocator.free(name);
-    const color = protocol.jsonGetInt(op_json, "color") orelse 0;
+    const color = (protocol.jsonGetIntStrict(op_json, "color") catch return .{ .skipped = "color must be an integer" }) orelse 0;
 
     const id = api.addRegion(start, end, name, color);
     if (id >= 0) {

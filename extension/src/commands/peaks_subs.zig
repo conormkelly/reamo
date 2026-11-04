@@ -13,6 +13,10 @@ const logging = @import("../core/logging.zig");
 const ViewportParams = peaks_subscriptions.PeaksSubscriptions.ViewportParams;
 
 /// Parse optional viewport from command: {"viewport": {"start": 0.0, "end": 30.0, "widthPx": 400}}
+/// Null, with no error of its own, for a viewport that isn't complete and
+/// valid. The phone can send a fractional widthPx (a measured CSS width), so
+/// peaks/subscribe then falls back to sampleCount and peaks/updateViewport
+/// answers INVALID_PARAMS.
 fn parseViewport(raw: []const u8) ?ViewportParams {
     const start = protocol.jsonGetFloatFromObject(raw, "viewport", "start") orelse return null;
     const end = protocol.jsonGetFloatFromObject(raw, "viewport", "end") orelse return null;
@@ -56,7 +60,9 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
     };
 
     // Parse sampleCount (optional, default 30, used as fallback when viewport not provided)
-    const sample_count: u32 = if (cmd.getInt("sampleCount")) |sc|
+    const sample_count_param = cmd.getIntStrict("sampleCount") catch
+        return response.err("INVALID_PARAMS", "sampleCount must be an integer");
+    const sample_count: u32 = if (sample_count_param) |sc|
         if (sc > 0 and sc <= 200) @intCast(sc) else 30
     else
         30;
@@ -70,12 +76,12 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
     }
 
     // Try range mode first
-    const start = protocol.jsonGetIntFromObject(cmd.raw, "range", "start");
-    const end = protocol.jsonGetIntFromObject(cmd.raw, "range", "end");
+    const range = mod.getIndexRange(cmd) catch
+        return response.err("INVALID_PARAMS", "range must be an object of integer start and end");
 
-    if (start != null and end != null) {
+    if (range) |r| {
         // Range mode with optional viewport
-        const count = subs.subscribeRangeWithViewport(response.client_id, start.?, end.?, sample_count, viewport) catch |err| {
+        const count = subs.subscribeRangeWithViewport(response.client_id, r.start, r.end, sample_count, viewport) catch |err| {
             switch (err) {
                 error.TooManyClients => response.err("TOO_MANY_CLIENTS", "Maximum client limit reached"),
             }
@@ -102,7 +108,7 @@ pub fn handleSubscribe(_: anytype, cmd: protocol.CommandMessage, response: *mod.
         peaks_subscriptions.GUID_LEN,
         &guid_bufs,
         &guid_lens,
-    );
+    ) catch |err| return mod.answerGuidListError(response, "guids", peaks_subscriptions.MAX_GUIDS_PER_CLIENT, err);
 
     if (guid_count) |count| {
         // Build slice array for subscribeGuids
@@ -180,8 +186,119 @@ pub fn handleUpdateViewport(_: anytype, cmd: protocol.CommandMessage, response: 
 }
 
 // Tests
-test "handleSubscribe and handleUnsubscribe compile" {
-    // Just verify the module compiles - full tests need mock ResponseWriter
+
+const TestStore = struct {
+    subs: peaks_subscriptions.PeaksSubscriptions,
+    reply: mod.TestReply = .{},
+
+    fn init() TestStore {
+        return .{ .subs = peaks_subscriptions.PeaksSubscriptions.init(std.testing.allocator) };
+    }
+
+    fn deinit(self: *TestStore) void {
+        self.reply.deinit();
+        self.subs.deinit();
+    }
+
+    fn client(self: *TestStore) ?*peaks_subscriptions.ClientSubscription {
+        const slot = self.subs.client_id_to_slot.get(1) orelse return null;
+        return &self.subs.clients[slot];
+    }
+
+    fn run(self: *TestStore, json: []const u8) void {
+        const saved = mod.g_ctx.peaks_subs;
+        mod.g_ctx.peaks_subs = &self.subs;
+        defer mod.g_ctx.peaks_subs = saved;
+        const mock = @import("../reaper/mock/mod.zig");
+        var m = mock.MockBackend{};
+        mod.testRunHandlerReply(&m, handleSubscribe, json, &self.reply);
+    }
+
+    fn expectSubscribed(self: *TestStore, json: []const u8) !*peaks_subscriptions.ClientSubscription {
+        self.run(json);
+        if (!self.reply.succeeded()) {
+            std.debug.print("expected success for {s}, got {s}\n", .{ json, self.reply.json() });
+            return error.TestUnexpectedResult;
+        }
+        return self.client() orelse error.TestUnexpectedResult;
+    }
+
+    /// Run peaks/subscribe and require INVALID_PARAMS, leaving client 1's
+    /// subscription as it was.
+    fn expectInvalid(self: *TestStore, json: []const u8) !void {
+        const before = if (self.client()) |c| c.* else null;
+        self.run(json);
+        std.testing.expectEqualStrings("INVALID_PARAMS", self.reply.errorCode() orelse "(no error)") catch |e| {
+            std.debug.print("reply to {s}:\n  {s}\n", .{ json, self.reply.json() });
+            return e;
+        };
+        const after = if (self.client()) |c| c.* else null;
+        try std.testing.expectEqual(before == null, after == null);
+        if (before) |b| {
+            try std.testing.expectEqual(b.mode, after.?.mode);
+            try std.testing.expectEqual(b.range_start, after.?.range_start);
+            try std.testing.expectEqual(b.guid_count, after.?.guid_count);
+            try std.testing.expectEqual(b.sample_count, after.?.sample_count);
+        }
+    }
+};
+
+fn peaksCommand(comptime fields: []const u8) []const u8 {
+    return "{\"type\":\"command\",\"command\":\"peaks/subscribe\"," ++ fields ++ "}";
+}
+
+/// A peaks/subscribe command listing `count` distinct GUIDs.
+fn guidsCommand(allocator: std.mem.Allocator, count: usize) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    try out.appendSlice(allocator, "{\"type\":\"command\",\"command\":\"peaks/subscribe\",\"guids\":[");
+    for (0..count) |i| {
+        if (i > 0) try out.append(allocator, ',');
+        try out.print(allocator, "\"{{00000000-0000-0000-0000-{d:0>12}}}\"", .{i});
+    }
+    try out.appendSlice(allocator, "]}");
+    return out.toOwnedSlice(allocator);
+}
+
+test "peaks/subscribe accepts exactly 64 guids" {
+    var store = TestStore.init();
+    defer store.deinit();
+    const json = try guidsCommand(std.testing.allocator, peaks_subscriptions.MAX_GUIDS_PER_CLIENT);
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqual(peaks_subscriptions.MAX_GUIDS_PER_CLIENT, (try store.expectSubscribed(json)).guid_count);
+}
+
+test "peaks/subscribe rejects more than 64 guids rather than keeping the first 64" {
+    var store = TestStore.init();
+    defer store.deinit();
+    _ = try store.expectSubscribed(peaksCommand("\"range\":{\"start\":0,\"end\":3}"));
+    const json = try guidsCommand(std.testing.allocator, peaks_subscriptions.MAX_GUIDS_PER_CLIENT + 1);
+    defer std.testing.allocator.free(json);
+    try store.expectInvalid(json);
+}
+
+test "peaks/subscribe rejects malformed parameters rather than falling back to defaults" {
+    var store = TestStore.init();
+    defer store.deinit();
+    _ = try store.expectSubscribed(peaksCommand("\"range\":{\"start\":0,\"end\":3},\"sampleCount\":50"));
+    const malformed = [_][]const u8{
+        peaksCommand("\"range\":{\"start\":0,\"end\":3},\"sampleCount\":30.5"),
+        peaksCommand("\"range\":{\"start\":0,\"end\":3},\"sampleCount\":\"30\""),
+        peaksCommand("\"range\":{\"start\":1.5,\"end\":3}"),
+        peaksCommand("\"range\":{\"end\":3}"),
+        peaksCommand("\"range\":7"),
+        peaksCommand("\"guids\":[\"{A}\",]"),
+        peaksCommand("\"guids\":[{\"g\":\"{A}\"}]"),
+        peaksCommand("\"guids\":[\"{00000000-0000-0000-0000-000000000000}xyz\"]"),
+    };
+    for (malformed) |json| try store.expectInvalid(json);
+}
+
+test "peaks/subscribe reads sampleCount, and takes 30 when it is absent" {
+    var store = TestStore.init();
+    defer store.deinit();
+    try std.testing.expectEqual(@as(u32, 50), (try store.expectSubscribed(peaksCommand("\"range\":{\"start\":0,\"end\":3},\"sampleCount\":50"))).sample_count);
+    try std.testing.expectEqual(@as(u32, 30), (try store.expectSubscribed(peaksCommand("\"guids\":[\"{A}\"]"))).sample_count);
 }
 
 test "parseViewport rejects non-finite viewport bounds" {

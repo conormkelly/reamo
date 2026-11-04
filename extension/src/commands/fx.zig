@@ -116,7 +116,7 @@ pub fn handleSetEnabled(api: anytype, cmd: protocol.CommandMessage, response: *m
 
     // Get current state for toggle, or use explicit enabled param
     const current = api.trackFxGetEnabled(resolution.track, fx_idx);
-    const enabled = cmd.getFlag("enabled") orelse !current;
+    const enabled = (cmd.getFlag("enabled") catch return response.err("INVALID_PARAMS", "enabled must be a boolean")) orelse !current;
 
     // Build undo description with track/FX names
     var track_name_buf: [128]u8 = undefined;
@@ -172,8 +172,10 @@ pub fn handleAdd(api: anytype, cmd: protocol.CommandMessage, response: *mod.Resp
     var undo_buf: [256:0]u8 = undefined;
     const undo_desc: [*:0]const u8 = std.fmt.bufPrintZ(&undo_buf, "REAmo: Add FX: {s}", .{fx_name}) catch "REAmo: Add FX";
 
+    const position = cmd.getIntStrict("position") catch return response.err("INVALID_PARAMS", "position must be an integer");
+
     api.undoBeginBlock();
-    const fx_idx = addFxAt(api, resolution.track, @ptrCast(&name_buf), cmd.getInt("position"));
+    const fx_idx = addFxAt(api, resolution.track, @ptrCast(&name_buf), position);
     api.undoEndBlock(undo_desc);
 
     if (fx_idx < 0) {
