@@ -74,5 +74,6 @@ with Client(timeout=5.0) as c:
 
     # A filtered list: scattered indices, up to the last parameter
     scattered = subscribe(c, g, fx, [3, 77, 150, 255])
+    assert abs(scattered["255"][0] - float(o["value255"])) < 1e-6, (scattered["255"], o["value255"])
     assert scattered["255"][1] == o["formatted255"], (scattered["255"], o["formatted255"])
     print("filtered window: params", sorted(int(k) for k in scattered))

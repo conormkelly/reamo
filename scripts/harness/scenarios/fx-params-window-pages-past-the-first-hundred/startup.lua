@@ -59,17 +59,27 @@ local head, body, tail = chunk:match("(<VST [^\n]*\n)(.-)(\n>)")
 assert(head, "no ReaEQ in the track's chunk")
 local lines = {}
 for line in body:gmatch("[^\n]+") do lines[#lines + 1] = b64decode(line) end
+-- The header: the plugin's ID, a magic number, the input count and a 64-bit
+-- pin mask per input, the output count and its masks, the data's length,
+-- then 8 bytes this fixture keeps as they are.
 local header = lines[1]
 local rest = table.concat(lines, "", 2)
-local size = string.unpack("<I4", header, 49)
+local _, magic, inputs = string.unpack("<I4I4I4", header)
+local outputs = string.unpack("<I4", header, 13 + 8 * inputs)
+local size_at = 17 + 8 * inputs + 8 * outputs
+assert(magic == 0xFEED5EEE and #header == size_at + 3 + 8,
+  string.format("REAPER VST chunk header (magic %x, %d bytes, %d in, %d out): not the layout this fixture knows",
+    magic, #header, inputs, outputs))
+local size = string.unpack("<I4", header, size_at)
+assert(#rest > size, string.format("the VST chunk holds %d bytes after its header, its data says %d", #rest, size))
 local data, trailer = rest:sub(1, size), rest:sub(size + 1)
 local version, count = string.unpack("<I4I4", data)
-assert(version == 33 and #data >= 8 + 33 * count,
-  string.format("ReaEQ state version %d (%d bytes, %d bands): not the layout this fixture knows", version, #data, count))
 local record = data:sub(8 + 33 + 1, 8 + 33 * 2)  -- band 2: a band (peak) filter
+assert(version == 33 and count >= 2 and count < BANDS and #data >= 8 + 33 * count and string.unpack("<I4", record) == 8,
+  string.format("ReaEQ state version %d (%d bytes, %d bands): not the layout this fixture knows", version, #data, count))
 data = string.pack("<I4I4", version, BANDS) .. data:sub(9, 8 + 33 * count)
   .. string.rep(record, BANDS - count) .. data:sub(8 + 33 * count + 1)
-header = header:sub(1, 48) .. string.pack("<I4", #data) .. header:sub(53)
+header = header:sub(1, size_at - 1) .. string.pack("<I4", #data) .. header:sub(size_at + 4)
 chunk = chunk:gsub("<VST [^\n]*\n.-\n>", function()
   return head .. b64encode(header) .. "\n" .. b64lines(data) .. "\n" .. b64encode(trailer) .. tail
 end, 1)
