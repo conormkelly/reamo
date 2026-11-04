@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, act } from '@testing-library/react';
 
-// Vitest 4.x: setup.ts pre-caches modules before vi.mock can intercept.
+// setup.ts pre-caches modules before vi.mock can intercept.
 // resetModules forces re-evaluation so mocks apply to transitive imports.
 vi.hoisted(() => vi.resetModules());
 
@@ -155,6 +155,18 @@ describe('useRecordButton', () => {
       fireEvent.click(el, { detail: 0 });
 
       expect(sent()).toEqual([RECORD]);
+    });
+
+    it("a held Enter's auto-repeats are cancelled, so they click the button no further", () => {
+      // A browser clicks a focused button on each Enter keydown, repeats
+      // included; cancelling a keydown cancels its click.
+      const { el } = setup();
+
+      const firstNotPrevented = fireEvent.keyDown(el, { key: 'Enter', repeat: false });
+      const repeatNotPrevented = fireEvent.keyDown(el, { key: 'Enter', repeat: true });
+
+      expect(firstNotPrevented).toBe(true);
+      expect(repeatNotPrevented).toBe(false);
     });
   });
 
