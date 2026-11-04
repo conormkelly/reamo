@@ -110,6 +110,8 @@ export function HorizontalRoutingFader({
       lastTapRef.current = now;
 
       e.preventDefault();
+      // One drag per slider: a new press ends any drag still under way.
+      cleanupRef.current?.();
       setIsDragging(true);
       onVolumeGestureStart();
 
@@ -167,6 +169,8 @@ export function HorizontalRoutingFader({
       lastPanTapRef.current = now;
 
       e.preventDefault();
+      // One drag per slider: a new press ends any drag still under way.
+      panCleanupRef.current?.();
       setIsPanDragging(true);
       onPanGestureStart();
 

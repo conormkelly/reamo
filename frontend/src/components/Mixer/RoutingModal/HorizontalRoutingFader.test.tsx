@@ -55,6 +55,35 @@ describe('HorizontalRoutingFader drag end', () => {
     ['level', 'Level - double-tap to reset to 0dB', callbacks.onVolumeGestureEnd, callbacks.onVolumeChange],
     ['pan', 'Pan - double-tap to center', callbacks.onPanGestureEnd, callbacks.onPanChange],
   ])('%s', (_control, title, onEnd, onChange) => {
+    it('a second press ends the drag under way, and unmounting ends the second', () => {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+      try {
+        const { unmount } = render(
+          <HorizontalRoutingFader volume={1} pan={0} muted={false} mode={0} label="Bus" colorScheme="send" {...callbacks} />
+        );
+        const control = screen.getByTitle(title);
+        fireEvent.touchStart(control, { touches: [{ clientX: 10, clientY: 10 }] });
+        // Too late to count as a double tap.
+        now.mockReturnValue(2_000);
+        fireEvent.touchStart(control, { touches: [{ clientX: 10, clientY: 10 }] });
+        expect(onEnd).toHaveBeenCalledTimes(1);
+
+        const changes = onChange.mock.calls.length;
+        fireEvent.touchMove(document, { touches: [{ clientX: 50, clientY: 10 }] });
+        // One drag listening: one change per move.
+        expect(onChange).toHaveBeenCalledTimes(changes + 1);
+
+        unmount();
+        expect(onEnd).toHaveBeenCalledTimes(2);
+        fireEvent.touchMove(document, { touches: [{ clientX: 80, clientY: 10 }] });
+        fireEvent.touchEnd(document);
+        expect(onChange).toHaveBeenCalledTimes(changes + 1);
+        expect(onEnd).toHaveBeenCalledTimes(2);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it.each(ENDS)('ends the drag when %s', (_what, end) => {
       renderFader();
       fireEvent.touchStart(screen.getByTitle(title), { touches: [{ clientX: 10, clientY: 10 }] });

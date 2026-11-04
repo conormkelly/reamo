@@ -104,6 +104,8 @@ export function SendFader({
       }
 
       e.preventDefault();
+      // One drag per fader: a new press ends any drag still under way.
+      cleanupRef.current?.();
       setIsDragging(true);
 
       // Lock GUID and send index at gesture start

@@ -54,6 +54,32 @@ describe('SendFader drag end', () => {
     cleanup();
   });
 
+  it('a second press ends the drag under way, and unmounting ends the second', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      const { unmount } = render(<SendFader trackIndex={1} destTrackIdx={2} />, { wrapper: withConnection });
+      const control = screen.getByTitle('Send level - double-tap to reset to 0dB');
+      fireEvent.touchStart(control, { touches: [{ clientX: 10, clientY: 10 }] });
+      // Too late to count as a double tap.
+      now.mockReturnValue(2_000);
+      fireEvent.touchStart(control, { touches: [{ clientX: 10, clientY: 10 }] });
+      expect(sentOf('gesture/end')).toHaveLength(1);
+
+      const writes = sentOf('send/setVolume').length;
+      fireEvent.touchMove(document, { touches: [{ clientX: 10, clientY: 50 }] });
+      expect(sentOf('send/setVolume')).toHaveLength(writes + 1);
+
+      unmount();
+      expect(sentOf('gesture/end')).toHaveLength(2);
+      fireEvent.touchMove(document, { touches: [{ clientX: 10, clientY: 80 }] });
+      fireEvent.touchEnd(document);
+      expect(sentOf('send/setVolume')).toHaveLength(writes + 1);
+      expect(sentOf('gesture/end')).toHaveLength(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it.each(ENDS)('ends the drag when %s', (_what, end) => {
     render(<SendFader trackIndex={1} destTrackIdx={2} />, { wrapper: withConnection });
     fireEvent.touchStart(screen.getByTitle('Send level - double-tap to reset to 0dB'), {
