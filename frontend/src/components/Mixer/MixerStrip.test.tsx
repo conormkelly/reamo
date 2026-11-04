@@ -115,21 +115,22 @@ describe('MixerStrip while its fader is dragged', () => {
     expect(stripName(strip)).toBe('Drums');
   });
 
-  it('keeps showing the dragged track when the tracks above it are reordered or removed', () => {
+  it('keeps showing the dragged track when it is moved above another track, or a track is removed', () => {
     const { strip, fader } = renderStripAt2();
 
     fireEvent.mouseDown(fader, { clientX: 10, clientY: 100 });
+    handle(tracksEvent([MASTER, BASS, DRUMS, KEYS]));
+    handle(skeletonEvent([MASTER, BASS, DRUMS, KEYS]));
+    expect(stripName(strip)).toBe('Bass');
+
     handle(tracksEvent([MASTER, BASS, KEYS]));
     handle(skeletonEvent([MASTER, BASS, KEYS]));
     expect(stripName(strip)).toBe('Bass');
 
-    handle(tracksEvent([MASTER, KEYS, BASS]));
-    handle(skeletonEvent([MASTER, KEYS, BASS]));
-    expect(stripName(strip)).toBe('Bass');
-
     fireEvent.mouseUp(document);
-    expect(stripName(strip)).toBe('Bass');
-    expect(useReaperStore.getState().tracks[1]?.name).toBe('Keys');
+    // REAPER's order applies on release: Keys is now at index 2.
+    expect(stripName(strip)).toBe('Keys');
+    expect(useReaperStore.getState().tracks[1]?.name).toBe('Bass');
   });
 
   it('greys the fader and sends no more volume writes once the dragged track is deleted', () => {
