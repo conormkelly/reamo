@@ -2,9 +2,10 @@
  * ToolbarButton - Individual action button with toggle state support
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import { Pencil } from 'lucide-react';
 import { useReaper } from '../../hooks/useReaper';
+import { useLongPress } from '../../hooks/useLongPress';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
 import type { ToolbarAction, ToggleState } from '../../store/slices/toolbarSlice';
 import { DynamicIcon } from './DynamicIcon';
@@ -90,33 +91,6 @@ export function ToolbarButton({
 }: ToolbarButtonProps) {
   const { sendCommand } = useReaper();
 
-  // Long-press detection (enters edit mode when not already editing)
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFired = useRef(false);
-
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  const handlePointerDown = useCallback(() => {
-    // Each press starts unswallowed: a long press that ended without a click
-    // must not take the next tap's click, in edit mode or out of it.
-    longPressFired.current = false;
-    if (editMode || !onLongPress) return;
-    cancelLongPress();
-    longPressTimer.current = setTimeout(() => {
-      longPressTimer.current = null;
-      longPressFired.current = true;
-      onLongPress();
-    }, LONG_PRESS_DELAY);
-  }, [editMode, onLongPress, cancelLongPress]);
-
-  // A hold still running when the button leaves the page is abandoned.
-  useEffect(() => cancelLongPress, [cancelLongPress]);
-
   // Determine sizing based on layout mode
   // - horizontal/vertical: use LAYOUT_CONFIG
   // - grid: use SIZE_CONFIG (with size prop) or default grid sizing
@@ -127,13 +101,7 @@ export function ToolbarButton({
   const textClass = layoutConfig?.text ?? sizeConfig?.text ?? GRID_TEXT_CLASS;
   const buttonClass = layoutConfig?.container ?? sizeConfig?.button ?? 'w-full h-full px-1 py-0.5';
 
-  const handleClick = useCallback(() => {
-    // Suppress click if long-press just fired
-    if (longPressFired.current) {
-      longPressFired.current = false;
-      return;
-    }
-
+  const handleTap = useCallback(() => {
     if (editMode) {
       onEdit();
       return;
@@ -161,6 +129,18 @@ export function ToolbarButton({
     }
   }, [action, editMode, onEdit, sendCommand]);
 
+  // A hold enters edit mode when not already editing. A field being edited
+  // elsewhere is blurred before the button acts.
+  const { handlers } = useLongPress({
+    onTap: handleTap,
+    onLongPress: editMode ? undefined : onLongPress,
+    duration: LONG_PRESS_DELAY,
+    commitEditsFirst: true,
+  });
+  // A draggable button keeps its mousedown default: preventing it stops the
+  // browser from starting a drag.
+  const { onMouseDown, ...pressHandlers } = handlers;
+
   // Compute colors - use user's colors, indicator dot shows toggle state
   const backgroundColor = action.backgroundColor || DEFAULT_BG_COLOR;
   const textColor = action.textColor || DEFAULT_TEXT_COLOR;
@@ -168,11 +148,8 @@ export function ToolbarButton({
 
   return (
     <button
-      onClick={handleClick}
-      onPointerDown={handlePointerDown}
-      onPointerUp={cancelLongPress}
-      onPointerLeave={cancelLongPress}
-      onPointerCancel={cancelLongPress}
+      {...pressHandlers}
+      onMouseDown={dragProps?.draggable ? undefined : onMouseDown}
       {...dragProps}
       className={`
         relative flex flex-col items-center justify-center

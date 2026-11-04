@@ -4,9 +4,10 @@
  * Layout: [⏮⏭] | [📍⬚] | [−][30s][+][⬛]
  */
 
-import { useRef, useCallback, useEffect, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { SquareDashedMousePointer, Locate, SkipBack, SkipForward } from 'lucide-react';
 import { ZoomControls } from './ZoomControls';
+import { useLongPress } from '../../hooks/useLongPress';
 
 export interface TimelineFooterProps {
   // Marker navigation
@@ -18,6 +19,7 @@ export interface TimelineFooterProps {
   onFollowPlayheadToggle: () => void;
   selectionModeActive: boolean;
   onSelectionModeToggle: () => void;
+  /** Hold on the selection mode button; without it a hold is a tap */
   onSelectionLongPress?: () => void;
 
   // Zoom controls
@@ -43,44 +45,14 @@ export function TimelineFooter({
   onZoomOut,
   onFitToContent,
 }: TimelineFooterProps): ReactElement {
-  // Long-press handling for selection button
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wasLongPressRef = useRef(false);
-
-  const handleSelectionPointerDown = useCallback(() => {
-    wasLongPressRef.current = false;
-    longPressTimerRef.current = setTimeout(() => {
-      wasLongPressRef.current = true;
-      onSelectionLongPress?.();
-    }, LONG_PRESS_DURATION);
-  }, [onSelectionLongPress]);
-
-  const handleSelectionPointerUp = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    // Only toggle if it wasn't a long press
-    if (!wasLongPressRef.current) {
-      onSelectionModeToggle();
-    }
-  }, [onSelectionModeToggle]);
-
-  const handleSelectionPointerCancel = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-      }
-    };
-  }, []);
+  // Tap toggles selection mode, hold opens manual selection input. A marker or
+  // region field being edited is blurred first.
+  const { handlers: selectionHandlers } = useLongPress({
+    onTap: onSelectionModeToggle,
+    onLongPress: onSelectionLongPress,
+    duration: LONG_PRESS_DURATION,
+    commitEditsFirst: true,
+  });
 
   // Common button styles
   const buttonBase = 'p-2.5 rounded-lg transition-colors touch-none';
@@ -106,10 +78,7 @@ export function TimelineFooter({
         {/* Selection mode - supports long-press for manual input */}
         <button
           data-testid="selection-toggle"
-          onPointerDown={handleSelectionPointerDown}
-          onPointerUp={handleSelectionPointerUp}
-          onPointerCancel={handleSelectionPointerCancel}
-          onPointerLeave={handleSelectionPointerCancel}
+          {...selectionHandlers}
           className={`${buttonBase} ${selectionModeActive ? buttonActive : buttonInactive}`}
           title={selectionModeActive ? 'Exit selection mode' : 'Selection mode (hold for manual input)'}
           aria-pressed={selectionModeActive}

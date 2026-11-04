@@ -38,6 +38,7 @@ export function MuteButton({
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       aria-pressed={isMuted}
       title={isMuted ? 'Unmute Track' : 'Mute Track'}
