@@ -14,6 +14,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { useReaperStore } from '../../store';
 import type { ToolbarAction } from '../../store/slices/toolbarSlice';
 import { ToolbarEditor } from './ToolbarEditor';
+import { ContextRailPanel } from '../ContextRail/ContextRailPanel';
 
 const EXISTING_ACTION: ToolbarAction = {
   id: 'tb_1',
@@ -106,12 +107,51 @@ describe('ToolbarEditor', () => {
       fireEvent.change(screen.getByPlaceholderText('Button label'), { target: { value: 'Unsaved label' } });
       fireEvent.click(screen.getByText('Search and Select Action...'));
       const search = screen.getByPlaceholderText(/Search by name/);
+      const connectedAtBlur = trackBlur(search);
 
       fireEvent.keyDown(search, { key: 'Escape' });
 
       expect(onClose).not.toHaveBeenCalled();
       expect(screen.queryByPlaceholderText(/Search by name/)).toBeNull();
       expect(screen.getByPlaceholderText('Button label')).toHaveValue('Unsaved label');
+      expect(connectedAtBlur).toEqual([true]);
+    });
+
+    // In landscape the toolbar, and so its editor, lives inside the side
+    // rail's panel, which closes on Escape and takes its content with it.
+    describe('inside the side rail panel', () => {
+      function renderInRail() {
+        const onRailClose = vi.fn();
+        const onEditorClose = vi.fn();
+        const anchorRef = { current: document.body };
+        render(
+          <ContextRailPanel isOpen onClose={onRailClose} title="Toolbar" anchorRef={anchorRef}>
+            <ToolbarEditor action={null} isNew onClose={onEditorClose} onSave={vi.fn()} onDelete={vi.fn()} />
+          </ContextRailPanel>
+        );
+        return { onRailClose, onEditorClose };
+      }
+
+      it('returns from the action search to the form without closing the panel', () => {
+        const { onRailClose, onEditorClose } = renderInRail();
+        fireEvent.change(screen.getByPlaceholderText('Button label'), { target: { value: 'Unsaved label' } });
+        fireEvent.click(screen.getByText('Search and Select Action...'));
+
+        fireEvent.keyDown(screen.getByPlaceholderText(/Search by name/), { key: 'Escape' });
+
+        expect(onRailClose).not.toHaveBeenCalled();
+        expect(onEditorClose).not.toHaveBeenCalled();
+        expect(screen.getByPlaceholderText('Button label')).toHaveValue('Unsaved label');
+      });
+
+      it('closes only the editor, not the panel, from the form', () => {
+        const { onRailClose, onEditorClose } = renderInRail();
+
+        fireEvent.keyDown(screen.getByPlaceholderText('Button label'), { key: 'Escape' });
+
+        expect(onEditorClose).toHaveBeenCalledTimes(1);
+        expect(onRailClose).not.toHaveBeenCalled();
+      });
     });
 
     it('closes the editor when no picker is open over it', () => {

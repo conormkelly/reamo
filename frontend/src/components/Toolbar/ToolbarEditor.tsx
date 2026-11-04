@@ -109,9 +109,13 @@ export function ToolbarEditor({
 
   // Escape leaves the topmost layer only: the icon picker when it's open over
   // the editor, the action search back to the form, otherwise the editor.
+  // The editor is modal, so it takes Escape first (window, capture phase) and
+  // stops it there: a panel the editor sits inside, like the landscape side
+  // rail, would otherwise close too and take the unsaved edits with it.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      e.stopPropagation();
       if (showIconPicker) {
         setShowIconPicker(false);
       } else if (showActionSearch) {
@@ -120,8 +124,8 @@ export function ToolbarEditor({
         onClose();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [onClose, showIconPicker, showActionSearch]);
 
   const handleSave = useCallback(() => {
