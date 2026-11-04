@@ -153,14 +153,6 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
           get().updateTransport(response.data);
           break;
 
-        case 'NTRACK':
-          get().setTrackCount(response.count);
-          break;
-
-        case 'TRACK':
-          get().updateTrack(response.data);
-          break;
-
         case 'BEATPOS':
           get().updateBeatPosition(response.data);
           break;
@@ -341,9 +333,8 @@ export const useReaperStore = create<ReaperStore>()((set, get, store) => ({
       }
 
       // Replace track state entirely (decision: don't merge)
-      // Set totalTracks for virtual scrollbar sizing (excludes master)
-      set({ tracks, trackCount: p.tracks.length });
-      get().setTotalTracks(p.total);
+      // total sizes the virtual scrollbar (excludes master)
+      get().applyTracksEvent(tracks, p.total);
     } else if (isMetersEvent(message)) {
       // Meters event: GUID-keyed map at 30Hz for subscribed tracks
       // Note: 'm' is at root level, not in payload (matches backend format)

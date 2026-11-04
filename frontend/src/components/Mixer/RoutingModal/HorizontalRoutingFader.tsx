@@ -8,6 +8,7 @@ import { Volume2, VolumeX, Trash } from 'lucide-react';
 import { useReaperStore } from '../../../store';
 import { volumeToDbString, faderToVolume, volumeToFader } from '../../../utils/volume';
 import { formatPan, MODE_LABELS, ROUTING_COLORS, type RoutingColorScheme } from './routingUtils';
+import { listenToTrackDrag } from '../../Track/listenToTrackDrag';
 
 export interface HorizontalRoutingFaderProps {
   /** Volume value (linear 0-4, where 1 = unity) */
@@ -109,6 +110,8 @@ export function HorizontalRoutingFader({
       lastTapRef.current = now;
 
       e.preventDefault();
+      // One drag per slider: a new press ends any drag still under way.
+      cleanupRef.current?.();
       setIsDragging(true);
       onVolumeGestureStart();
 
@@ -137,19 +140,13 @@ export function HorizontalRoutingFader({
       };
 
       const handleUp = () => {
+        stopListening();
         setIsDragging(false);
         onVolumeGestureEnd();
-        document.removeEventListener('mousemove', handleMove);
-        document.removeEventListener('mouseup', handleUp);
-        document.removeEventListener('touchmove', handleMove);
-        document.removeEventListener('touchend', handleUp);
         cleanupRef.current = null;
       };
 
-      document.addEventListener('mousemove', handleMove);
-      document.addEventListener('mouseup', handleUp);
-      document.addEventListener('touchmove', handleMove, { passive: false });
-      document.addEventListener('touchend', handleUp);
+      const stopListening = listenToTrackDrag(handleMove, handleUp);
 
       cleanupRef.current = handleUp;
     },
@@ -172,6 +169,8 @@ export function HorizontalRoutingFader({
       lastPanTapRef.current = now;
 
       e.preventDefault();
+      // One drag per slider: a new press ends any drag still under way.
+      panCleanupRef.current?.();
       setIsPanDragging(true);
       onPanGestureStart();
 
@@ -200,19 +199,13 @@ export function HorizontalRoutingFader({
       };
 
       const handleUp = () => {
+        stopListening();
         setIsPanDragging(false);
         onPanGestureEnd();
-        document.removeEventListener('mousemove', handleMove);
-        document.removeEventListener('mouseup', handleUp);
-        document.removeEventListener('touchmove', handleMove);
-        document.removeEventListener('touchend', handleUp);
         panCleanupRef.current = null;
       };
 
-      document.addEventListener('mousemove', handleMove);
-      document.addEventListener('mouseup', handleUp);
-      document.addEventListener('touchmove', handleMove, { passive: false });
-      document.addEventListener('touchend', handleUp);
+      const stopListening = listenToTrackDrag(handleMove, handleUp);
 
       panCleanupRef.current = handleUp;
     },
