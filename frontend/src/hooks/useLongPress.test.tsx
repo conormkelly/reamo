@@ -89,6 +89,16 @@ function mouseUp(el: Element, extra: Record<string, unknown> = {}, at: Point = A
   fireEvent.mouseUp(el, { clientX: at.x, clientY: at.y, ...extra });
 }
 
+let visibility: DocumentVisibilityState = 'visible';
+
+/** Sets document.visibilityState and fires visibilitychange, as a browser does. */
+function setVisibility(state: DocumentVisibilityState) {
+  visibility = state;
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
 function wait(ms: number) {
   act(() => {
     vi.advanceTimersByTime(ms);
@@ -98,11 +108,14 @@ function wait(ms: number) {
 describe('useLongPress', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    visibility = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
   });
 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   describe('tap', () => {
@@ -474,6 +487,98 @@ describe('useLongPress', () => {
       expect(onTap).not.toHaveBeenCalled();
     });
 
+    it('the window losing focus mid-hold ends the press: no long press, and no tap on the release', () => {
+      // Switching apps with Cmd/Alt-Tab while the mouse is down.
+      const { el, onTap, onLongPress } = setup();
+
+      mouseDown(el);
+      wait(200);
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      wait(1000);
+      mouseUp(el);
+      pointerClick(el);
+
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('the page being hidden mid-hold ends the press: no long press, and no tap on the release', () => {
+      // A phone locked, or the browser switched away from, with a finger down.
+      const { el, onTap, onLongPress } = setup();
+
+      fingerDown(el);
+      wait(200);
+      setVisibility('hidden');
+      wait(1000);
+      setVisibility('visible');
+      fingerUp(el);
+      emulatedMouse(el);
+
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('the page becoming visible mid-hold leaves the press running', () => {
+      const { el, onLongPress } = setup();
+
+      fingerDown(el);
+      wait(200);
+      setVisibility('visible');
+      wait(200);
+
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('a press after the window lost focus works', () => {
+      const { el, onTap, onLongPress } = setup();
+
+      mouseDown(el);
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      mouseUp(el);
+      mouseDown(el);
+      mouseUp(el);
+      fingerDown(el);
+      wait(400);
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('listens for focus loss and hiding only while a press is under way', () => {
+      const add = vi.spyOn(window, 'addEventListener');
+      const addDoc = vi.spyOn(document, 'addEventListener');
+      const remove = vi.spyOn(window, 'removeEventListener');
+      const removeDoc = vi.spyOn(document, 'removeEventListener');
+      const { el } = setup();
+      const added = () =>
+        add.mock.calls.filter(([type]) => type === 'blur').length +
+        addDoc.mock.calls.filter(([type]) => type === 'visibilitychange').length;
+      const removed = () =>
+        remove.mock.calls.filter(([type]) => type === 'blur').length +
+        removeDoc.mock.calls.filter(([type]) => type === 'visibilitychange').length;
+
+      expect(added()).toBe(0);
+      fingerDown(el);
+      expect(added()).toBe(2);
+      fingerUp(el);
+      expect(removed()).toBe(2);
+      fingerDown(el);
+      wait(400);
+      expect(removed()).toBe(4);
+      fingerDown(el);
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(removed()).toBe(6);
+      fingerDown(el);
+      cleanup();
+      expect(removed()).toBe(8);
+    });
+
     it('a press after a cancelled one works', () => {
       const { el, onTap } = setup();
 
@@ -483,6 +588,58 @@ describe('useLongPress', () => {
       fingerUp(el);
 
       expect(onTap).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('keyboard', () => {
+    // A browser clicks a focused button on each Enter keydown, auto-repeats
+    // included, and cancelling a keydown cancels the click it would make.
+    // jsdom makes no click from a key, so these check which keydowns are
+    // cancelled; e2e/long-press-keys-focus.spec.ts checks the clicks.
+
+    it("a held Enter's or Space's first keydown is let through, so one press is one tap", () => {
+      const { el } = setup();
+
+      expect(fireEvent.keyDown(el, { key: 'Enter', repeat: false })).toBe(true);
+      expect(fireEvent.keyDown(el, { key: ' ', repeat: false })).toBe(true);
+    });
+
+    it("a held Enter's key repeats are cancelled, so they click the element no further", () => {
+      const { el } = setup();
+
+      fireEvent.keyDown(el, { key: 'Enter', repeat: false });
+      expect(fireEvent.keyDown(el, { key: 'Enter', repeat: true })).toBe(false);
+      expect(fireEvent.keyDown(el, { key: 'Enter', repeat: true })).toBe(false);
+    });
+
+    it("a held Space's key repeats are cancelled too", () => {
+      const { el } = setup();
+
+      fireEvent.keyDown(el, { key: ' ', repeat: false });
+      expect(fireEvent.keyDown(el, { key: ' ', repeat: true })).toBe(false);
+    });
+
+    it("other keys' repeats are left alone", () => {
+      const { el } = setup();
+
+      expect(fireEvent.keyDown(el, { key: 'ArrowRight', repeat: true })).toBe(true);
+      expect(fireEvent.keyDown(el, { key: 'a', repeat: true })).toBe(true);
+    });
+
+    it('key repeats from a field inside the element are left alone', () => {
+      function Wrapper() {
+        const { handlers } = useLongPress({ onTap: () => {} });
+        return (
+          <div {...handlers}>
+            <input aria-label="name" />
+          </div>
+        );
+      }
+      const { getByRole } = render(<Wrapper />);
+      const field = getByRole('textbox');
+
+      expect(fireEvent.keyDown(field, { key: ' ', repeat: true })).toBe(true);
+      expect(fireEvent.keyDown(field, { key: 'Enter', repeat: true })).toBe(true);
     });
   });
 

@@ -11,14 +11,19 @@
  * moves more than a few pixels (a scroll or drag, not a hold), when the
  * browser cancels it (it took the touch over for a scroll), when the pointer
  * leaves the element, when the mouse's primary button is no longer down, when
- * a mouse opens the context menu, when another press begins, or when the
- * element unmounts. A touch or pen held still also raises a context menu
- * event, on Android at about the long press's own duration; that one is
- * suppressed and the hold goes on. A right-button press is neither, and nor is a mouse Ctrl+click on
- * any platform, as on macOS it opens the context menu.
+ * a mouse opens the context menu, when another press begins, when the window
+ * loses focus or the page is hidden (another app, or a locked phone, now has
+ * the pointer), or when the element unmounts. A touch or pen held still also
+ * raises a context menu event, on Android at about the long press's own
+ * duration; that one is suppressed and the hold goes on. A right-button press
+ * is neither, and nor is a mouse Ctrl+click on any platform, as on macOS it
+ * opens the context menu.
  *
  * A click with no pointer press behind it (Enter or Space on a focused button,
- * or a screen reader's activation) is a tap.
+ * or a screen reader's activation) is a tap. A held key is one tap: the
+ * browser clicks a focused button on every Enter keydown, its auto-repeats
+ * included, so the key repeats of Enter and Space on the element are
+ * cancelled, which cancels their clicks. Holding a key never long-presses.
  *
  * Pressing the element doesn't take focus, so a text field being typed in
  * keeps it and a phone's keyboard stays up.
@@ -46,6 +51,7 @@ export interface UseLongPressResult {
     onMouseDown: (e: React.MouseEvent) => void;
     onContextMenu: (e: React.MouseEvent) => void;
     onClick: (e: React.MouseEvent) => void;
+    onKeyDown: (e: React.KeyboardEvent) => void;
   };
 }
 
@@ -62,6 +68,8 @@ interface Press {
   /** A mouse press began with its primary button reported down. */
   primaryDown: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  /** Stops listening for the window losing focus or the page being hidden. */
+  unlisten: () => void;
 }
 
 /**
@@ -102,7 +110,9 @@ export function useLongPress({
 
   const cancel = useCallback(() => {
     const press = pressRef.current;
-    if (press?.timer) clearTimeout(press.timer);
+    if (!press) return;
+    if (press.timer) clearTimeout(press.timer);
+    press.unlisten();
     pressRef.current = null;
   }, []);
 
@@ -115,17 +125,31 @@ export function useLongPress({
       const opensMenu = e.button !== 0 || (e.ctrlKey && e.pointerType === 'mouse');
       if (opensMenu) return;
 
+      // The window losing focus or the page being hidden can come mid-press
+      // with no pointer event to end it: the release goes to another app.
+      // The listeners live only as long as the press, so they end this one.
+      const onBlur = cancel;
+      const onVisibilityChange = () => {
+        if (document.visibilityState === 'hidden') cancel();
+      };
+      window.addEventListener('blur', onBlur);
+      document.addEventListener('visibilitychange', onVisibilityChange);
+
       const press: Press = {
         pointerId: e.pointerId,
         x: e.clientX,
         y: e.clientY,
         primaryDown: (e.buttons & 1) !== 0,
         timer: null,
+        unlisten: () => {
+          window.removeEventListener('blur', onBlur);
+          document.removeEventListener('visibilitychange', onVisibilityChange);
+        },
       };
       if (latest.current.onLongPress) {
         press.timer = setTimeout(() => {
           if (pressRef.current !== press) return;
-          pressRef.current = null;
+          cancel();
           latest.current.onLongPress?.();
         }, latest.current.duration);
       }
@@ -199,6 +223,12 @@ export function useLongPress({
     e.preventDefault();
   }, []);
 
+  // Only the element's own keys: a field inside it keeps its key repeats.
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
+  }, []);
+
   // A hold still running when the element leaves the page is abandoned.
   useEffect(() => cancel, [cancel]);
 
@@ -212,8 +242,9 @@ export function useLongPress({
       onMouseDown,
       onContextMenu,
       onClick,
+      onKeyDown,
     }),
-    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd, onMouseDown, onContextMenu, onClick]
+    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd, onMouseDown, onContextMenu, onClick, onKeyDown]
   );
 
   return { handlers };
