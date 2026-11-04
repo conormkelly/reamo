@@ -114,6 +114,22 @@ test.describe('Record button, mouse', () => {
     expect(sent).toEqual([]);
   });
 
+  test('a press held while the window loses focus sends nothing', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const record = await openClock(page);
+
+    await record.hover();
+    await page.mouse.down();
+    await page.waitForTimeout(100);
+    // Cmd/Alt-Tab to another app: the window blurs and no pointer event comes.
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await page.waitForTimeout(500);
+    await page.mouse.up();
+    await settle(page);
+
+    expect(sent).toEqual([]);
+  });
+
   test('a right-click sends nothing', async ({ page }) => {
     const sent = await installFakeReaper(page);
     const record = await openClock(page);

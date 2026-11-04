@@ -11,10 +11,11 @@
  * Ctrl+click) sends nothing, because a stray tap here starts a take.
  *
  * Enter or Space on the focused button, or a screen reader's activation, is a
- * tap. Holding Enter is one tap: its key repeats would each click the button.
+ * tap, and a held key is one tap. A press ends with neither when the window
+ * loses focus or the page is hidden.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useReaper } from './useReaper';
 import { useTransport } from './useTransport';
 import { useLongPress, type UseLongPressResult } from './useLongPress';
@@ -44,9 +45,7 @@ export function recordModeTitle(mode: RecordMode): string {
 
 export interface UseRecordButtonReturn {
   /** Event handlers to spread onto the button element */
-  handlers: UseLongPressResult['handlers'] & {
-    onKeyDown: (e: React.KeyboardEvent) => void;
-  };
+  handlers: UseLongPressResult['handlers'];
   /** Current record mode from REAPER state */
   recordMode: RecordMode;
   /** Whether REAPER is currently recording */
@@ -69,15 +68,7 @@ export function useRecordButton(): UseRecordButtonReturn {
     sendCommand(action.execute(NEXT_MODE_ACTION[mode]));
   }, [sendCommand]);
 
-  const { handlers: pressHandlers } = useLongPress({ onTap, onLongPress, duration: HOLD_THRESHOLD });
-
-  // A browser clicks a focused button on every Enter keydown, auto-repeats
-  // included; cancelling the keydown cancels its click.
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && e.repeat) e.preventDefault();
-  }, []);
-
-  const handlers = useMemo(() => ({ ...pressHandlers, onKeyDown }), [pressHandlers, onKeyDown]);
+  const { handlers } = useLongPress({ onTap, onLongPress, duration: HOLD_THRESHOLD });
 
   return { handlers, recordMode, isRecording };
 }

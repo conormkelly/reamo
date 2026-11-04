@@ -311,5 +311,20 @@ describe('useRecordButton', () => {
 
       expect(sent()).toEqual([]);
     });
+
+    it('a mouse held while the window loses focus (Cmd/Alt-Tab) neither changes the mode nor toggles on release', () => {
+      const { el } = setup();
+
+      mouseDown(el);
+      wait(100);
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      wait(1000);
+      mouseUp(el);
+      fireEvent.click(el, { clientX: AT.x, clientY: AT.y, detail: 1 });
+
+      expect(sent()).toEqual([]);
+    });
   });
 });
