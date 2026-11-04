@@ -9,6 +9,12 @@ back to normal before the scrolling stops. When it stops, the phone's tiles
 at that zoom level must be REAPER's peaks for the take as it is now: two
 channels, the staircase on the left and 0.25 on the right. Tiles read in
 mono must not be kept and sent as the take's current waveform.
+
+This is a smoke test on a real REAPER, and it depends on timing: it needs
+every tick between the two edits to have a viewport change to send, so on
+a slow runner it could pass on broken code. It cannot fail on correct
+code. The peaks_generator unit test "tiles read while an edit the change
+check hasn't reached is in place ..." pins the behaviour deterministically.
 """
 import time
 

@@ -498,25 +498,30 @@ pub const PeaksSubscriptions = struct {
         cache: *const GuidCache,
         api: anytype,
     ) Allocator.Error![]c_int {
-        return self.collectIndices(scratch, cache, api, .all);
+        return self.collectIndices(scratch, cache, api);
     }
 
-    /// Track indices (sorted) of the clients not due fresh tiles this tick,
-    /// without grace-period tracks: the tracks a forced send doesn't give
-    /// to everyone who watches them. The list is allocated from `scratch`.
-    pub fn getUnforcedIndices(
-        self: *PeaksSubscriptions,
-        scratch: Allocator,
-        cache: *const GuidCache,
-        api: anytype,
-    ) Allocator.Error![]c_int {
-        return self.collectIndices(scratch, cache, api, .unforced);
-    }
-
-    /// Whether only clients due their tiles this tick watch `track_idx`,
-    /// given getUnforcedIndices' result.
-    pub fn onlyForcedClientsWatch(unforced_indices: []const c_int, track_idx: c_int) bool {
-        return std.sort.binarySearch(c_int, unforced_indices, track_idx, orderCInt) == null;
+    /// Whether a client not due fresh tiles this tick subscribes to the
+    /// track at unified index `track_idx`, whose GUID is `track_guid`: by
+    /// range, or by GUID ("master" for index 0). Grace-period tracks don't
+    /// count. Compares stored GUIDs as strings, with no REAPER calls, as
+    /// GuidCache.resolve matches them exactly.
+    pub fn watchedByUnforcedClient(self: *const PeaksSubscriptions, track_idx: c_int, track_guid: []const u8) bool {
+        var slot_iter = self.client_id_to_slot.valueIterator();
+        while (slot_iter.next()) |slot| {
+            if (self.force_broadcast_clients[slot.*]) continue;
+            const client = &self.clients[slot.*];
+            switch (client.mode) {
+                .none => {},
+                .range => if (track_idx >= client.range_start and track_idx <= client.range_end) return true,
+                .guids => for (0..client.guid_count) |i| {
+                    const guid = client.getGuid(i) orelse continue;
+                    if (std.mem.eql(u8, guid, track_guid)) return true;
+                    if (track_idx == 0 and std.mem.eql(u8, guid, "master")) return true;
+                },
+            }
+        }
+        return false;
     }
 
     /// Whether the client in `slot` is due fresh tiles this tick (does not consume).
@@ -536,7 +541,6 @@ pub const PeaksSubscriptions = struct {
         scratch: Allocator,
         cache: *const GuidCache,
         api: anytype,
-        which: enum { all, unforced },
     ) Allocator.Error![]c_int {
         const max_idx: c_int = @max(0, api.trackCount()); // Unified: 0=master, 1..track_count = user tracks
         var seen = try std.DynamicBitSetUnmanaged.initEmpty(scratch, @as(usize, @intCast(max_idx)) + 1);
@@ -544,7 +548,6 @@ pub const PeaksSubscriptions = struct {
 
         var slot_iter = self.client_id_to_slot.valueIterator();
         while (slot_iter.next()) |slot| {
-            if (which == .unforced and self.force_broadcast_clients[slot.*]) continue;
             const client = &self.clients[slot.*];
 
             switch (client.mode) {
@@ -567,13 +570,11 @@ pub const PeaksSubscriptions = struct {
             }
         }
 
-        if (which == .all) {
-            const now = std.time.nanoTimestamp();
-            var grace_iter = self.grace_until.iterator();
-            while (grace_iter.next()) |entry| {
-                const idx = entry.key_ptr.*;
-                if (entry.value_ptr.* > now and idx >= 0 and idx <= max_idx) seen.set(@intCast(idx));
-            }
+        const now = std.time.nanoTimestamp();
+        var grace_iter = self.grace_until.iterator();
+        while (grace_iter.next()) |entry| {
+            const idx = entry.key_ptr.*;
+            if (entry.value_ptr.* > now and idx >= 0 and idx <= max_idx) seen.set(@intCast(idx));
         }
 
         const out = try scratch.alloc(c_int, seen.count());
@@ -805,20 +806,26 @@ test "a track only a forced client watches is told apart from one another client
     // A grace-period track no client watches.
     try subs.grace_until.put(9, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
 
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const scratch = arena.allocator();
-    const unforced = try subs.getUnforcedIndices(scratch, &cache, &mock);
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3 }, unforced);
-    // Tracks 4..6 only the forced client watches; 2 and 3 client 1 watches too.
-    for ([_]c_int{ 4, 5, 6 }) |t| try std.testing.expect(PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
-    for ([_]c_int{ 1, 2, 3 }) |t| try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
+    // Client 3 (unforced) watches master and track 8 by GUID.
+    const guids = [_][]const u8{ "master", "{00000000-0000-0000-0000-000000000008}" };
+    _ = try subs.subscribeGuids(3, &guids, 30);
+    _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(3).?);
 
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6, 9 }, try subs.getSubscribedIndices(scratch, &cache, &mock));
+    const watched = struct {
+        fn byUnforced(s: *const PeaksSubscriptions, idx: c_int) bool {
+            var buf: [64]u8 = undefined;
+            const guid = std.fmt.bufPrint(&buf, "{{00000000-0000-0000-0000-{d:0>12}}}", .{@as(u32, @intCast(idx))}) catch unreachable;
+            return s.watchedByUnforcedClient(idx, guid);
+        }
+    }.byUnforced;
+    // Tracks 4..6 only the forced client watches; 2 and 3 client 1 watches
+    // too; 0 and 8 client 3 does by GUID; 9 is only in the grace period.
+    for ([_]c_int{ 4, 5, 6, 7, 9 }) |t| try std.testing.expect(!watched(&subs, t));
+    for ([_]c_int{ 0, 1, 2, 3, 8 }) |t| try std.testing.expect(watched(&subs, t));
 
-    // Once client 2's send is done, every track it watches is unforced.
+    // Once client 2's send is done, every track it watches is an unforced client's.
     _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(2).?);
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6 }, try subs.getUnforcedIndices(scratch, &cache, &mock));
+    for ([_]c_int{ 4, 5, 6 }) |t| try std.testing.expect(watched(&subs, t));
 }
 
 test "getSubscribedIndices with GUIDs" {

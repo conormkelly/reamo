@@ -134,15 +134,13 @@ pub fn pollPeaks(
     // remembers the tracks its sends cover (rememberForcedTracks).
     var any_track_changed = false;
     if (any_forced) {
-        rememberForcedTracks(scratch, api, guids, peaks_subs, tile_cache) catch {
-            scratchShortage(peaks_subs);
-            return;
-        };
+        rememberForcedTracks(api, guids, peaks_subs, tile_cache);
     } else {
         const subscribed = peaks_subs.getSubscribedIndices(scratch, guids, api) catch {
             scratchShortage(peaks_subs);
             return;
         };
+        peaks_subs.scratch_shortage_logged = false;
         var batch = peaks_subs.changeCheckBatch(subscribed);
         while (batch.next()) |track_idx| {
             // Unified index (0 = master), as the generator resolves it.
@@ -153,7 +151,6 @@ pub fn pollPeaks(
             }
         }
     }
-    peaks_subs.scratch_shortage_logged = false;
 
     // A change goes to every client, rate-limited; one the limit holds back
     // goes out on the first tick it allows. Forced per-client sends bypass
@@ -189,9 +186,10 @@ pub fn pollPeaks(
     }
 
     // A send that found a take changed before the check reached it stored
-    // the change, so no check will find it: unless this was a change
-    // broadcast (every client with a viewport just got the take as it is),
-    // it is owed to every client.
+    // the change, so no check will find it: it is owed to every client,
+    // unless this was a change broadcast. That sent every client with a
+    // viewport its tiles, so every phone shown the take (in its first
+    // MAX_TRACKS_PER_BROADCAST tracks and its view) got it as it is now.
     if (tile_cache.consumeEpochMoved() and !send_change) peaks_subs.change_pending = true;
 }
 
@@ -206,29 +204,28 @@ pub fn pollPeaks(
 /// track a forced client watches but its send doesn't cover is left to
 /// the check too, and its first check is one broadcast.
 fn rememberForcedTracks(
-    scratch: std.mem.Allocator,
     api: anytype,
     guids: *const guid_cache.GuidCache,
     peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
     tile_cache: *peaks_tile.TileCache,
-) std.mem.Allocator.Error!void {
-    const unforced = try peaks_subs.getUnforcedIndices(scratch, guids, api);
+) void {
     var iter = peaks_subs.activeSubscriptions();
     while (iter.next()) |entry| {
         if (!peaks_subs.isForced(entry.slot)) continue;
         var covered_buf: [peaks_generator.MAX_TRACKS_PER_BROADCAST]c_int = undefined;
         for (peaks_generator.sendTracks(api, guids, entry.sub, &covered_buf)) |track_idx| {
-            if (!peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced, track_idx)) continue;
             const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
             var guid_buf: [64]u8 = undefined;
-            tile_cache.rememberTrack(api.formatTrackGuid(track, &guid_buf), api, track);
+            const track_guid = api.formatTrackGuid(track, &guid_buf);
+            if (peaks_subs.watchedByUnforcedClient(track_idx, track_guid)) continue;
+            tile_cache.rememberTrack(track_guid, api, track);
         }
     }
 }
 
-/// A tick skipped for want of scratch memory. Nothing is consumed: forced
-/// sends and a held change wait for a tick that has it. Logged once until
-/// a tick gets what it needs.
+/// A change check skipped for want of scratch memory. Nothing is consumed:
+/// a held change waits for a tick that has it. Logged once until a tick
+/// gets what it needs.
 fn scratchShortage(peaks_subs: *peaks_subscriptions.PeaksSubscriptions) void {
     if (peaks_subs.scratch_shortage_logged) return;
     peaks_subs.scratch_shortage_logged = true;
@@ -429,17 +426,19 @@ const PeaksSubs = peaks_subscriptions.PeaksSubscriptions;
 
 /// A project of `count` tracks over a MockBackend, which stores only a few.
 /// Every track is empty but unified index `with_items`, which is mock track
-/// 1; the others are mock track 2. Track GUIDs are per index. Counts the
+/// 1, and `also_items` (if set), mock track 3; the others are mock track 2. Track GUIDs are per index. Counts the
 /// tracks whose items are read (trackItemCount).
 const ManyTracks = struct {
     mock: *reaper.MockBackend,
     count: c_int,
     with_items: c_int,
+    also_items: c_int = -1,
     item_reads: usize = 0,
 
     fn stored(self: *ManyTracks, track: *anyopaque) *anyopaque {
         const k: c_int = @intCast(mock_state.decodeTrackPtr(track));
-        return mock_state.encodeTrackPtr(if (k == self.with_items) 1 else 2).?;
+        const s: c_int = if (k == self.with_items) 1 else if (k == self.also_items) 3 else 2;
+        return mock_state.encodeTrackPtr(s).?;
     }
     pub fn trackCount(self: *ManyTracks) c_int {
         return self.count;
@@ -535,7 +534,7 @@ const PeaksRig = struct {
 
     fn init(self: *PeaksRig, count: c_int, with_items: c_int) void {
         const allocator = std.testing.allocator;
-        self.mock = .{ .track_count = 2 };
+        self.mock = .{ .track_count = 3 };
         self.mock.tracks[1].item_count = 1;
         self.mock.tracks[1].items[0].length = 8.0;
         self.mock.tracks[1].items[0].take_count = 1;
@@ -621,7 +620,7 @@ test "after a forced send covering every track a phone watches, the change check
     try std.testing.expectEqual(@as(usize, 1), rig.sent.frames[1]);
 }
 
-test "a tick without scratch memory sends nothing and loses neither a held change nor a forced send" {
+test "a change check without scratch memory sends nothing and keeps a held change" {
     var rig: PeaksRig = undefined;
     rig.init(10, 5);
     defer rig.deinit();
@@ -639,20 +638,44 @@ test "a tick without scratch memory sends nothing and loses neither a held chang
     try std.testing.expectEqual(sent, rig.sent.total());
 
     var no_memory = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
-    _ = rig.subs.updateViewport(1, .{ .start = 0, .end = 12, .width_px = 1400 });
     rig.tickWith(1000, no_memory.allocator());
     try std.testing.expectEqual(sent, rig.sent.total());
     try std.testing.expect(rig.subs.change_pending);
-    try std.testing.expect(rig.subs.isForced(rig.subs.client_id_to_slot.get(1).?));
     try std.testing.expect(rig.subs.scratch_shortage_logged);
 
-    // With memory again: the forced send goes, then the held change.
-    rig.tick(0);
-    try std.testing.expectEqual(sent + 1, rig.sent.total());
-    try std.testing.expect(!rig.subs.scratch_shortage_logged);
+    // With memory again, the held change goes out.
     rig.tick(1000);
-    try std.testing.expectEqual(sent + 2, rig.sent.total());
+    try std.testing.expectEqual(sent + 1, rig.sent.total());
     try std.testing.expect(!rig.subs.change_pending);
+    try std.testing.expect(!rig.subs.scratch_shortage_logged);
+}
+
+test "a change broadcast that finds another take changed before the check reaches it is not followed by a second" {
+    var rig: PeaksRig = undefined;
+    rig.init(300, 250);
+    defer rig.deinit();
+    rig.api.also_items = 10;
+    rig.mock.tracks[3] = rig.mock.tracks[1];
+    const guid = "{take-on-track-10}";
+    @memcpy(rig.mock.tracks[3].items[0].takes[0].guid[0..guid.len], guid);
+    rig.mock.tracks[3].items[0].takes[0].guid_len = guid.len;
+    // Phone 1 is sent tracks 1..32 (track 10 among them), phone 2 track 250.
+    _ = try rig.subs.subscribeRangeWithViewport(1, 1, 300, 30, PeaksRig.viewport);
+    _ = try rig.subs.subscribeRangeWithViewport(2, 250, 250, 30, PeaksRig.viewport);
+    rig.tick(0);
+    try rig.settle();
+
+    // Track 10's item moves and track 250's take goes mono; this tick checks
+    // tracks 1..128, so the move is broadcast and the send to phone 2 meets
+    // track 250's change before the check does.
+    rig.mock.tracks[3].items[0].position = 1.0;
+    rig.mock.tracks[1].items[0].takes[0].channel_mode = 3;
+    rig.subs.change_check_from = 0;
+    const before = rig.sent.total();
+    rig.tick(1000);
+    try std.testing.expectEqual(before + 2, rig.sent.total());
+    for (0..4) |_| rig.tick(1000);
+    try std.testing.expectEqual(before + 2, rig.sent.total());
 }
 
 test "a take a forced send finds changed before the check reaches it goes to every other phone too" {
