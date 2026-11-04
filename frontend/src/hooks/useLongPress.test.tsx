@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { useLongPress, type UseLongPressOptions } from './useLongPress';
 
 type Point = { x: number; y: number };
@@ -695,7 +695,16 @@ describe('useLongPress', () => {
     expect(seen[1]).toBe(seen[0]);
   });
 
-  describe('takeFocus', () => {
+  describe('commitEditsFirst', () => {
+    function DivProbe(props: UseLongPressOptions) {
+      const { handlers } = useLongPress(props);
+      return (
+        <div role="group" aria-label="pad" {...handlers}>
+          <input aria-label="inner field" />
+        </div>
+      );
+    }
+
     /** A field being edited elsewhere, and the order things happen in. */
     function setupWithField(options: Partial<UseLongPressOptions> = {}) {
       const order: string[] = [];
@@ -704,7 +713,7 @@ describe('useLongPress', () => {
       const utils = render(
         <>
           <input aria-label="field" onBlur={() => order.push('field blur')} />
-          <Probe onTap={onTap} onLongPress={onLongPress} duration={400} takeFocus {...options} />
+          <Probe onTap={onTap} onLongPress={onLongPress} duration={400} commitEditsFirst {...options} />
         </>
       );
       const field = utils.getByLabelText('field');
@@ -712,30 +721,38 @@ describe('useLongPress', () => {
       return { el: utils.getByRole('button'), field, order, onTap, onLongPress };
     }
 
-    it('a press keeps the mousedown default, which focuses the element', () => {
-      const { el } = setup({ takeFocus: true });
+    it('a press still does not take focus, so no focus ring is drawn on the element', () => {
+      const { el } = setup({ commitEditsFirst: true });
 
-      expect(fireEvent.mouseDown(el)).toBe(true);
+      expect(fireEvent.mouseDown(el)).toBe(false);
     });
 
-    it('a finger tap moves focus to the element before the tap runs, so a field being edited blurs first', () => {
+    it('a finger tap blurs a field being edited elsewhere before the tap runs, and leaves the element unfocused', () => {
       const { el, order } = setupWithField();
 
       fingerDown(el);
       fingerUp(el);
 
-      expect(document.activeElement).toBe(el);
       expect(order).toEqual(['field blur', 'tap']);
+      expect(document.activeElement).not.toBe(el);
+      expect(document.activeElement).toBe(document.body);
     });
 
-    it('a hold moves focus to the element before the long press runs', () => {
-      const { el, order } = setupWithField();
+    it('a hold blurs a field being edited elsewhere before the long press runs', () => {
+      const { order } = setupWithField();
 
-      fingerDown(el);
+      fingerDown(screen.getByRole('button'));
       wait(400);
 
-      expect(document.activeElement).toBe(el);
       expect(order).toEqual(['field blur', 'long press']);
+    });
+
+    it('a keyboard or screen reader activation (a click with no pointer) blurs a field being edited first', () => {
+      const { el, order } = setupWithField();
+
+      fireEvent.click(el, { detail: 0 });
+
+      expect(order).toEqual(['field blur', 'tap']);
     });
 
     it('a press that turns into a scroll leaves the field focused', () => {
@@ -747,6 +764,48 @@ describe('useLongPress', () => {
 
       expect(document.activeElement).toBe(field);
       expect(order).toEqual([]);
+    });
+
+    it('a focused element that is not editable keeps its focus', () => {
+      const onTap = vi.fn();
+      render(
+        <>
+          <button type="button">other</button>
+          <Probe onTap={onTap} commitEditsFirst />
+        </>
+      );
+      const other = screen.getByText('other');
+      other.focus();
+
+      fingerDown(screen.getByText('hold me'));
+      fingerUp(screen.getByText('hold me'));
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(other);
+    });
+
+    it('a field inside the element keeps its focus', () => {
+      const onTap = vi.fn();
+      render(<DivProbe onTap={onTap} commitEditsFirst />);
+      const inner = screen.getByLabelText('inner field');
+      inner.focus();
+      const pad = screen.getByRole('group');
+
+      fingerDown(pad);
+      fingerUp(pad);
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(inner);
+    });
+
+    it('without the option, a tap leaves a field being edited focused', () => {
+      const { field, order } = setupWithField({ commitEditsFirst: false });
+
+      fingerDown(screen.getByRole('button'));
+      fingerUp(screen.getByRole('button'));
+
+      expect(order).toEqual(['tap']);
+      expect(document.activeElement).toBe(field);
     });
   });
 });

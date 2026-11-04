@@ -129,15 +129,17 @@ export function ToolbarButton({
     }
   }, [action, editMode, onEdit, sendCommand]);
 
-  // A hold enters edit mode when not already editing. The button takes focus:
-  // a name being edited elsewhere commits before the action runs, and in edit
-  // mode a draggable button needs its mousedown default to start a drag.
+  // A hold enters edit mode when not already editing. A field being edited
+  // elsewhere is blurred before the button acts.
   const { handlers } = useLongPress({
     onTap: handleTap,
     onLongPress: editMode ? undefined : onLongPress,
     duration: LONG_PRESS_DELAY,
-    takeFocus: true,
+    commitEditsFirst: true,
   });
+  // A draggable button keeps its mousedown default: preventing it stops the
+  // browser from starting a drag.
+  const { onMouseDown, ...pressHandlers } = handlers;
 
   // Compute colors - use user's colors, indicator dot shows toggle state
   const backgroundColor = action.backgroundColor || DEFAULT_BG_COLOR;
@@ -146,7 +148,8 @@ export function ToolbarButton({
 
   return (
     <button
-      {...handlers}
+      {...pressHandlers}
+      onMouseDown={dragProps?.draggable ? undefined : onMouseDown}
       {...dragProps}
       className={`
         relative flex flex-col items-center justify-center

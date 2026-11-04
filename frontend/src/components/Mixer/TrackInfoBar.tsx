@@ -130,8 +130,8 @@ function FxButton({
     },
     onLongPress: onOpenList,
     duration: FX_HOLD_DURATION,
-    // A track name being edited commits before the button acts
-    takeFocus: true,
+    // A track name being edited is blurred, which commits it, before the button acts
+    commitEditsFirst: true,
   });
 
   return (

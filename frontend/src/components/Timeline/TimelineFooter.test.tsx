@@ -143,7 +143,7 @@ describe('TimelineFooter selection mode button', () => {
     expect(onSelectionLongPress).not.toHaveBeenCalled();
   });
 
-  it('a tap moves focus to the button first, so a name being edited elsewhere blurs and commits before the toggle', () => {
+  it('a tap blurs a field being edited elsewhere before the toggle, and does not focus the button', () => {
     const order: string[] = [];
     const onSelectionModeToggle = vi.fn(() => order.push('toggle'));
     render(
@@ -171,5 +171,6 @@ describe('TimelineFooter selection mode button', () => {
     fireEvent.pointerUp(button, pointer(AT, 'touch', { buttons: 0 }));
 
     expect(order).toEqual(['name blur', 'toggle']);
+    expect(document.activeElement).not.toBe(button);
   });
 });

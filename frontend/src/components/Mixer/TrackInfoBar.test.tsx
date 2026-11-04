@@ -176,6 +176,29 @@ describe('TrackInfoBar FX button', () => {
     expect(screen.queryByDisplayValue('Lead')).toBeNull();
   });
 
+  it('a screen reader activation while the track name is being edited commits the rename before toggling', () => {
+    const fx = setup();
+    fireEvent.click(screen.getByTitle('Click to edit name'));
+    fireEvent.change(screen.getByDisplayValue('Vox'), { target: { value: 'Lead' } });
+
+    fireEvent.click(fx, { detail: 0 });
+
+    expect(sendCommand.mock.calls.map(([c]) => c)).toEqual([
+      { command: 'track/rename', params: { trackGuid: '{VOX}', name: 'Lead' } },
+      TOGGLE,
+    ]);
+  });
+
+  it('a tap while the track name is being edited leaves the FX button unfocused', () => {
+    const fx = setup();
+    fireEvent.click(screen.getByTitle('Click to edit name'));
+
+    fireEvent.pointerDown(fx, pointer(AT));
+    fireEvent.pointerUp(fx, pointer(AT, 'touch', { buttons: 0 }));
+
+    expect(document.activeElement).not.toBe(fx);
+  });
+
   it('a hold while the track name is being edited commits the rename before opening the FX list', () => {
     const fx = setup();
     fireEvent.click(screen.getByTitle('Click to edit name'));

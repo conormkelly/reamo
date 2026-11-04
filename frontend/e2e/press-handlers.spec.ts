@@ -310,6 +310,22 @@ test.describe('FX button, touch', () => {
     expect(sent).toEqual([{ command: 'track/rename', params: { trackGuid: TRACK_GUID, name: 'Lead' } }, FX_TOGGLE]);
     await expect(name).toHaveCount(0);
   });
+
+  test('a tap after typing a new track name sends the rename, then toggles, and draws no focus ring', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const fx = await openFxButton(page);
+    await page.getByTitle('Click to edit name').tap();
+    await expect(page.locator('input[type="text"]')).toBeFocused();
+    await page.keyboard.press('ControlOrMeta+a');
+    // Real key events: after them a focus() call would count as keyboard focus.
+    await page.keyboard.type('Lead');
+
+    await fx.tap();
+    await settle(page);
+
+    expect(sent).toEqual([{ command: 'track/rename', params: { trackGuid: TRACK_GUID, name: 'Lead' } }, FX_TOGGLE]);
+    expect(await fx.evaluate((el) => el.matches(':focus-visible'))).toBe(false);
+  });
 });
 
 // ============================================

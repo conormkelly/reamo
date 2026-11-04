@@ -26,11 +26,11 @@
  * cancelled, which cancels their clicks. Holding a key never long-presses.
  *
  * Pressing the element doesn't take focus, so a text field being typed in
- * keeps it and a phone's keyboard stays up. With `takeFocus` it does, as a
- * button press does by default, and the element is focused before the tap or
- * long press runs: a field being edited elsewhere blurs, and commits, before
- * the element acts. A finger's emulated mousedown, which would focus it, comes
- * only after the release that taps.
+ * keeps it and a phone's keyboard stays up. With `commitEditsFirst`, a tap or
+ * long press, by pointer, keyboard or screen reader, first blurs a focused
+ * input, textarea or editable element outside the element, so a field that
+ * saves on blur starts saving before the element acts. The element still doesn't take focus, so no focus ring is
+ * drawn on it. A press that ends with neither leaves the field focused.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -42,8 +42,8 @@ export interface UseLongPressOptions {
   onLongPress?: () => void;
   /** Duration in ms before long press triggers (default: 400) */
   duration?: number;
-  /** Pressing the element focuses it, before the tap or long press runs (default: false) */
-  takeFocus?: boolean;
+  /** A tap or long press first blurs a focused input, textarea or editable element outside the element (default: false) */
+  commitEditsFirst?: boolean;
 }
 
 export interface UseLongPressResult {
@@ -98,7 +98,7 @@ export function useLongPress({
   onTap,
   onLongPress,
   duration = 400,
-  takeFocus = false,
+  commitEditsFirst = false,
 }: UseLongPressOptions): UseLongPressResult {
   // The press under way; null when there is none, or once it has ended in a
   // long press or been cancelled.
@@ -112,14 +112,20 @@ export function useLongPress({
 
   // The callbacks of the latest render: they read state, such as the mixer
   // lock, that can change while a press is held.
-  const latest = useRef({ onTap, onLongPress, duration, takeFocus });
+  const latest = useRef({ onTap, onLongPress, duration, commitEditsFirst });
   useLayoutEffect(() => {
-    latest.current = { onTap, onLongPress, duration, takeFocus };
+    latest.current = { onTap, onLongPress, duration, commitEditsFirst };
   });
 
-  // A field being edited elsewhere blurs, and commits, before the press acts.
-  const focusIfTaking = useCallback((el: HTMLElement) => {
-    if (latest.current.takeFocus) el.focus({ preventScroll: true });
+  // A field being edited elsewhere blurs, and saves if it saves on blur,
+  // before the press acts.
+  const blurEditingField = useCallback((el: Element) => {
+    if (!latest.current.commitEditsFirst) return;
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLElement) || el.contains(focused)) return;
+    if (focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement || focused.isContentEditable) {
+      focused.blur();
+    }
   }, []);
 
   const cancel = useCallback(() => {
@@ -165,13 +171,13 @@ export function useLongPress({
         press.timer = setTimeout(() => {
           if (pressRef.current !== press) return;
           cancel();
-          focusIfTaking(press.el);
+          blurEditingField(press.el);
           latest.current.onLongPress?.();
         }, latest.current.duration);
       }
       pressRef.current = press;
     },
-    [cancel, focusIfTaking]
+    [cancel, blurEditingField]
   );
 
   const onPointerMove = useCallback(
@@ -200,10 +206,10 @@ export function useLongPress({
       // A release can move the pointer without a pointermove before it.
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) return;
       pointerTappedAtRef.current = Date.now();
-      focusIfTaking(press.el);
+      blurEditingField(press.el);
       latest.current.onTap?.();
     },
-    [cancel, focusIfTaking]
+    [cancel, blurEditingField]
   );
 
   const onPointerEnd = useCallback(
@@ -222,8 +228,9 @@ export function useLongPress({
     pointerTappedAtRef.current = null;
     if (e.detail !== 0) return;
     if (tappedAt !== null && Date.now() - tappedAt < CLICK_AFTER_TAP_MS) return;
+    blurEditingField(e.currentTarget);
     latest.current.onTap?.();
-  }, []);
+  }, [blurEditingField]);
 
   const onContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -237,7 +244,7 @@ export function useLongPress({
   );
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!latest.current.takeFocus) e.preventDefault();
+    e.preventDefault();
   }, []);
 
   // Only the element's own keys: a field inside it keeps its key repeats.

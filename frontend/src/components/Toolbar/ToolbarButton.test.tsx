@@ -228,10 +228,10 @@ describe('ToolbarButton', () => {
       expect(fireEvent.mouseDown(button)).toBe(true);
     });
 
-    it('a button that is not draggable keeps its mousedown default too, which focuses it', () => {
+    it('a button that is not draggable does not take focus when pressed', () => {
       const { button } = setup();
 
-      expect(fireEvent.mouseDown(button)).toBe(true);
+      expect(fireEvent.mouseDown(button)).toBe(false);
     });
 
     it('a tap in edit mode opens the editor and runs nothing', () => {
@@ -250,7 +250,7 @@ describe('ToolbarButton', () => {
     });
   });
 
-  it('a tap moves focus to the button first, so a name being edited elsewhere blurs and commits before the action', () => {
+  it('a tap blurs a field being edited elsewhere before the action, and does not focus the button', () => {
     const order: string[] = [];
     const sendCommand = vi.fn(() => order.push('action'));
     const ordered = { sendCommand } as unknown as UseReaperConnectionReturn;
@@ -267,5 +267,6 @@ describe('ToolbarButton', () => {
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', isPrimary: true, button: 0, buttons: 0 });
 
     expect(order).toEqual(['name blur', 'action']);
+    expect(document.activeElement).not.toBe(button);
   });
 });
