@@ -2163,6 +2163,15 @@ pub const Api = struct {
         return f(take, "D_PLAYRATE");
     }
 
+    /// Get take channel mode (I_CHANMODE: 0 normal, 1 reverse stereo,
+    /// 2 mono downmix, 3 mono left, 4 mono right, and REAPER's mono-channel
+    /// and stereo-pair modes above 4).
+    /// Returns f64 - caller must use ffi.safeFloatToInt for safe conversion.
+    pub fn getTakeChannelMode(self: *const Api, take: *anyopaque) f64 {
+        const f = self.getMediaItemTakeInfo_Value orelse return 0;
+        return f(take, "I_CHANMODE");
+    }
+
     /// Get take custom color (I_CUSTOMCOLOR).
     /// Returns f64 - caller must use ffi.safeFloatToInt for safe conversion.
     /// 0 = no custom color, otherwise color value with 0x01000000 flag.

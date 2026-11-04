@@ -192,6 +192,7 @@ pub const Method = enum {
     getTakeGUID,
     getTakeStartOffset,
     getTakePlayrate,
+    getTakeChannelMode,
     getTakeColor,
     setTakeColor,
     isTakeMIDI,

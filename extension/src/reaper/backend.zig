@@ -164,6 +164,7 @@ pub fn validateBackend(comptime T: type) void {
         "getTakeGUID",
         "getTakeStartOffset",
         "getTakePlayrate",
+        "getTakeChannelMode",
         "getTakeColor",
         "setTakeColor",
         "isTakeMIDI",

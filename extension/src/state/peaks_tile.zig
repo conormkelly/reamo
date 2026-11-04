@@ -527,7 +527,9 @@ pub const EpochTracker = struct {
 /// Compute epoch: what the take plays at each item-relative time. Tiles are
 /// indexed from the item start, so besides the source (replaced, or its
 /// channel count changed by a render) a slip edit or left trim (start
-/// offset) and a playrate change make every cached tile wrong.
+/// offset) and a playrate change make every cached tile wrong. So does a
+/// channel mode change: it picks the channels the peaks come from, and how
+/// many waveforms REAPER draws.
 fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     const source = api.getTakeSource(take) orelse {
         return 0; // No source
@@ -546,6 +548,8 @@ fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     hasher.update(std.mem.asBytes(&start_offset));
     const playrate = api.getTakePlayrate(take);
     hasher.update(std.mem.asBytes(&playrate));
+    const channel_mode = api.getTakeChannelMode(take) catch 0;
+    hasher.update(std.mem.asBytes(&channel_mode));
 
     // Truncate to u32
     return @truncate(hasher.final());

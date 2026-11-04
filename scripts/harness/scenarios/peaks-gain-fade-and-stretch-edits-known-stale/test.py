@@ -1,14 +1,15 @@
-"""Known gap (RV1-151): edits in REAPER to a take's gain, fades, stretch markers, looping or channel mode leave phones showing the old waveform.
+"""Known gap (RV1-151): edits in REAPER to a take's gain, pan, fades, stretch markers or looping leave phones showing the old waveform.
 
 REAPER redraws the waveform at once for each of these edits (its peaks, from
 GetMediaItemTake_Peaks, change). REAmo looks for peaks changes only in
-the take's source, channel count, start offset and playrate, and the
-item's position, length and active take. So after any of these edits:
+the take's source, channel count, start offset, playrate and channel mode,
+and the item's position, length and active take. So after any of these
+edits:
 
 - no peaks frame arrives;
 - REAmo's tile cache, shared by every phone and keyed by take, an epoch
-  (the take's source, channel count, start offset and playrate), LOD and
-  tile, still holds the old tiles: a frame sent for another reason (here, a slip
+  (the take's source, channel count, start offset, playrate and channel
+  mode), LOD and tile, still holds the old tiles: a frame sent for another reason (here, a slip
   edit on another track), and a phone that connects afterwards, get the
   waveform from before the edit.
 
@@ -38,9 +39,8 @@ EDITS = {
     "take volume envelope": ENVELOPE,
     "loop source": 'reaper.SetMediaItemInfo_Value(it, "B_LOOPSRC", 0)',
     "take pan": 'reaper.SetMediaItemTakeInfo_Value(tk, "D_PAN", -1)',
-    "channel mode": 'reaper.SetMediaItemTakeInfo_Value(tk, "I_CHANMODE", 3)',
 }
-STEREO = {"take pan", "channel mode"}
+STEREO = {"take pan"}
 
 
 def edit(name, lua):
