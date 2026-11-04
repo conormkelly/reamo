@@ -40,6 +40,24 @@ const ItemPeaksResult = struct {
     }
 };
 
+/// How many waveforms REAPER draws for a take, capped at the two REAmo
+/// sends. A mono channel mode draws one, whatever the source, though
+/// GetMediaItemTake_Peaks returns it alike on both channels asked for; the
+/// other modes draw the source's channels, or a stereo pair's two.
+///
+/// I_CHANMODE, measured on REAPER 7.83 and 6.0 on Linux (harness:
+/// peaks-channel-modes-match-reaper): 0 normal, 1 reverse stereo, 2 mono
+/// downmix, 3..66 mono channel 1..64 (3 left, 4 right), 67..130 stereo
+/// channels 1/2..64/65. On 7.83 (6.0 gives no peaks past 64 channels):
+/// 131..194 mono channel 65..128, 195..257 stereo pairs from 65/66, and 258
+/// and above drawn like normal.
+fn drawnChannels(source_channels: usize, channel_mode: c_int) usize {
+    const mono_mode = (channel_mode >= 2 and channel_mode <= 66) or
+        (channel_mode >= 131 and channel_mode <= 194);
+    if (mono_mode) return 1;
+    return @min(source_channels, 2);
+}
+
 /// Fetch peaks for an entire item using REAPER's GetMediaItemTake_Peaks API.
 /// This reads from pre-computed .reapeaks mipmaps, which is fast.
 ///
@@ -72,8 +90,8 @@ fn fetchItemPeaksViaTakePeaksAPI(
         return null;
     }
 
-    // Request up to 2 channels (we don't support more than stereo in the output)
-    const actual_channels: usize = @min(@as(usize, @intCast(source_channels)), 2);
+    // The waveforms REAPER draws for the take, at most two (REAmo sends no more).
+    const actual_channels = drawnChannels(@intCast(source_channels), api.getTakeChannelMode(take) catch 0);
     // Always request 2 channels from REAPER (it always writes 2 even for mono sources on some platforms)
     const request_channels: usize = 2;
 
@@ -201,9 +219,10 @@ fn sliceTileFromItemPeaks(
         }
     }
 
-    // Use source channel count directly — don't collapse stereo silence to mono.
-    // Per-tile L/R comparison caused visual glitches: stereo tracks showed centered
-    // single-lane rendering in silence regions instead of proper stereo two-lane layout.
+    // Every tile has the take's channel count (the waveforms REAPER draws for
+    // it), never one judged per tile from its L/R peaks: a stereo take's
+    // silent tiles collapsed to mono would show one centred lane between
+    // two-lane tiles.
     tile.num_peaks = @intCast(num_peaks);
     tile.channels = @intCast(channels);
 
@@ -483,4 +502,56 @@ test "an item whose audio covers it gets every peak asked for" {
     var result = fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, &api, take, 0.0, 2.0, 16.0).?;
     defer result.deinit();
     try expectPeaksMatchMock(&result, 32, 2);
+}
+
+/// Fetch a one-take item's peaks, its take's source having
+/// `source_channels` channels and the take channel mode `channel_mode`.
+fn fetchWithChannelMode(api: *mock.MockBackend, source_channels: c_int, channel_mode: c_int) ItemPeaksResult {
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].length = 2.0;
+    api.tracks[0].items[0].take_count = 1;
+    api.tracks[0].items[0].takes[0].channel_count = source_channels;
+    api.tracks[0].items[0].takes[0].channel_mode = channel_mode;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+    return fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, api, take, 0.0, 2.0, 16.0).?;
+}
+
+test "a take in a mono channel mode gets one channel, as REAPER draws one waveform" {
+    for ([_]c_int{ 2, 3, 4, 5, 66, 131, 194 }) |mode| {
+        for ([_]c_int{ 2, 4 }) |source_channels| {
+            var api = mock.MockBackend{};
+            var result = fetchWithChannelMode(&api, source_channels, mode);
+            defer result.deinit();
+            expectPeaksMatchMock(&result, 32, 1) catch |err| {
+                std.debug.print("channel mode {d}, {d}-channel source\n", .{ mode, source_channels });
+                return err;
+            };
+        }
+    }
+}
+
+test "a take in normal, reverse-stereo, stereo-pair or unknown channel mode keeps two channels" {
+    for ([_]c_int{ 0, 1, 67, 130, 195, 257, 258, 300 }) |mode| {
+        for ([_]c_int{ 2, 4 }) |source_channels| {
+            var api = mock.MockBackend{};
+            var result = fetchWithChannelMode(&api, source_channels, mode);
+            defer result.deinit();
+            expectPeaksMatchMock(&result, 32, 2) catch |err| {
+                std.debug.print("channel mode {d}, {d}-channel source\n", .{ mode, source_channels });
+                return err;
+            };
+        }
+    }
+}
+
+test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
+    for ([_]c_int{ 0, 2, 3, 67 }) |mode| {
+        var api = mock.MockBackend{};
+        var result = fetchWithChannelMode(&api, 1, mode);
+        defer result.deinit();
+        expectPeaksMatchMock(&result, 32, 1) catch |err| {
+            std.debug.print("channel mode {d}\n", .{mode});
+            return err;
+        };
+    }
 }

@@ -441,6 +441,7 @@ pub const MockBackend = struct {
     pub const getTakeGUID = tracks.TracksMethods.getTakeGUID;
     pub const getTakeStartOffset = tracks.TracksMethods.getTakeStartOffset;
     pub const getTakePlayrate = tracks.TracksMethods.getTakePlayrate;
+    pub const getTakeChannelMode = tracks.TracksMethods.getTakeChannelMode;
     pub const getTakeColor = tracks.TracksMethods.getTakeColor;
     pub const setTakeColor = tracks.TracksMethods.setTakeColor;
     pub const isTakeMIDI = tracks.TracksMethods.isTakeMIDI;

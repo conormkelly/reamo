@@ -642,6 +642,15 @@ pub const TracksMethods = struct {
         return self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].playrate;
     }
 
+    pub fn getTakeChannelMode(self: anytype, take: *anyopaque) ffi.FFIError!c_int {
+        self.recordCall(.getTakeChannelMode);
+        const info = state.decodeTakePtr(take);
+        if (info.track_idx >= state.MAX_TRACKS) return 0;
+        if (info.item_idx >= state.MAX_ITEMS_PER_TRACK) return 0;
+        if (info.take_idx >= state.MAX_TAKES_PER_ITEM) return 0;
+        return self.tracks[info.track_idx].items[info.item_idx].takes[info.take_idx].channel_mode;
+    }
+
     pub fn getTakeColor(self: anytype, take: *anyopaque) ffi.FFIError!c_int {
         self.recordCall(.getTakeColor);
         const info = state.decodeTakePtr(take);

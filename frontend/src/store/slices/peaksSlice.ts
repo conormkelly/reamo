@@ -101,6 +101,18 @@ export const createPeaksSlice: StateCreator<PeaksSlice, [], [], PeaksSlice> = (s
         };
         const keyStr = makeTileCacheKeyString(key);
 
+        // A tile under a new epoch means the take changed (a slip edit,
+        // a channel mode change, ...): its tiles from other epochs show the
+        // take as it was, so drop them, or the canvas draws both.
+        const epochPrefix = `${tile.takeGuid}:${tile.epoch}:`;
+        const takeKeys = newTilesByTake.get(tile.takeGuid);
+        if (takeKeys?.some((k) => !k.startsWith(epochPrefix))) {
+          for (const k of takeKeys) {
+            if (!k.startsWith(epochPrefix)) newTileCache.delete(k);
+          }
+          newTilesByTake.set(tile.takeGuid, takeKeys.filter((k) => k.startsWith(epochPrefix)));
+        }
+
         // Store tile data (without key fields to save memory)
         newTileCache.set(keyStr, {
           peaks: tile.peaks,

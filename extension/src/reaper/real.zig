@@ -945,6 +945,10 @@ pub const RealBackend = struct {
         return self.inner.getTakePlayrate(take);
     }
 
+    pub fn getTakeChannelMode(self: *const RealBackend, take: *anyopaque) ffi.FFIError!c_int {
+        return ffi.safeFloatToInt(c_int, self.inner.getTakeChannelMode(take));
+    }
+
     pub fn getTakeColor(self: *const RealBackend, take: *anyopaque) ffi.FFIError!c_int {
         return ffi.safeFloatToInt(c_int, self.inner.getTakeColor(take));
     }

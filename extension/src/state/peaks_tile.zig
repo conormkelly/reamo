@@ -543,7 +543,9 @@ pub const EpochTracker = struct {
 /// Compute epoch: what the take plays at each item-relative time. Tiles are
 /// indexed from the item start, so besides the source (replaced, or its
 /// channel count changed by a render) a slip edit or left trim (start
-/// offset) and a playrate change make every cached tile wrong.
+/// offset) and a playrate change make every cached tile wrong. So does a
+/// channel mode change: it picks the channels the peaks come from, and how
+/// many waveforms REAPER draws.
 fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     const source = api.getTakeSource(take) orelse {
         return 0; // No source
@@ -562,6 +564,8 @@ fn computeEpoch(api: anytype, take: *anyopaque) u32 {
     hasher.update(std.mem.asBytes(&start_offset));
     const playrate = api.getTakePlayrate(take);
     hasher.update(std.mem.asBytes(&playrate));
+    const channel_mode = api.getTakeChannelMode(take) catch 0;
+    hasher.update(std.mem.asBytes(&channel_mode));
 
     // Truncate to u32
     return @truncate(hasher.final());
@@ -918,4 +922,38 @@ test "a slip edit or playrate change gives the take a new epoch" {
     try std.testing.expect(slipped != original);
     m.tracks[1].items[0].takes[0].playrate = 1.5;
     try std.testing.expect(computeEpoch(&m, take) != slipped);
+}
+
+test "a channel mode change is a change to the track, and drops the take's cached tiles" {
+    const reaper = @import("../reaper.zig");
+    var m = reaper.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 1;
+    m.tracks[1].items[0].take_count = 1;
+    const guid = "{take-1}";
+    @memcpy(m.tracks[1].items[0].takes[0].guid[0..guid.len], guid);
+    m.tracks[1].items[0].takes[0].guid_len = guid.len;
+    const track = m.getTrackByUnifiedIdx(1).?;
+    const take = m.getItemActiveTake(m.getItemByIdx(track, 0).?).?;
+
+    var cache = TileCache.init(std.testing.allocator);
+    defer cache.deinit();
+    _ = cache.trackChanged("t1", &m, track);
+    try std.testing.expect(!cache.trackChanged("t1", &m, track));
+
+    const stereo_epoch = cache.getEpoch(guid, &m, take);
+    const peaks = [_]f64{0.5} ** 4;
+    cache.put(TileCacheKey.create(guid, stereo_epoch, 6, 0), &peaks, &peaks, 2, 2);
+
+    // Normal to mono (left): REAPER draws one waveform instead of two.
+    m.tracks[1].items[0].takes[0].channel_mode = 3;
+    try std.testing.expect(cache.trackChanged("t1", &m, track));
+    try std.testing.expect(cache.getEpoch(guid, &m, take) != stereo_epoch);
+    try std.testing.expectEqual(@as(usize, 0), cache.count());
+
+    // Left to right: still one waveform, but another channel's.
+    const left_epoch = cache.getEpoch(guid, &m, take);
+    m.tracks[1].items[0].takes[0].channel_mode = 4;
+    try std.testing.expect(cache.trackChanged("t1", &m, track));
+    try std.testing.expect(cache.getEpoch(guid, &m, take) != left_epoch);
+    try std.testing.expect(!cache.trackChanged("t1", &m, track));
 }
