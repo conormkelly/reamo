@@ -11,6 +11,7 @@ import { useSends } from '../../hooks/useSends';
 import { useReaperStore } from '../../store';
 import { gesture, send } from '../../core/WebSocketCommands';
 import { faderToVolume, volumeToFader, volumeToDb } from '../../utils/volume';
+import { listenToTrackDrag } from '../Track/listenToTrackDrag';
 
 export interface SendFaderProps {
   /** Source track index */
@@ -138,22 +139,16 @@ export function SendFader({
       };
 
       const handleUp = () => {
+        stopListening();
         setIsDragging(false);
         if (gestureGuidRef.current) {
           sendCommand(gesture.end('send', trackIndex, gestureGuidRef.current, sendIndexRef.current));
         }
         gestureGuidRef.current = null;
-        document.removeEventListener('mousemove', handleMove);
-        document.removeEventListener('mouseup', handleUp);
-        document.removeEventListener('touchmove', handleMove);
-        document.removeEventListener('touchend', handleUp);
         cleanupRef.current = null;
       };
 
-      document.addEventListener('mousemove', handleMove);
-      document.addEventListener('mouseup', handleUp);
-      document.addEventListener('touchmove', handleMove, { passive: false });
-      document.addEventListener('touchend', handleUp);
+      const stopListening = listenToTrackDrag(handleMove, handleUp);
 
       cleanupRef.current = handleUp;
     },
