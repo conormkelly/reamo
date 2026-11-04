@@ -8,6 +8,7 @@ import { useReaper } from '../../../hooks/useReaper';
 import { useTrack } from '../../../hooks/useTrack';
 import { hw as hwCmd, gesture } from '../../../core/WebSocketCommands';
 import { HorizontalRoutingFader } from './HorizontalRoutingFader';
+import { useGestureGuid } from './useGestureGuid';
 import { HwChannelPicker } from './HwChannelPicker';
 import { nextMode, formatHwOutputName } from './routingUtils';
 
@@ -41,6 +42,8 @@ function HwOutputRow({
 }): ReactElement {
   const { sendCommand } = useReaper();
   const { guid } = useTrack(trackIndex);
+  const volumeGuid = useGestureGuid(guid);
+  const panGuid = useGestureGuid(guid);
   const hwIdx = hw.hwIdx;
   const label = formatHwOutputName(hw.destChannel);
 
@@ -54,38 +57,42 @@ function HwOutputRow({
       colorScheme="hardware"
       onLabelTap={onLabelTap}
       onVolumeChange={(volume) => {
-        sendCommand(hwCmd.setVolume(trackIndex, hwIdx, volume));
+        sendCommand(hwCmd.setVolume(trackIndex, hwIdx, volume, volumeGuid.current()));
       }}
       onVolumeGestureStart={() => {
-        if (!guid) return;
-        sendCommand(gesture.start('hwOutputVolume', trackIndex, guid, undefined, hwIdx));
+        const g = volumeGuid.begin();
+        if (!g) return;
+        sendCommand(gesture.start('hwOutputVolume', trackIndex, g, undefined, hwIdx));
       }}
       onVolumeGestureEnd={() => {
-        if (!guid) return;
-        sendCommand(gesture.end('hwOutputVolume', trackIndex, guid, undefined, hwIdx));
+        const g = volumeGuid.end();
+        if (!g) return;
+        sendCommand(gesture.end('hwOutputVolume', trackIndex, g, undefined, hwIdx));
       }}
       onVolumeDoubleTap={() => {
-        sendCommand(hwCmd.setVolume(trackIndex, hwIdx, 1.0));
+        sendCommand(hwCmd.setVolume(trackIndex, hwIdx, 1.0, guid));
       }}
       onPanChange={(pan) => {
-        sendCommand(hwCmd.setPan(trackIndex, hwIdx, pan));
+        sendCommand(hwCmd.setPan(trackIndex, hwIdx, pan, panGuid.current()));
       }}
       onPanGestureStart={() => {
-        if (!guid) return;
-        sendCommand(gesture.start('hwOutputPan', trackIndex, guid, undefined, hwIdx));
+        const g = panGuid.begin();
+        if (!g) return;
+        sendCommand(gesture.start('hwOutputPan', trackIndex, g, undefined, hwIdx));
       }}
       onPanGestureEnd={() => {
-        if (!guid) return;
-        sendCommand(gesture.end('hwOutputPan', trackIndex, guid, undefined, hwIdx));
+        const g = panGuid.end();
+        if (!g) return;
+        sendCommand(gesture.end('hwOutputPan', trackIndex, g, undefined, hwIdx));
       }}
       onPanDoubleTap={() => {
-        sendCommand(hwCmd.setPan(trackIndex, hwIdx, 0));
+        sendCommand(hwCmd.setPan(trackIndex, hwIdx, 0, guid));
       }}
       onMuteToggle={() => {
-        sendCommand(hwCmd.setMute(trackIndex, hwIdx, hw.muted ? 0 : 1));
+        sendCommand(hwCmd.setMute(trackIndex, hwIdx, hw.muted ? 0 : 1, guid));
       }}
       onModeToggle={() => {
-        sendCommand(hwCmd.setMode(trackIndex, hwIdx, nextMode(hw.mode)));
+        sendCommand(hwCmd.setMode(trackIndex, hwIdx, nextMode(hw.mode), guid));
       }}
       onDelete={() => {
         sendCommand(hwCmd.remove(trackGuid, hwIdx));
@@ -110,7 +117,7 @@ export function HardwareTab({ trackIndex, trackGuid, hwOutputs, hwOutCount }: Ha
         currentDestChannel={editingHw?.destChannel}
         onSelect={async (destChannel) => {
           if (isEditing) {
-            sendCommand(hwCmd.setDestChannel(trackIndex, pickerMode, destChannel));
+            sendCommand(hwCmd.setDestChannel(trackIndex, pickerMode, destChannel, trackGuid));
           } else {
             // Create new hw output, then set its destination
             try {
@@ -119,7 +126,7 @@ export function HardwareTab({ trackIndex, trackGuid, hwOutputs, hwOutCount }: Ha
                 payload?: { hwIdx?: number };
               };
               if (res.success && res.payload?.hwIdx !== undefined) {
-                sendCommand(hwCmd.setDestChannel(trackIndex, res.payload.hwIdx, destChannel));
+                sendCommand(hwCmd.setDestChannel(trackIndex, res.payload.hwIdx, destChannel, trackGuid));
               }
             } catch {
               // hw/add may fail silently — output still created with defaults by REAPER

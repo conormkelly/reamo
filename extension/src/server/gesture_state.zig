@@ -7,16 +7,56 @@ const logging = @import("../core/logging.zig");
 /// mid-drag doesn't split the drag into two undo steps.
 pub const GESTURE_TIMEOUT_NS: i128 = 10 * std.time.ns_per_s;
 
-/// Identifies a continuous control that can have an active gesture
+/// A GUID-sized identity string: a track's GUID ("master" for the master
+/// track, as in the track skeleton) or an FX's GUID. Fixed-size so ControlId
+/// stays a plain value that hash maps can copy.
+pub const GuidKey = struct {
+    buf: [MAX_LEN]u8 = undefined,
+    len: u8 = 0,
+
+    /// REAPER GUID strings are 38 characters; longer input is not a GUID.
+    pub const MAX_LEN = 40;
+
+    /// Null for an empty string or one longer than MAX_LEN.
+    pub fn from(s: []const u8) ?GuidKey {
+        if (s.len == 0 or s.len > MAX_LEN) return null;
+        var key = GuidKey{ .len = @intCast(s.len) };
+        @memcpy(key.buf[0..s.len], s);
+        return key;
+    }
+
+    pub fn slice(self: *const GuidKey) []const u8 {
+        return self.buf[0..self.len];
+    }
+
+    pub fn eql(a: *const GuidKey, b: *const GuidKey) bool {
+        return std.mem.eql(u8, a.slice(), b.slice());
+    }
+};
+
+/// The key a track's gestures are tracked under: its GUID, which stays with
+/// the track when tracks are inserted, deleted or reordered (its index
+/// doesn't, and a drag's start, value changes and end must all find the same
+/// gesture). The master track is "master". Null if REAPER gives no GUID.
+pub fn trackKey(api: anytype, track: *anyopaque) ?GuidKey {
+    if (api.masterTrack()) |master| {
+        if (track == master) return GuidKey.from("master");
+    }
+    var buf: [64]u8 = undefined;
+    return GuidKey.from(api.formatTrackGuid(track, &buf));
+}
+
+/// Identifies a continuous control that can have an active gesture.
+/// Send, receive and hardware-output controls are addressed by their index
+/// on the track (sub_idx), as their commands address them.
 pub const ControlId = struct {
     control_type: ControlType,
-    track_idx: c_int,
+    /// The track, by trackKey.
+    track: GuidKey,
     /// Secondary index for controls that need it (e.g., send_idx for send_volume)
     sub_idx: c_int = 0,
-
     /// For FX param gestures: the FX GUID (stable across reorder)
-    fx_guid: [40]u8 = undefined,
-    fx_guid_len: u8 = 0,
+    fx: GuidKey = .{},
     /// For FX param gestures: the parameter index
     param_idx: c_int = 0,
 
@@ -32,69 +72,52 @@ pub const ControlId = struct {
         fx_param,
     };
 
-    pub fn volume(track_idx: c_int) ControlId {
-        return .{ .control_type = .volume, .track_idx = track_idx };
+    pub fn volume(track: GuidKey) ControlId {
+        return .{ .control_type = .volume, .track = track };
     }
 
-    pub fn pan(track_idx: c_int) ControlId {
-        return .{ .control_type = .pan, .track_idx = track_idx };
+    pub fn pan(track: GuidKey) ControlId {
+        return .{ .control_type = .pan, .track = track };
     }
 
-    pub fn sendVolume(track_idx: c_int, send_idx: c_int) ControlId {
-        return .{ .control_type = .send_volume, .track_idx = track_idx, .sub_idx = send_idx };
+    pub fn sendVolume(track: GuidKey, send_idx: c_int) ControlId {
+        return .{ .control_type = .send_volume, .track = track, .sub_idx = send_idx };
     }
 
-    pub fn sendPan(track_idx: c_int, send_idx: c_int) ControlId {
-        return .{ .control_type = .send_pan, .track_idx = track_idx, .sub_idx = send_idx };
+    pub fn sendPan(track: GuidKey, send_idx: c_int) ControlId {
+        return .{ .control_type = .send_pan, .track = track, .sub_idx = send_idx };
     }
 
-    pub fn receiveVolume(track_idx: c_int, recv_idx: c_int) ControlId {
-        return .{ .control_type = .receive_volume, .track_idx = track_idx, .sub_idx = recv_idx };
+    pub fn receiveVolume(track: GuidKey, recv_idx: c_int) ControlId {
+        return .{ .control_type = .receive_volume, .track = track, .sub_idx = recv_idx };
     }
 
-    pub fn receivePan(track_idx: c_int, recv_idx: c_int) ControlId {
-        return .{ .control_type = .receive_pan, .track_idx = track_idx, .sub_idx = recv_idx };
+    pub fn receivePan(track: GuidKey, recv_idx: c_int) ControlId {
+        return .{ .control_type = .receive_pan, .track = track, .sub_idx = recv_idx };
     }
 
-    pub fn hwOutputVolume(track_idx: c_int, hw_idx: c_int) ControlId {
-        return .{ .control_type = .hw_output_volume, .track_idx = track_idx, .sub_idx = hw_idx };
+    pub fn hwOutputVolume(track: GuidKey, hw_idx: c_int) ControlId {
+        return .{ .control_type = .hw_output_volume, .track = track, .sub_idx = hw_idx };
     }
 
-    pub fn hwOutputPan(track_idx: c_int, hw_idx: c_int) ControlId {
-        return .{ .control_type = .hw_output_pan, .track_idx = track_idx, .sub_idx = hw_idx };
+    pub fn hwOutputPan(track: GuidKey, hw_idx: c_int) ControlId {
+        return .{ .control_type = .hw_output_pan, .track = track, .sub_idx = hw_idx };
     }
 
-    pub fn fxParam(track_idx: c_int, fx_guid: []const u8, param_idx_val: c_int) ControlId {
-        var id = ControlId{
-            .control_type = .fx_param,
-            .track_idx = track_idx,
-            .param_idx = param_idx_val,
-        };
-        const len: u8 = @intCast(@min(fx_guid.len, 40));
-        @memcpy(id.fx_guid[0..len], fx_guid[0..len]);
-        id.fx_guid_len = len;
-        return id;
+    pub fn fxParam(track: GuidKey, fx: GuidKey, param_idx_val: c_int) ControlId {
+        return .{ .control_type = .fx_param, .track = track, .fx = fx, .param_idx = param_idx_val };
     }
 
-    /// SAFETY: Custom eql() required because ControlId contains a fixed-size array (fx_guid).
-    /// AutoHashMap's default equality compares ALL bytes, including uninitialized portions.
-    /// This ensures only meaningful fields are compared based on control_type.
+    /// SAFETY: Custom eql() required because the GuidKey buffers are only
+    /// meaningful up to their length; AutoHashMap's default equality would
+    /// compare every byte, uninitialized ones included. Only the fields that
+    /// identify a control of this control_type are compared.
     pub fn eql(a: ControlId, b: ControlId) bool {
         if (a.control_type != b.control_type) return false;
-        if (a.track_idx != b.track_idx) return false;
-
-        // For fx_param, compare fx_guid and param_idx
+        if (!a.track.eql(&b.track)) return false;
         if (a.control_type == .fx_param) {
-            if (a.fx_guid_len != b.fx_guid_len) return false;
-            if (a.param_idx != b.param_idx) return false;
-            if (a.fx_guid_len > 0) {
-                const len = a.fx_guid_len;
-                if (!std.mem.eql(u8, a.fx_guid[0..len], b.fx_guid[0..len])) return false;
-            }
-            return true;
+            return a.param_idx == b.param_idx and a.fx.eql(&b.fx);
         }
-
-        // For other types, compare sub_idx
         return a.sub_idx == b.sub_idx;
     }
 
@@ -103,17 +126,13 @@ pub const ControlId = struct {
     pub fn hash(self: ControlId) u64 {
         var h = std.hash.Wyhash.init(0);
         h.update(std.mem.asBytes(&self.control_type));
-        h.update(std.mem.asBytes(&self.track_idx));
-
+        h.update(self.track.slice());
         if (self.control_type == .fx_param) {
             h.update(std.mem.asBytes(&self.param_idx));
-            if (self.fx_guid_len > 0) {
-                h.update(self.fx_guid[0..self.fx_guid_len]);
-            }
+            h.update(self.fx.slice());
         } else {
             h.update(std.mem.asBytes(&self.sub_idx));
         }
-
         return h.final();
     }
 };
@@ -426,7 +445,7 @@ test "gesture lifecycle" {
     var state = GestureState.init(std.testing.allocator);
     defer state.deinit();
 
-    const vol1 = ControlId.volume(1);
+    const vol1 = ControlId.volume(GuidKey.from("{A}").?);
 
     // First client starts gesture
     try std.testing.expect(state.beginGesture(vol1, 100) == true); // new gesture
@@ -448,8 +467,9 @@ test "remove client from all" {
     var state = GestureState.init(std.testing.allocator);
     defer state.deinit();
 
-    const vol1 = ControlId.volume(1);
-    const pan1 = ControlId.pan(1);
+    const guid = GuidKey.from("{A}").?;
+    const vol1 = ControlId.volume(guid);
+    const pan1 = ControlId.pan(guid);
 
     // Client 100 gesturing on both volume and pan
     _ = state.beginGesture(vol1, 100);
@@ -468,4 +488,26 @@ test "remove client from all" {
 
     // vol1 still has client 200
     try std.testing.expect(state.hasActiveGestures() == true);
+}
+
+test "controls are equal only for the same track, control and sub-address" {
+    const a = GuidKey.from("{00000000-0000-0000-0000-000000000001}").?;
+    const b = GuidKey.from("{00000000-0000-0000-0000-000000000002}").?;
+    const fx1 = GuidKey.from("{FX1}").?;
+    const fx2 = GuidKey.from("{FX2}").?;
+
+    try std.testing.expect(ControlId.volume(a).eql(ControlId.volume(GuidKey.from("{00000000-0000-0000-0000-000000000001}").?)));
+    try std.testing.expect(!ControlId.volume(a).eql(ControlId.volume(b)));
+    try std.testing.expect(!ControlId.volume(a).eql(ControlId.pan(a)));
+    try std.testing.expect(!ControlId.sendVolume(a, 0).eql(ControlId.sendVolume(a, 1)));
+    try std.testing.expect(ControlId.fxParam(a, fx1, 3).eql(ControlId.fxParam(a, fx1, 3)));
+    try std.testing.expect(!ControlId.fxParam(a, fx1, 3).eql(ControlId.fxParam(a, fx2, 3)));
+    try std.testing.expect(!ControlId.fxParam(a, fx1, 3).eql(ControlId.fxParam(a, fx1, 4)));
+    try std.testing.expectEqual(ControlId.fxParam(a, fx1, 3).hash(), ControlId.fxParam(a, fx1, 3).hash());
+}
+
+test "a GUID key refuses what cannot be a GUID" {
+    try std.testing.expect(GuidKey.from("") == null);
+    try std.testing.expect(GuidKey.from("x" ** (GuidKey.MAX_LEN + 1)) == null);
+    try std.testing.expectEqualStrings("master", GuidKey.from("master").?.slice());
 }

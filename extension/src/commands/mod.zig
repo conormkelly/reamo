@@ -95,12 +95,20 @@ pub fn displayedBarBeatToTime(api: anytype, bar: c_int, beat: f64) ?f64 {
     return @max(time, 0.0);
 }
 
-/// Whether a client is mid-drag on `control`. A change inside a drag is
-/// covered by the undo point recorded when the drag ends; a change outside
-/// one (a double-tap reset) needs an undo point of its own.
-pub fn inGesture(response: *const ResponseWriter, control: gesture_state.ControlId) bool {
-    const gestures = response.gestures orelse return false;
-    return gestures.isActive(control);
+/// The control `make` builds for route `idx` of `track`, if a client is
+/// mid-drag on it, else null. A change inside a drag is covered by the undo
+/// point recorded when the drag ends; a change outside one (a double-tap
+/// reset) needs an undo point of its own.
+pub fn activeGesture(
+    api: anytype,
+    response: *const ResponseWriter,
+    track: *anyopaque,
+    comptime make: fn (gesture_state.GuidKey, c_int) gesture_state.ControlId,
+    idx: c_int,
+) ?gesture_state.ControlId {
+    const gestures = response.gestures orelse return null;
+    const control = make(gesture_state.trackKey(api, track) orelse return null, idx);
+    return if (gestures.isActive(control)) control else null;
 }
 
 /// An inclusive track index range.

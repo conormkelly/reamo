@@ -7,12 +7,12 @@ const gesture_state = @import("../server/gesture_state.zig");
 const logging = @import("../core/logging.zig");
 
 /// Set receive volume for the specified receive
-/// Params: trackIdx (unified: 0=master, 1+=user tracks), recvIdx (0-based), volume (linear, 1.0 = 0dB)
+/// Params: trackIdx (unified: 0=master, 1+=user tracks) or trackGuid, recvIdx (0-based), volume (linear, 1.0 = 0dB)
 pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const recv_idx = cmd.getInt("recvIdx") orelse {
         response.err("MISSING_RECV_IDX", "recvIdx is required");
         return;
@@ -22,33 +22,34 @@ pub fn handleSetVolume(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .receive, recv_idx)) {
         response.err("NOT_FOUND", "Receive not found");
         return;
     }
 
-    const control = gesture_state.ControlId.receiveVolume(track_idx, recv_idx);
-    const in_gesture = mod.inGesture(response, control);
-    if (!in_gesture) api.undoBeginBlock();
+    const gesture = mod.activeGesture(api, response, track, gesture_state.ControlId.receiveVolume, recv_idx);
+    if (gesture == null) api.undoBeginBlock();
     _ = api.trackReceiveSetVolume(track, recv_idx, volume);
-    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust receive volume");
+    if (gesture) |control| response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust receive volume");
 
     logging.debug("Receive volume set: track {} recv {} volume {d:.3}", .{ track_idx, recv_idx, volume });
     response.success(null);
 }
 
 /// Set receive mute state for the specified receive
-/// Params: trackIdx, recvIdx, muted (boolean)
+/// Params: trackIdx or trackGuid, recvIdx, muted (boolean)
 pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const recv_idx = cmd.getInt("recvIdx") orelse {
         response.err("MISSING_RECV_IDX", "recvIdx is required");
         return;
@@ -59,10 +60,12 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     };
     const muted = muted_int != 0;
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .receive, recv_idx)) {
         response.err("NOT_FOUND", "Receive not found");
@@ -82,12 +85,12 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
 }
 
 /// Set receive pan for the specified receive
-/// Params: trackIdx, recvIdx, pan (-1.0 to 1.0)
+/// Params: trackIdx or trackGuid, recvIdx, pan (-1.0 to 1.0)
 pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const recv_idx = cmd.getInt("recvIdx") orelse {
         response.err("MISSING_RECV_IDX", "recvIdx is required");
         return;
@@ -97,10 +100,12 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     };
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .receive, recv_idx)) {
         response.err("NOT_FOUND", "Receive not found");
@@ -110,23 +115,22 @@ pub fn handleSetPan(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
     // Clamp pan to valid range
     const clamped = @max(-1.0, @min(1.0, pan));
 
-    const control = gesture_state.ControlId.receivePan(track_idx, recv_idx);
-    const in_gesture = mod.inGesture(response, control);
-    if (!in_gesture) api.undoBeginBlock();
+    const gesture = mod.activeGesture(api, response, track, gesture_state.ControlId.receivePan, recv_idx);
+    if (gesture == null) api.undoBeginBlock();
     _ = api.trackReceiveSetPan(track, recv_idx, clamped);
-    if (in_gesture) response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust receive pan");
+    if (gesture) |control| response.gestures.?.recordActivity(control) else api.undoEndBlock("REAmo: Adjust receive pan");
 
     logging.debug("Receive pan set: track {} recv {} pan {d:.3}", .{ track_idx, recv_idx, clamped });
     response.success(null);
 }
 
 /// Set receive mode for the specified receive
-/// Params: trackIdx, recvIdx, mode (0=post-fader, 1=pre-FX, 3=post-FX)
+/// Params: trackIdx or trackGuid, recvIdx, mode (0=post-fader, 1=pre-FX, 3=post-FX)
 pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const track_idx = cmd.getInt("trackIdx") orelse {
-        response.err("MISSING_TRACK_IDX", "trackIdx is required");
+    if (cmd.getInt("trackIdx") == null and cmd.getString("trackGuid") == null) {
+        response.err("MISSING_TRACK_IDX", "trackIdx or trackGuid is required");
         return;
-    };
+    }
     const recv_idx = cmd.getInt("recvIdx") orelse {
         response.err("MISSING_RECV_IDX", "recvIdx is required");
         return;
@@ -142,10 +146,12 @@ pub fn handleSetMode(api: anytype, cmd: protocol.CommandMessage, response: *mod.
         return;
     }
 
-    const track = api.getTrackByUnifiedIdx(track_idx) orelse {
+    const resolution = tracks.resolveTrack(api, cmd) orelse {
         response.err("NOT_FOUND", "Track not found");
         return;
     };
+    const track = resolution.track;
+    const track_idx = resolution.idx;
 
     if (!mod.routeExists(api, track, .receive, recv_idx)) {
         response.err("NOT_FOUND", "Receive not found");

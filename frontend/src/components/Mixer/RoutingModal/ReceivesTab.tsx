@@ -8,6 +8,7 @@ import { useReaper } from '../../../hooks/useReaper';
 import { useTrack } from '../../../hooks/useTrack';
 import { receive as receiveCmd, gesture } from '../../../core/WebSocketCommands';
 import { HorizontalRoutingFader } from './HorizontalRoutingFader';
+import { useGestureGuid } from './useGestureGuid';
 import { TrackPicker } from './TrackPicker';
 import { nextMode } from './routingUtils';
 
@@ -43,6 +44,8 @@ function ReceiveRow({
 }): ReactElement {
   const { sendCommand } = useReaper();
   const { guid } = useTrack(trackIndex);
+  const volumeGuid = useGestureGuid(guid);
+  const panGuid = useGestureGuid(guid);
   const recvIdx = recv.sendIndex;
 
   return (
@@ -54,38 +57,42 @@ function ReceiveRow({
       label={label}
       colorScheme="receive"
       onVolumeChange={(volume) => {
-        sendCommand(receiveCmd.setVolume(trackIndex, recvIdx, volume));
+        sendCommand(receiveCmd.setVolume(trackIndex, recvIdx, volume, volumeGuid.current()));
       }}
       onVolumeGestureStart={() => {
-        if (!guid) return;
-        sendCommand(gesture.start('receive', trackIndex, guid, undefined, undefined, recvIdx));
+        const g = volumeGuid.begin();
+        if (!g) return;
+        sendCommand(gesture.start('receive', trackIndex, g, undefined, undefined, recvIdx));
       }}
       onVolumeGestureEnd={() => {
-        if (!guid) return;
-        sendCommand(gesture.end('receive', trackIndex, guid, undefined, undefined, recvIdx));
+        const g = volumeGuid.end();
+        if (!g) return;
+        sendCommand(gesture.end('receive', trackIndex, g, undefined, undefined, recvIdx));
       }}
       onVolumeDoubleTap={() => {
-        sendCommand(receiveCmd.setVolume(trackIndex, recvIdx, 1.0));
+        sendCommand(receiveCmd.setVolume(trackIndex, recvIdx, 1.0, guid));
       }}
       onPanChange={(pan) => {
-        sendCommand(receiveCmd.setPan(trackIndex, recvIdx, pan));
+        sendCommand(receiveCmd.setPan(trackIndex, recvIdx, pan, panGuid.current()));
       }}
       onPanGestureStart={() => {
-        if (!guid) return;
-        sendCommand(gesture.start('receivePan', trackIndex, guid, undefined, undefined, recvIdx));
+        const g = panGuid.begin();
+        if (!g) return;
+        sendCommand(gesture.start('receivePan', trackIndex, g, undefined, undefined, recvIdx));
       }}
       onPanGestureEnd={() => {
-        if (!guid) return;
-        sendCommand(gesture.end('receivePan', trackIndex, guid, undefined, undefined, recvIdx));
+        const g = panGuid.end();
+        if (!g) return;
+        sendCommand(gesture.end('receivePan', trackIndex, g, undefined, undefined, recvIdx));
       }}
       onPanDoubleTap={() => {
-        sendCommand(receiveCmd.setPan(trackIndex, recvIdx, 0));
+        sendCommand(receiveCmd.setPan(trackIndex, recvIdx, 0, guid));
       }}
       onMuteToggle={() => {
-        sendCommand(receiveCmd.setMute(trackIndex, recvIdx, recv.muted ? 0 : 1));
+        sendCommand(receiveCmd.setMute(trackIndex, recvIdx, recv.muted ? 0 : 1, guid));
       }}
       onModeToggle={() => {
-        sendCommand(receiveCmd.setMode(trackIndex, recvIdx, nextMode(recv.mode ?? 0)));
+        sendCommand(receiveCmd.setMode(trackIndex, recvIdx, nextMode(recv.mode ?? 0), guid));
       }}
       onDelete={() => {
         sendCommand(receiveCmd.remove(trackGuid, recvIdx));

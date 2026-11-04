@@ -321,12 +321,13 @@ def close_routing(t, c):
         print(f"      routing/unsubscribe raised {type(e).__name__}: {e}")
 
 
-def drag(t, control, guid, cmd, values, index_key, index, track_idx, value_key):
+def drag(t, control, guid, cmd, values, index_key, index, value_key):
     """A fader drag in the routing modal: gesture/start, a stream of set
-    commands without responses, gesture/end."""
+    commands without responses, gesture/end, all by the track GUID locked at
+    gesture start, as the routing faders send them."""
     t.ok("gesture/start", controlType=control, trackGuid=guid, **{index_key: index})
     for v in values:
-        t.c.fire(cmd, trackIdx=track_idx, **{index_key: index, value_key: v})
+        t.c.fire(cmd, trackGuid=guid, **{index_key: index, value_key: v})
         time.sleep(0.01)
     t.ok("gesture/end", controlType=control, trackGuid=guid, **{index_key: index})
 
@@ -585,11 +586,11 @@ def _(t):
         open_routing(t, t.c, src)
         start = tr["sends"][i]
         steps = [
-            ("volume drag", lambda: drag(t, "send", src, "send/setVolume", ramp(start["vol"], 0.6), "sendIdx", i, pos, "volume"),
+            ("volume drag", lambda: drag(t, "send", src, "send/setVolume", ramp(start["vol"], 0.6), "sendIdx", i, "volume"),
              "vol", approx(0.6, 1e-5)),
             # Double-tap on the fader resets to 0 dB, without a gesture.
-            ("reset tap", lambda: t.ok("send/setVolume", trackIdx=pos, sendIdx=i, volume=1.0), "vol", approx(1.0, 1e-5)),
-            ("pan drag", lambda: drag(t, "sendPan", src, "send/setPan", ramp(start["pan"], -0.5), "sendIdx", i, pos, "pan"),
+            ("reset tap", lambda: t.ok("send/setVolume", trackGuid=src, sendIdx=i, volume=1.0), "vol", approx(1.0, 1e-5)),
+            ("pan drag", lambda: drag(t, "sendPan", src, "send/setPan", ramp(start["pan"], -0.5), "sendIdx", i, "pan"),
              "pan", approx(-0.5, 1e-4)),
             ("mute tap", lambda: t.ok("send/setMute", trackIdx=pos, sendIdx=i, muted=0 if start["mute"] else 1),
              "mute", 0 if start["mute"] else 1),
@@ -667,9 +668,9 @@ def _(t):
         send, recv = f"tracks.{src}.sends.{j}", f"tracks.{bus}.recvs.{k}"
         steps = [
             ("volume set", lambda: t.ok("receive/setVolume", trackIdx=pos, recvIdx=k, volume=0.5), "vol", approx(0.5, 1e-5)),
-            ("volume drag", lambda: drag(t, "receive", bus, "receive/setVolume", ramp(start["vol"], 0.25), "recvIdx", k, pos, "volume"),
+            ("volume drag", lambda: drag(t, "receive", bus, "receive/setVolume", ramp(start["vol"], 0.25), "recvIdx", k, "volume"),
              "vol", approx(0.25, 1e-5)),
-            ("pan drag", lambda: drag(t, "receivePan", bus, "receive/setPan", ramp(start["pan"], 0.75), "recvIdx", k, pos, "pan"),
+            ("pan drag", lambda: drag(t, "receivePan", bus, "receive/setPan", ramp(start["pan"], 0.75), "recvIdx", k, "pan"),
              "pan", approx(0.75, 1e-4)),
             ("mute tap", lambda: t.ok("receive/setMute", trackIdx=pos, recvIdx=k, muted=0 if start["mute"] else 1),
              "mute", 0 if start["mute"] else 1),
@@ -758,9 +759,9 @@ def _(t):
     try:
         open_routing(t, t.c, g)
         steps = [
-            ("volume drag", lambda: drag(t, "hwOutputVolume", g, "hw/setVolume", ramp(start["vol"], 0.5), "hwIdx", h, pos, "volume"),
+            ("volume drag", lambda: drag(t, "hwOutputVolume", g, "hw/setVolume", ramp(start["vol"], 0.5), "hwIdx", h, "volume"),
              "vol", approx(0.5, 1e-5)),
-            ("pan drag", lambda: drag(t, "hwOutputPan", g, "hw/setPan", ramp(start["pan"], -0.5), "hwIdx", h, pos, "pan"),
+            ("pan drag", lambda: drag(t, "hwOutputPan", g, "hw/setPan", ramp(start["pan"], -0.5), "hwIdx", h, "pan"),
              "pan", approx(-0.5, 1e-4)),
             ("mute tap", lambda: t.ok("hw/setMute", trackIdx=pos, hwIdx=h, muted=0 if start["mute"] else 1),
              "mute", 0 if start["mute"] else 1),
@@ -789,12 +790,12 @@ def _(t):
             ("pan", "hwOutputPan", "hw/setPan", "pan", 0.4, 0.0)):
         field = {"volume": "vol", "pan": "pan"}[key]
         # Drag off the default (its own undo step)...
-        step(t, lambda: drag(t, control, g, cmd, ramp(tr["hw"][h][field], dragged), "hwIdx", h, pos, key),
+        step(t, lambda: drag(t, control, g, cmd, ramp(tr["hw"][h][field], dragged), "hwIdx", h, key),
              {f"{out}.{field}": approx(dragged, 1e-4)}, keep=True)
         # ...then double-tap back to it, as HardwareTab sends it: no gesture,
         # and the user expects Ctrl+Z to bring the dragged value back.
         try:
-            step(t, lambda: t.ok(cmd, trackIdx=pos, hwIdx=h, **{key: default}), {f"{out}.{field}": approx(default, 1e-4)})
+            step(t, lambda: t.ok(cmd, trackGuid=g, hwIdx=h, **{key: default}), {f"{out}.{field}": approx(default, 1e-4)})
             undo_to(t, t.op_start)
         except Mismatch as e:
             problems.append(f"{label} reset: {e}")

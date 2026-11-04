@@ -2119,6 +2119,7 @@ Track volume and pan go through REAPER's control surface API, and the gesture's 
 - If client disconnects during gesture, server flushes undo automatically
 - If `gesture/end` is missed, a gesture is flushed after 10 seconds without any value change from any client
 - Multiple clients can gesture the same control (reference counted)
+- A gesture belongs to the track, not its index. To survive tracks being inserted, deleted or reordered mid-drag, address `gesture/start`, every value command and `gesture/end` by `trackGuid`, captured at gesture start. A `trackIdx` names whichever track is at that index when the command arrives, which after a reorder can be another track, outside the drag.
 
 ### `gesture/start`
 
@@ -3019,7 +3020,9 @@ Volume and pan changes inside a `send`/`sendPan` gesture are covered by the one 
 
 **Stale indexes:** a routing row on a phone can outlive its route (another client removed it). Every command that names a send, receive or hardware output by index checks the index against the track's current count first. A stale index is refused with `NOT_FOUND`, changes nothing and leaves no undo point.
 
-**Common errors:** `MISSING_TRACK_IDX`, `MISSING_SEND_IDX`, `MISSING_<PARAM>` for the value, `NOT_FOUND` (track or send), `SET_FAILED`.
+**Track addressing:** the track is named by `trackIdx` or `trackGuid` (for receive and hardware output commands too); given both, `trackIdx` is used. An unknown `trackGuid` is refused with `NOT_FOUND` and changes nothing. A `trackIdx` names whichever track is at that index when the command arrives, so after a track is inserted, deleted or moved above, it can name another track. The phone sends `trackGuid`: a drag the GUID captured at gesture start, with its gesture and every value, and a tap (reset, mute, mode, output destination) the GUID of the track the row shows. The send, receive or hardware output itself is still named by its index on the track (`sendIdx`, `recvIdx`, `hwIdx`), which shifts if one before it is removed.
+
+**Common errors:** `MISSING_TRACK_IDX` (neither track parameter), `MISSING_SEND_IDX`, `MISSING_<PARAM>` for the value, `NOT_FOUND` (track or send), `SET_FAILED`.
 
 ### `send/setVolume`
 
@@ -3027,7 +3030,8 @@ Set the volume level for a track send. Wrap fader drags with `gesture/start` and
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `sendIdx` | int | Yes | Send index within track (0-based) |
 | `volume` | float | Yes | Volume level (linear, 1.0 = 0dB) |
 
@@ -3041,7 +3045,8 @@ Set the mute state for a track send.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `sendIdx` | int | Yes | Send index within track (0-based) |
 | `muted` | int | Yes | Mute state (0 = unmuted, 1 = muted) |
 
@@ -3055,7 +3060,8 @@ Set the pan position for a track send (clamped to -1.0..1.0). Wrap knob drags wi
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `sendIdx` | int | Yes | Send index within track (0-based) |
 | `pan` | float | Yes | Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right) |
 
@@ -3069,7 +3075,8 @@ Set the routing mode for a track send.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `sendIdx` | int | Yes | Send index within track (0-based) |
 | `mode` | int | Yes | Send mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
 
@@ -3123,7 +3130,7 @@ Remove a send. One undo point.
 
 Control track receives (incoming routing from other tracks). Receives are the "other side" of sends — when Track A sends to Track B, Track B has a receive from Track A.
 
-Undo, stale-index handling and errors follow the [send commands](#send-commands): volume and pan inside a `receive`/`receivePan` gesture share the gesture's undo point, outside one each change makes its own, and a stale `recvIdx` is refused with `NOT_FOUND` (`MISSING_RECV_IDX` when it is absent).
+Track addressing, undo, stale-index handling and errors follow the [send commands](#send-commands): volume and pan inside a `receive`/`receivePan` gesture share the gesture's undo point, outside one each change makes its own, and a stale `recvIdx` is refused with `NOT_FOUND` (`MISSING_RECV_IDX` when it is absent).
 
 ### `receive/setVolume`
 
@@ -3131,7 +3138,8 @@ Set the volume level for a track receive. Wrap fader drags with `gesture/start` 
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `recvIdx` | int | Yes | Receive index within track (0-based) |
 | `volume` | float | Yes | Volume level (linear, 1.0 = 0dB) |
 
@@ -3145,7 +3153,8 @@ Set the mute state for a track receive.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `recvIdx` | int | Yes | Receive index within track (0-based) |
 | `muted` | int | Yes | Mute state (0 = unmuted, 1 = muted) |
 
@@ -3159,7 +3168,8 @@ Set the pan position for a track receive. Wrap knob drags with `gesture/start` a
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `recvIdx` | int | Yes | Receive index within track (0-based) |
 | `pan` | float | Yes | Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right) |
 
@@ -3173,7 +3183,8 @@ Set the routing mode for a track receive.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `recvIdx` | int | Yes | Receive index within track (0-based) |
 | `mode` | int | Yes | Receive mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
 
@@ -3227,7 +3238,7 @@ Remove a receive. One undo point.
 
 Control track hardware outputs (routing to physical audio interfaces). The `tracks` event carries only `hwOutCount`; the outputs themselves come from `track/getHwOutputs` or [`routing/subscribe`](#routingsubscribe).
 
-Volume and pan changes inside an `hwOutputVolume`/`hwOutputPan` gesture are covered by the one undo point recorded when the gesture ends ("REAmo: Adjust hardware outputs"). Outside a gesture (a double-tap reset) each change makes its own undo point. Mute, mode, destination, add and remove each make one undo point. A stale `hwIdx` is refused with `NOT_FOUND`, as for [sends](#send-commands); `MISSING_HW_IDX` when it is absent.
+Volume and pan changes inside an `hwOutputVolume`/`hwOutputPan` gesture are covered by the one undo point recorded when the gesture ends ("REAmo: Adjust hardware outputs"). Outside a gesture (a double-tap reset) each change makes its own undo point. Mute, mode, destination, add and remove each make one undo point. Track addressing (`trackIdx` or `trackGuid`, and why a drag uses `trackGuid`) is as for [sends](#send-commands). A stale `hwIdx` is refused with `NOT_FOUND`, as for sends; `MISSING_HW_IDX` when it is absent.
 
 ### `hw/setVolume`
 
@@ -3235,7 +3246,8 @@ Set the volume level for a track hardware output. Wrap fader drags with `gesture
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `hwIdx` | int | Yes | Hardware output index within track (0-based) |
 | `volume` | float | Yes | Volume level (linear, 1.0 = 0dB) |
 
@@ -3249,7 +3261,8 @@ Set the mute state for a track hardware output.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `hwIdx` | int | Yes | Hardware output index within track (0-based) |
 | `muted` | int | Yes | Mute state (0 = unmuted, 1 = muted) |
 
@@ -3263,7 +3276,8 @@ Set the pan position for a track hardware output. Wrap knob drags with `gesture/
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `hwIdx` | int | Yes | Hardware output index within track (0-based) |
 | `pan` | float | Yes | Pan position (-1.0 = full left, 0.0 = center, 1.0 = full right) |
 
@@ -3277,7 +3291,8 @@ Set the routing mode for a track hardware output.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `trackIdx` | int | Yes | Track index (0 = master, 1+ = user tracks) |
+| `trackIdx` | int | One of | Track index (0 = master, 1+ = user tracks) |
+| `trackGuid` | string | One of | Track GUID (`"master"` for the master track), used when there is no `trackIdx` |
 | `hwIdx` | int | Yes | Hardware output index within track (0-based) |
 | `mode` | int | Yes | Output mode (0 = post-fader, 1 = pre-FX, 3 = post-FX) |
 

@@ -72,7 +72,9 @@ pub fn handleSetParam(api: anytype, cmd: protocol.CommandMessage, response: *mod
 
     // Record activity for gesture timeout tracking
     if (response.gestures) |gestures| {
-        gestures.recordActivity(gesture_state.ControlId.fxParam(resolution.idx, fx_guid, param_idx));
+        if (gesture_state.trackKey(api, resolution.track)) |track| {
+            if (gesture_state.GuidKey.from(fx_guid)) |fx_key| gestures.recordActivity(gesture_state.ControlId.fxParam(track, fx_key, param_idx));
+        }
     }
 
     logging.debug("FX param set: track {} fx {} param {} value {d:.4}", .{ resolution.idx, fx_idx, param_idx, clamped_value });

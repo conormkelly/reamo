@@ -7,6 +7,7 @@
 import type { ReactElement } from 'react';
 import { useReaper } from '../../hooks/useReaper';
 import { useSends } from '../../hooks/useSends';
+import { useTrack } from '../../hooks/useTrack';
 import { send } from '../../core/WebSocketCommands';
 
 export interface SendMuteButtonProps {
@@ -27,6 +28,7 @@ export function SendMuteButton({
 }: SendMuteButtonProps): ReactElement | null {
   const { sendCommand } = useReaper();
   const { getSendByDestination } = useSends();
+  const { guid } = useTrack(trackIndex);
 
   const sendSlot = getSendByDestination(trackIndex, destTrackIdx);
   const hasSend = !!sendSlot;
@@ -35,7 +37,7 @@ export function SendMuteButton({
 
   const handleClick = () => {
     if (!hasSend) return;
-    sendCommand(send.setMute(trackIndex, sendIndex, isMuted ? 0 : 1));
+    sendCommand(send.setMute(trackIndex, sendIndex, isMuted ? 0 : 1, guid));
   };
 
   // Base styles
