@@ -569,6 +569,14 @@ describe('useLongPress', () => {
       fingerDown(el);
       wait(400);
       expect(removed()).toBe(4);
+      fingerDown(el);
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(removed()).toBe(6);
+      fingerDown(el);
+      cleanup();
+      expect(removed()).toBe(8);
     });
 
     it('a press after a cancelled one works', () => {

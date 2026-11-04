@@ -40,7 +40,11 @@ const SPACE: Key = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: '
  */
 const KEY_GAP_MS = 30;
 
-/** A held key, as the OS delivers it: one keydown, auto-repeats, one keyup. */
+/**
+ * A held key: one keydown, auto-repeats, one keyup. An OS waits a few
+ * hundred ms before the first repeat; this doesn't, so a held key's taps
+ * fall within the double-tap window.
+ */
 async function holdKey(page: Page, cdp: CDPSession, k: Key, repeats: number): Promise<void> {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...k });
   for (let i = 0; i < repeats; i++) {
@@ -66,29 +70,44 @@ test.describe('Long press, keyboard', () => {
     await expect(quickActions(page)).toBeVisible();
   });
 
-  test('Enter held down is one tap, not one more for each key repeat', async ({ page }) => {
-    const display = await openTimeDisplay(page);
+  for (const [name, k] of [
+    ['Enter', ENTER],
+    ['Space', SPACE],
+  ] as const) {
+    test(`${name} held down is at most one tap, not one more for each key repeat`, async ({ page }) => {
+      const display = await openTimeDisplay(page);
 
-    await display.focus();
-    await holdKey(page, await page.context().newCDPSession(page), ENTER, 5);
-    await settle(page);
+      await display.focus();
+      await holdKey(page, await page.context().newCDPSession(page), k, 5);
+      await settle(page);
 
-    await expect(quickActions(page)).toHaveCount(0);
-  });
+      await expect(quickActions(page)).toHaveCount(0);
+    });
 
-  test('Space held down still taps once on release', async ({ page }) => {
-    const display = await openTimeDisplay(page);
+    test(`${name} held down still taps`, async ({ page }) => {
+      const display = await openTimeDisplay(page);
 
-    // The held Space's tap plus one more make a double tap.
-    await display.focus();
-    const cdp = await page.context().newCDPSession(page);
-    await holdKey(page, cdp, SPACE, 5);
-    await page.waitForTimeout(KEY_GAP_MS);
-    await holdKey(page, cdp, SPACE, 0);
+      // The held key's tap plus one more make a double tap.
+      await display.focus();
+      const cdp = await page.context().newCDPSession(page);
+      await holdKey(page, cdp, k, 2);
+      await page.waitForTimeout(KEY_GAP_MS);
+      await holdKey(page, cdp, k, 0);
 
-    await expect(quickActions(page)).toBeVisible();
-  });
+      await expect(quickActions(page)).toBeVisible();
+    });
+  }
 });
+
+/**
+ * Taps once by keyboard straight after a release. A tap that the release made
+ * would pair with it into a double tap and open Quick actions.
+ */
+async function tapByKeyAfterRelease(page: Page, display: Locator): Promise<void> {
+  await display.focus();
+  await page.keyboard.press('Enter');
+  await settle(page);
+}
 
 test.describe('Long press, focus loss', () => {
   test.use({ viewport: { width: 414, height: 896 } });
@@ -114,7 +133,7 @@ test.describe('Long press, focus loss', () => {
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await page.waitForTimeout(700);
     await page.mouse.up();
-    await settle(page);
+    await tapByKeyAfterRelease(page, display);
 
     await expect(markerNav(page)).toHaveCount(0);
     await expect(quickActions(page)).toHaveCount(0);
@@ -132,8 +151,9 @@ test.describe('Long press, focus loss', () => {
     });
     await page.waitForTimeout(700);
     await page.mouse.up();
-    await settle(page);
+    await tapByKeyAfterRelease(page, display);
 
     await expect(markerNav(page)).toHaveCount(0);
+    await expect(quickActions(page)).toHaveCount(0);
   });
 });
