@@ -5,8 +5,8 @@
  * before the editor or its action search pane removes it, so a phone keyboard
  * closes the normal way.
  *
- * Escape closes only the topmost dialog, and the delete confirmation's reset
- * timer doesn't outlive the editor.
+ * Escape leaves only the topmost layer (icon picker, action search, editor),
+ * and the delete confirmation's reset timer doesn't outlive the editor.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -98,6 +98,20 @@ describe('ToolbarEditor', () => {
       expect(screen.queryByPlaceholderText('record, marker, guitar...')).toBeNull();
       expect(onClose).not.toHaveBeenCalled();
       expect(screen.getByText('Add Toolbar Button')).toBeInTheDocument();
+    });
+
+    it('returns from the action search to the form and keeps the unsaved edits', () => {
+      const onClose = vi.fn();
+      render(<ToolbarEditor action={null} isNew onClose={onClose} onSave={vi.fn()} onDelete={vi.fn()} />);
+      fireEvent.change(screen.getByPlaceholderText('Button label'), { target: { value: 'Unsaved label' } });
+      fireEvent.click(screen.getByText('Search and Select Action...'));
+      const search = screen.getByPlaceholderText(/Search by name/);
+
+      fireEvent.keyDown(search, { key: 'Escape' });
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.queryByPlaceholderText(/Search by name/)).toBeNull();
+      expect(screen.getByPlaceholderText('Button label')).toHaveValue('Unsaved label');
     });
 
     it('closes the editor when no picker is open over it', () => {
