@@ -6,7 +6,7 @@ const logging = @import("../core/logging.zig");
 
 /// Set repeat state explicitly
 pub fn handleSet(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const enabled = cmd.getFlag("enabled") orelse {
+    const enabled = (cmd.getFlag("enabled") catch return response.err("INVALID_PARAMS", "enabled must be a boolean")) orelse {
         response.err("MISSING_ENABLED", "enabled (0 or 1) is required");
         return;
     };

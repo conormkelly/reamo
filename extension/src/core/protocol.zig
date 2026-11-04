@@ -29,13 +29,16 @@ pub const MessageType = enum {
 // Hello message from client (for handshake)
 pub const HelloMessage = struct {
     client_version: ?[]const u8,
-    protocol_version: ?u32,
+    /// null when the client didn't say; error.Malformed when it sent
+    /// something other than an integer, which matches no version.
+    protocol_version: error{Malformed}!?u32,
     token: ?[]const u8,
 
     pub fn parse(data: []const u8) HelloMessage {
+        const version = jsonGetIntStrict(data, "protocolVersion");
         return .{
             .client_version = jsonGetString(data, "clientVersion"),
-            .protocol_version = if (jsonGetInt(data, "protocolVersion")) |v| @intCast(@as(u32, @bitCast(v))) else null,
+            .protocol_version = if (version) |v| (if (v) |n| @as(u32, @bitCast(n)) else null) else |err| err,
             .token = jsonGetString(data, "token"),
         };
     }
@@ -78,17 +81,25 @@ pub const CommandMessage = struct {
         return jsonGetStringUnescaped(self.raw, key, out_buf);
     }
 
-    /// An on/off parameter, sent as a JSON boolean or as 0/1 (the frontend
-    /// uses both). null when absent.
-    pub fn getFlag(self: CommandMessage, key: []const u8) ?bool {
-        if (jsonGetBool(self.raw, key)) |b| return b;
-        if (jsonGetInt(self.raw, key)) |v| return v != 0;
-        return null;
+    /// An on/off parameter, sent as a JSON boolean or as an integer, 0 for
+    /// off (the frontend uses both): null when absent, error.Malformed for
+    /// any other value.
+    pub fn getFlag(self: CommandMessage, key: []const u8) error{Malformed}!?bool {
+        return jsonGetFlag(self.raw, key);
     }
 
-    // Get an integer parameter from the message
+    /// A required integer parameter: null when absent or not an integer, so
+    /// the caller answers with an error either way. An optional one, which
+    /// has a default or changes what the command does when absent, is read
+    /// with getIntStrict.
     pub fn getInt(self: CommandMessage, key: []const u8) ?c_int {
         return jsonGetInt(self.raw, key);
+    }
+
+    /// An optional integer parameter: null when absent, error.Malformed when
+    /// present but not an integer that fits a c_int (see jsonGetIntStrict).
+    pub fn getIntStrict(self: CommandMessage, key: []const u8) error{Malformed}!?c_int {
+        return jsonGetIntStrict(self.raw, key);
     }
 
     /// An integer array parameter, read into `out_values`: null when the key
@@ -99,7 +110,7 @@ pub const CommandMessage = struct {
         key: []const u8,
         comptime max_items: usize,
         out_values: *[max_items]c_int,
-    ) IntArrayError!?[]const c_int {
+    ) ArrayError!?[]const c_int {
         const count = try jsonGetIntArray(self.raw, key, max_items, out_values) orelse return null;
         return out_values[0..count];
     }
@@ -295,37 +306,6 @@ pub fn jsonGetInt(data: []const u8, key: []const u8) ?c_int {
     return null;
 }
 
-/// Get a boolean value by key.
-/// Handles "key":true and "key":false (not quoted).
-pub fn jsonGetBool(data: []const u8, key: []const u8) ?bool {
-    var pattern_buf: [64]u8 = undefined;
-    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
-
-    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
-    const after_key = key_start + pattern.len;
-
-    // Find colon after key
-    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
-
-    // Skip whitespace after colon
-    var pos = colon + 1;
-    while (pos < data.len and (data[pos] == ' ' or data[pos] == '\t')) {
-        pos += 1;
-    }
-
-    if (pos >= data.len) return null;
-
-    // Check for true/false
-    if (pos + 4 <= data.len and std.mem.eql(u8, data[pos..][0..4], "true")) {
-        return true;
-    }
-    if (pos + 5 <= data.len and std.mem.eql(u8, data[pos..][0..5], "false")) {
-        return false;
-    }
-
-    return null;
-}
-
 // =============================================================================
 // Nested JSON parsing helpers (for subscription commands)
 // =============================================================================
@@ -382,10 +362,12 @@ pub fn jsonGetFloatFromObject(data: []const u8, obj_key: []const u8, field_key: 
     return jsonGetFloat(nested, field_key);
 }
 
-/// Get a string array from JSON.
+/// Get a string array from JSON into `out_bufs`/`out_lens`, each string as
+/// it appears in the JSON (escapes kept).
 /// E.g., for {"guids": ["master", "{AAA...}"]}, call jsonGetStringArray(data, "guids", ...)
-/// Returns the number of strings parsed, or null if the key is not found.
-/// out_bufs and out_lens must be the same length and represent the output storage.
+/// Returns the number of strings read (0 for an empty array), or null if
+/// the key is absent. More than max_items strings, or a string longer than
+/// max_str_len bytes, is an error, never cut short.
 pub fn jsonGetStringArray(
     data: []const u8,
     key: []const u8,
@@ -393,66 +375,40 @@ pub fn jsonGetStringArray(
     comptime max_str_len: usize,
     out_bufs: *[max_items][max_str_len]u8,
     out_lens: *[max_items]usize,
-) ?usize {
-    // Find the key
-    var pattern_buf: [64]u8 = undefined;
-    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
+) ArrayError!?usize {
+    var pos = findJsonValue(data, key) orelse return null;
+    if (pos >= data.len or data[pos] != '[') return error.Malformed;
+    pos = skipJsonWhitespace(data, pos + 1, data.len);
+    if (pos < data.len and data[pos] == ']') return 0;
 
-    const key_start = std.mem.indexOf(u8, data, pattern) orelse return null;
-    const after_key = key_start + pattern.len;
-
-    // Find the colon
-    const colon = std.mem.indexOfPos(u8, data, after_key, ":") orelse return null;
-
-    // Find opening bracket
-    const open_bracket = std.mem.indexOfPos(u8, data, colon + 1, "[") orelse return null;
-
-    // Find closing bracket
-    const close_bracket = std.mem.indexOfPos(u8, data, open_bracket + 1, "]") orelse return null;
-
-    // Parse strings within brackets
     var count: usize = 0;
-    var pos = open_bracket + 1;
+    while (true) {
+        // Another element with the output already full
+        if (count == max_items) return error.TooManyItems;
 
-    while (pos < close_bracket and count < max_items) {
-        // Skip whitespace and commas
-        while (pos < close_bracket and (data[pos] == ' ' or data[pos] == ',' or data[pos] == '\t' or data[pos] == '\n')) {
-            pos += 1;
+        if (pos >= data.len or data[pos] != '"') return error.Malformed;
+        const str_start = pos + 1;
+        var str_end = str_start;
+        while (str_end < data.len and data[str_end] != '"') : (str_end += 1) {
+            if (data[str_end] == '\\') str_end += 1; // the escaped byte
         }
+        if (str_end >= data.len) return error.Malformed;
 
-        if (pos >= close_bracket) break;
-
-        // Expect opening quote
-        if (data[pos] != '"') {
-            pos += 1;
-            continue;
-        }
-        pos += 1;
-
-        // Find closing quote (handling escapes)
-        const str_start = pos;
-        while (pos < close_bracket) {
-            if (data[pos] == '"') break;
-            if (data[pos] == '\\' and pos + 1 < close_bracket) {
-                pos += 2; // Skip escaped char
-            } else {
-                pos += 1;
-            }
-        }
-
-        if (pos >= close_bracket) break;
-
-        // Copy string to output buffer
-        const str_len = pos - str_start;
-        const copy_len = @min(str_len, max_str_len);
-        @memcpy(out_bufs[count][0..copy_len], data[str_start..][0..copy_len]);
-        out_lens[count] = copy_len;
+        const len = str_end - str_start;
+        if (len > max_str_len) return error.Malformed;
+        @memcpy(out_bufs[count][0..len], data[str_start..str_end]);
+        out_lens[count] = len;
         count += 1;
 
-        pos += 1; // Skip closing quote
+        // A string must be followed by a separator and another string, or
+        // the end of the array.
+        pos = skipJsonWhitespace(data, str_end + 1, data.len);
+        if (pos >= data.len) return error.Malformed;
+        if (data[pos] == ']') return count;
+        if (data[pos] != ',') return error.Malformed;
+        pos = skipJsonWhitespace(data, pos + 1, data.len);
+        if (pos < data.len and data[pos] == ']') return error.Malformed;
     }
-
-    return count;
 }
 
 /// Index of the first byte of the value under `key`, or null if no `"key"`
@@ -490,6 +446,21 @@ pub fn jsonGetIntStrict(data: []const u8, key: []const u8) error{Malformed}!?c_i
     return std.fmt.parseInt(c_int, data[num_start..pos], 10) catch error.Malformed;
 }
 
+/// Get an on/off field: true or false, or an integer (0 is off). null if
+/// the key is absent, error.Malformed for any other value.
+pub fn jsonGetFlag(data: []const u8, key: []const u8) error{Malformed}!?bool {
+    const pos = findJsonValue(data, key) orelse return null;
+    inline for (.{ .{ "true", true }, .{ "false", false } }) |literal| {
+        if (std.mem.startsWith(u8, data[pos..], literal[0])) {
+            const after = skipJsonWhitespace(data, pos + literal[0].len, data.len);
+            if (after < data.len and data[after] != ',' and data[after] != '}' and data[after] != ']') return error.Malformed;
+            return literal[1];
+        }
+    }
+    const value = try jsonGetIntStrict(data, key) orelse return error.Malformed;
+    return value != 0;
+}
+
 /// Get a flat object field (no nested objects), braces included: null if
 /// the key is absent, error.Malformed if its value is not an object.
 pub fn jsonGetObject(data: []const u8, key: []const u8) error{Malformed}!?[]const u8 {
@@ -499,10 +470,10 @@ pub fn jsonGetObject(data: []const u8, key: []const u8) error{Malformed}!?[]cons
     return data[open_brace .. close_brace + 1];
 }
 
-/// Why an integer array that is present could not be read.
-pub const IntArrayError = error{
-    /// The value is not an array, or an element is not an integer that fits
-    /// a c_int.
+/// Why an array that is present could not be read.
+pub const ArrayError = error{
+    /// The value is not an array, or an element is not of the array's type
+    /// (an integer that fits a c_int, or a string of at most max_str_len).
     Malformed,
     /// The array holds more than max_items elements.
     TooManyItems,
@@ -518,7 +489,7 @@ pub fn jsonGetIntArray(
     key: []const u8,
     comptime max_items: usize,
     out_values: *[max_items]c_int,
-) IntArrayError!?usize {
+) ArrayError!?usize {
     // Find the key
     var pattern_buf: [64]u8 = undefined;
     const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\"", .{key}) catch return null;
@@ -565,11 +536,13 @@ pub fn jsonGetIntArray(
         out_values[count] = value;
         count += 1;
 
-        // A number must be followed by a separator or the end of the array.
+        // A number must be followed by a separator and another number, or
+        // the end of the array.
         pos = skipJsonWhitespace(data, pos, close_bracket);
         if (pos >= close_bracket) break;
         if (data[pos] != ',') return error.Malformed;
-        pos += 1;
+        pos = skipJsonWhitespace(data, pos + 1, close_bracket);
+        if (pos >= close_bracket) return error.Malformed;
     }
 
     return count;
@@ -997,8 +970,14 @@ test "HelloMessage.parse extracts fields" {
     const data = "{\"type\":\"hello\",\"clientVersion\":\"1.0.0\",\"protocolVersion\":1,\"token\":\"abc123\"}";
     const msg = HelloMessage.parse(data);
     try std.testing.expectEqualStrings("1.0.0", msg.client_version.?);
-    try std.testing.expectEqual(@as(u32, 1), msg.protocol_version.?);
+    try std.testing.expectEqual(@as(?u32, 1), try msg.protocol_version);
     try std.testing.expectEqualStrings("abc123", msg.token.?);
+}
+
+test "HelloMessage.parse tells an absent protocolVersion from one that isn't an integer" {
+    try std.testing.expectEqual(@as(?u32, null), try HelloMessage.parse("{\"type\":\"hello\"}").protocol_version);
+    try std.testing.expectError(error.Malformed, HelloMessage.parse("{\"type\":\"hello\",\"protocolVersion\":\"2\"}").protocol_version);
+    try std.testing.expectError(error.Malformed, HelloMessage.parse("{\"type\":\"hello\",\"protocolVersion\":1.5}").protocol_version);
 }
 
 test "buildHelloResponse" {
@@ -1087,11 +1066,11 @@ test "jsonGetString handles escaped quotes in string" {
 
 test "getFlag reads booleans and 0/1 alike" {
     const msg = CommandMessage{ .command = "track/setInput", .raw = "{\"stereo\":true,\"multi\":0,\"rearoute\":1,\"wrap\":false}" };
-    try std.testing.expectEqual(@as(?bool, true), msg.getFlag("stereo"));
-    try std.testing.expectEqual(@as(?bool, false), msg.getFlag("multi"));
-    try std.testing.expectEqual(@as(?bool, true), msg.getFlag("rearoute"));
-    try std.testing.expectEqual(@as(?bool, false), msg.getFlag("wrap"));
-    try std.testing.expectEqual(@as(?bool, null), msg.getFlag("missing"));
+    try std.testing.expectEqual(@as(?bool, true), try msg.getFlag("stereo"));
+    try std.testing.expectEqual(@as(?bool, false), try msg.getFlag("multi"));
+    try std.testing.expectEqual(@as(?bool, true), try msg.getFlag("rearoute"));
+    try std.testing.expectEqual(@as(?bool, false), try msg.getFlag("wrap"));
+    try std.testing.expectEqual(@as(?bool, null), try msg.getFlag("missing"));
 }
 
 test "string parameters must be JSON strings" {
@@ -1120,24 +1099,12 @@ test "integer parameters must be whole numbers in range" {
     try std.testing.expectEqual(@as(?c_int, 4), jsonGetInt("[{\"n\":4}]", "n"));
 }
 
-test "jsonGetBool true" {
-    const data = "{\"includeMaster\":true}";
-    try std.testing.expectEqual(true, jsonGetBool(data, "includeMaster").?);
-}
-
-test "jsonGetBool false" {
-    const data = "{\"includeMaster\":false}";
-    try std.testing.expectEqual(false, jsonGetBool(data, "includeMaster").?);
-}
-
-test "jsonGetBool missing key" {
-    const data = "{\"other\":true}";
-    try std.testing.expect(jsonGetBool(data, "includeMaster") == null);
-}
-
-test "jsonGetBool with whitespace" {
-    const data = "{ \"includeMaster\" : true }";
-    try std.testing.expectEqual(true, jsonGetBool(data, "includeMaster").?);
+test "jsonGetFlag reads true, false, absent and whitespace around the value" {
+    try std.testing.expectEqual(@as(?bool, true), try jsonGetFlag("{\"includeMaster\":true}", "includeMaster"));
+    try std.testing.expectEqual(@as(?bool, false), try jsonGetFlag("{\"includeMaster\":false}", "includeMaster"));
+    try std.testing.expectEqual(@as(?bool, null), try jsonGetFlag("{\"other\":true}", "includeMaster"));
+    try std.testing.expectEqual(@as(?bool, true), try jsonGetFlag("{ \"includeMaster\" : true }", "includeMaster"));
+    try std.testing.expectEqual(@as(?bool, false), try jsonGetFlag("{\"a\":false,\"b\":1}", "a"));
 }
 
 test "jsonGetIntFromObject basic" {
@@ -1180,7 +1147,7 @@ test "jsonGetStringArray basic" {
     const data = "{\"guids\":[\"master\",\"{00000001}\"]}";
     var bufs: [4][64]u8 = undefined;
     var lens: [4]usize = undefined;
-    const count = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens).?;
+    const count = (try jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens)).?;
     try std.testing.expectEqual(@as(usize, 2), count);
     try std.testing.expectEqualStrings("master", bufs[0][0..lens[0]]);
     try std.testing.expectEqualStrings("{00000001}", bufs[1][0..lens[1]]);
@@ -1190,7 +1157,7 @@ test "jsonGetStringArray empty array" {
     const data = "{\"guids\":[]}";
     var bufs: [4][64]u8 = undefined;
     var lens: [4]usize = undefined;
-    const count = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens).?;
+    const count = (try jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens)).?;
     try std.testing.expectEqual(@as(usize, 0), count);
 }
 
@@ -1198,26 +1165,100 @@ test "jsonGetStringArray missing key" {
     const data = "{\"other\":[\"a\"]}";
     var bufs: [4][64]u8 = undefined;
     var lens: [4]usize = undefined;
-    try std.testing.expect(jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens) == null);
+    try std.testing.expectEqual(@as(?usize, null), try jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens));
 }
 
 test "jsonGetStringArray with whitespace" {
     const data = "{ \"guids\" : [ \"a\" , \"b\" , \"c\" ] }";
     var bufs: [4][64]u8 = undefined;
     var lens: [4]usize = undefined;
-    const count = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens).?;
+    const count = (try jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens)).?;
     try std.testing.expectEqual(@as(usize, 3), count);
     try std.testing.expectEqualStrings("a", bufs[0][0..lens[0]]);
     try std.testing.expectEqualStrings("b", bufs[1][0..lens[1]]);
     try std.testing.expectEqualStrings("c", bufs[2][0..lens[2]]);
 }
 
-test "jsonGetStringArray respects max_items" {
-    const data = "{\"guids\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}";
+test "jsonGetStringArray reads an array of exactly max_items strings of max_str_len" {
+    var bufs: [2][4]u8 = undefined;
+    var lens: [2]usize = undefined;
+    const count = (try jsonGetStringArray("{\"guids\":[\"abcd\",\"e\"]}", "guids", 2, 4, &bufs, &lens)).?;
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqualStrings("abcd", bufs[0][0..lens[0]]);
+    try std.testing.expectEqualStrings("e", bufs[1][0..lens[1]]);
+}
+
+test "jsonGetStringArray reports an array longer than max_items instead of cutting it short" {
     var bufs: [2][64]u8 = undefined;
     var lens: [2]usize = undefined;
-    const count = jsonGetStringArray(data, "guids", 2, 64, &bufs, &lens).?;
+    try std.testing.expectError(error.TooManyItems, jsonGetStringArray("{\"guids\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}", "guids", 2, 64, &bufs, &lens));
+    // A full array with a trailing comma is malformed, not too long
+    try std.testing.expectError(error.Malformed, jsonGetStringArray("{\"guids\":[\"a\",\"b\",]}", "guids", 2, 64, &bufs, &lens));
+}
+
+test "jsonGetStringArray reports a string longer than max_str_len instead of cutting it short" {
+    var bufs: [2][4]u8 = undefined;
+    var lens: [2]usize = undefined;
+    try std.testing.expectError(error.Malformed, jsonGetStringArray("{\"guids\":[\"abcde\"]}", "guids", 2, 4, &bufs, &lens));
+}
+
+test "jsonGetStringArray reports a malformed array instead of skipping what it can't read" {
+    const malformed = [_][]const u8{
+        "{\"guids\":null}",
+        "{\"guids\":\"a\"}",
+        "{\"guids\":5,\"other\":[\"a\"]}",
+        "{\"guids\":[\"a\",5]}",
+        "{\"guids\":[5,\"a\"]}",
+        "{\"guids\":[\"a\",]}",
+        "{\"guids\":[,\"a\"]}",
+        "{\"guids\":[\"a\" \"b\"]}",
+        "{\"guids\":[\"a\",\"b\"",
+        "{\"guids\":[\"a",
+        "{\"guids\":[null]}",
+    };
+    var bufs: [4][64]u8 = undefined;
+    var lens: [4]usize = undefined;
+    for (malformed) |data| {
+        _ = jsonGetStringArray(data, "guids", 4, 64, &bufs, &lens) catch |err| {
+            try std.testing.expectEqual(error.Malformed, err);
+            continue;
+        };
+        std.debug.print("accepted: {s}\n", .{data});
+        return error.TestExpectedError;
+    }
+}
+
+test "jsonGetStringArray keeps a bracket or an escaped quote inside a string" {
+    var bufs: [4][64]u8 = undefined;
+    var lens: [4]usize = undefined;
+    const count = (try jsonGetStringArray("{\"guids\":[\"a]b\",\"c\\\"d\"]}", "guids", 4, 64, &bufs, &lens)).?;
     try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqualStrings("a]b", bufs[0][0..lens[0]]);
+    try std.testing.expectEqualStrings("c\\\"d", bufs[1][0..lens[1]]);
+}
+
+test "jsonGetIntArray reports a trailing comma as malformed" {
+    var values: [10]c_int = undefined;
+    try std.testing.expectError(error.Malformed, jsonGetIntArray("{\"indices\":[1,]}", "indices", 10, &values));
+    try std.testing.expectError(error.Malformed, jsonGetIntArray("{\"indices\":[1, ]}", "indices", 10, &values));
+    try std.testing.expectError(error.Malformed, jsonGetIntArray("{\"indices\":[,]}", "indices", 10, &values));
+}
+
+test "getIntStrict tells an absent parameter from one that isn't an integer" {
+    const msg = CommandMessage{ .command = "marker/add", .raw = "{\"color\":1.5,\"position\":4,\"name\":\"color\"}" };
+    try std.testing.expectError(error.Malformed, msg.getIntStrict("color"));
+    try std.testing.expectEqual(@as(?c_int, 4), try msg.getIntStrict("position"));
+    try std.testing.expectEqual(@as(?c_int, null), try msg.getIntStrict("missing"));
+}
+
+test "getFlag reports a value that is neither a boolean nor an integer" {
+    const malformed = [_][]const u8{
+        "{\"wrap\":\"true\"}", "{\"wrap\":1.5}", "{\"wrap\":null}", "{\"wrap\":truex}", "{\"wrap\":[1]}",
+    };
+    for (malformed) |raw| {
+        const msg = CommandMessage{ .command = "item/selectNext", .raw = raw };
+        try std.testing.expectError(error.Malformed, msg.getFlag("wrap"));
+    }
 }
 
 test "jsonGetIntArray basic" {

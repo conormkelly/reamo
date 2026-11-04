@@ -40,7 +40,7 @@ pub fn handleSnap(api: anytype, cmd: protocol.CommandMessage, response: *mod.Res
     };
 
     // Subdivision: 1 = beat, 2 = 8th note, 4 = 16th note
-    const subdivision = cmd.getInt("subdivision") orelse 1;
+    const subdivision = (cmd.getIntStrict("subdivision") catch return response.err("INVALID_PARAMS", "subdivision must be an integer")) orelse 1;
     if (subdivision < 1 or subdivision > 16) {
         response.err("INVALID_SUBDIVISION", "subdivision must be between 1 and 16");
         return;
@@ -149,7 +149,10 @@ pub fn handleBarsToTime(api: anytype, cmd: protocol.CommandMessage, response: *m
         return;
     }
 
-    // Beat is 1-indexed in the input (like display), default to 1
+    // Beat is 1-indexed in the input (like display), default to 1.
+    // Beat and ticks are read leniently, a non-integer taking the default:
+    // the phone's Add Region sends null for a beat or tick it couldn't parse
+    // from the user's text ("69." sends "beat":null).
     const beat_input = cmd.getInt("beat") orelse 1;
     // Ticks are 0-99, default to 0
     const ticks_input = cmd.getInt("ticks") orelse 0;

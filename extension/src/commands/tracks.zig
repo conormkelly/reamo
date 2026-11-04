@@ -110,7 +110,7 @@ pub fn handleSetMute(api: anytype, cmd: protocol.CommandMessage, response: *mod.
     // Toggle if no explicit value
     // For master track (idx=0), use GetMasterMuteSoloFlags for reliable state
     const current_mute = if (resolution.idx == 0) api.isMasterMuted() else api.getTrackMute(resolution.track);
-    const mute = cmd.getFlag("mute") orelse !current_mute;
+    const mute = (cmd.getFlag("mute") catch return response.err("INVALID_PARAMS", "mute must be a boolean")) orelse !current_mute;
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetMute(resolution.track, mute, true)) {
         logging.debug("Set track mute to {}", .{mute});
@@ -135,7 +135,7 @@ pub fn handleSetSolo(api: anytype, cmd: protocol.CommandMessage, response: *mod.
             response.err("INVALID_STATE", "Track returned invalid solo state");
             return;
         };
-    const solo = if (cmd.getInt("solo")) |v| v else if (current_solo > 0) @as(c_int, 0) else @as(c_int, 1);
+    const solo = if (cmd.getIntStrict("solo") catch return response.err("INVALID_PARAMS", "solo must be an integer")) |v| v else if (current_solo > 0) @as(c_int, 0) else @as(c_int, 1);
     // Use CSurf API - properly handles master track unlike SetMediaTrackInfo_Value
     if (api.csurfSetSolo(resolution.track, solo, true)) {
         logging.debug("Set track solo to {d}", .{solo});
@@ -179,7 +179,7 @@ pub fn handleSetRecArm(api: anytype, cmd: protocol.CommandMessage, response: *mo
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const arm = cmd.getFlag("arm") orelse !api.getTrackRecArm(resolution.track);
+    const arm = (cmd.getFlag("arm") catch return response.err("INVALID_PARAMS", "arm must be a boolean")) orelse !api.getTrackRecArm(resolution.track);
     // Use CSurf API for gang support
     if (api.csurfSetRecArm(resolution.track, arm, true)) {
         logging.debug("Set track rec arm to {}", .{arm});
@@ -196,7 +196,7 @@ pub fn handleSetRecMon(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     };
     // Cycle through 0,1,2 if no explicit value
-    const mon = if (cmd.getInt("mon")) |v| v else blk: {
+    const mon = if (cmd.getIntStrict("mon") catch return response.err("INVALID_PARAMS", "mon must be an integer")) |v| v else blk: {
         const current = api.getTrackRecMon(resolution.track) catch {
             response.err("INVALID_STATE", "Track returned invalid rec mon state");
             return;
@@ -218,7 +218,7 @@ pub fn handleSetFxEnabled(api: anytype, cmd: protocol.CommandMessage, response: 
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const enabled = cmd.getFlag("enabled") orelse !api.getTrackFxEnabled(resolution.track);
+    const enabled = (cmd.getFlag("enabled") catch return response.err("INVALID_PARAMS", "enabled must be a boolean")) orelse !api.getTrackFxEnabled(resolution.track);
     if (api.setTrackFxEnabled(resolution.track, enabled)) {
         logging.debug("Set track FX enabled to {}", .{enabled});
     }
@@ -232,7 +232,7 @@ pub fn handleSetSelected(api: anytype, cmd: protocol.CommandMessage, response: *
         response.err("NOT_FOUND", "trackIdx or trackGuid required, or track not found");
         return;
     };
-    const selected = cmd.getFlag("selected") orelse !api.getTrackSelected(resolution.track);
+    const selected = (cmd.getFlag("selected") catch return response.err("INVALID_PARAMS", "selected must be a boolean")) orelse !api.getTrackSelected(resolution.track);
     if (api.setTrackSelected(resolution.track, selected)) {
         logging.debug("Set track selected to {}", .{selected});
     }
@@ -357,7 +357,7 @@ pub fn handleCreate(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
 
     // Determine insert position (regular track index, 0-based)
     // afterTrackIdx uses unified indexing (0=master, 1+=user tracks)
-    const insert_idx: c_int = if (cmd.getInt("afterTrackIdx")) |after_idx| blk: {
+    const insert_idx: c_int = if (cmd.getIntStrict("afterTrackIdx") catch return response.err("INVALID_PARAMS", "afterTrackIdx must be an integer")) |after_idx| blk: {
         // Validate: must be >= 0 and <= current_count (unified)
         if (after_idx < 0 or after_idx > current_count) {
             response.err("INVALID_PARAMS", "afterTrackIdx out of range");
@@ -532,9 +532,9 @@ pub fn handleGetFx(api: anytype, cmd: protocol.CommandMessage, response: *mod.Re
     };
 
     // Pagination parameters
-    const offset_raw = cmd.getInt("offset") orelse 0;
+    const offset_raw = (cmd.getIntStrict("offset") catch return response.err("INVALID_PARAMS", "offset must be an integer")) orelse 0;
     const offset: usize = if (offset_raw > 0) @intCast(offset_raw) else 0;
-    const limit_raw = cmd.getInt("limit") orelse MAX_FX_RESPONSE;
+    const limit_raw = (cmd.getIntStrict("limit") catch return response.err("INVALID_PARAMS", "limit must be an integer")) orelse MAX_FX_RESPONSE;
     const limit: usize = if (limit_raw > 0) @intCast(@min(limit_raw, MAX_FX_RESPONSE)) else MAX_FX_RESPONSE;
 
     const fx_count_raw = api.trackFxCount(track);
@@ -643,9 +643,9 @@ pub fn handleGetSends(api: anytype, cmd: protocol.CommandMessage, response: *mod
     };
 
     // Pagination parameters
-    const offset_raw = cmd.getInt("offset") orelse 0;
+    const offset_raw = (cmd.getIntStrict("offset") catch return response.err("INVALID_PARAMS", "offset must be an integer")) orelse 0;
     const offset: usize = if (offset_raw > 0) @intCast(offset_raw) else 0;
-    const limit_raw = cmd.getInt("limit") orelse MAX_SENDS_RESPONSE;
+    const limit_raw = (cmd.getIntStrict("limit") catch return response.err("INVALID_PARAMS", "limit must be an integer")) orelse MAX_SENDS_RESPONSE;
     const limit: usize = if (limit_raw > 0) @intCast(@min(limit_raw, MAX_SENDS_RESPONSE)) else MAX_SENDS_RESPONSE;
 
     const send_count_raw = api.trackSendCount(track);
@@ -740,9 +740,9 @@ pub fn handleGetHwOutputs(api: anytype, cmd: protocol.CommandMessage, response: 
     };
 
     // Pagination parameters
-    const offset_raw = cmd.getInt("offset") orelse 0;
+    const offset_raw = (cmd.getIntStrict("offset") catch return response.err("INVALID_PARAMS", "offset must be an integer")) orelse 0;
     const offset: usize = if (offset_raw > 0) @intCast(offset_raw) else 0;
-    const limit_raw = cmd.getInt("limit") orelse MAX_HW_OUTPUTS_RESPONSE;
+    const limit_raw = (cmd.getIntStrict("limit") catch return response.err("INVALID_PARAMS", "limit must be an integer")) orelse MAX_HW_OUTPUTS_RESPONSE;
     const limit: usize = if (limit_raw > 0) @intCast(@min(limit_raw, MAX_HW_OUTPUTS_RESPONSE)) else MAX_HW_OUTPUTS_RESPONSE;
 
     const hw_count_raw = api.trackHwOutputCount(track);

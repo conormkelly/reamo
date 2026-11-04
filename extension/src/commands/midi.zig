@@ -26,7 +26,7 @@ pub fn handleCC(api: anytype, cmd: protocol.CommandMessage, response: *mod.Respo
         return;
     }
 
-    const channel = cmd.getInt("channel") orelse 0;
+    const channel = (cmd.getIntStrict("channel") catch return response.err("INVALID_PARAMS", "channel must be an integer")) orelse 0;
     if (channel < 0 or channel > 15) {
         response.err("INVALID_CHANNEL", "channel must be 0-15");
         return;
@@ -49,7 +49,7 @@ pub fn handlePC(api: anytype, cmd: protocol.CommandMessage, response: *mod.Respo
         return;
     }
 
-    const channel = cmd.getInt("channel") orelse 0;
+    const channel = (cmd.getIntStrict("channel") catch return response.err("INVALID_PARAMS", "channel must be an integer")) orelse 0;
     if (channel < 0 or channel > 15) {
         response.err("INVALID_CHANNEL", "channel must be 0-15");
         return;
@@ -83,7 +83,7 @@ pub fn handleNoteOn(api: anytype, cmd: protocol.CommandMessage, response: *mod.R
         return;
     }
 
-    const channel = cmd.getInt("channel") orelse 0;
+    const channel = (cmd.getIntStrict("channel") catch return response.err("INVALID_PARAMS", "channel must be an integer")) orelse 0;
     if (channel < 0 or channel > 15) {
         response.err("INVALID_CHANNEL", "channel must be 0-15");
         return;
@@ -106,7 +106,7 @@ pub fn handlePitchBend(api: anytype, cmd: protocol.CommandMessage, response: *mo
         return;
     }
 
-    const channel = cmd.getInt("channel") orelse 0;
+    const channel = (cmd.getIntStrict("channel") catch return response.err("INVALID_PARAMS", "channel must be an integer")) orelse 0;
     if (channel < 0 or channel > 15) {
         response.err("INVALID_CHANNEL", "channel must be 0-15");
         return;

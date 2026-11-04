@@ -43,7 +43,7 @@ pub fn handleExecuteCommand(api: anytype, cmd: protocol.CommandMessage, response
     };
 
     // Optional sectionId (default: 0 = main section)
-    const section_id = cmd.getInt("sectionId") orelse 0;
+    const section_id = (cmd.getIntStrict("sectionId") catch return response.err("INVALID_PARAMS", "sectionId must be an integer")) orelse 0;
 
     // Delegate to appropriate executor based on section
     if (section_id >= 32060 and section_id <= 32062) {
@@ -71,7 +71,7 @@ pub fn handleExecuteByName(api: anytype, cmd: protocol.CommandMessage, response:
     };
 
     // Optional sectionId (default: 0 = main section)
-    const section_id = cmd.getInt("sectionId") orelse 0;
+    const section_id = (cmd.getIntStrict("sectionId") catch return response.err("INVALID_PARAMS", "sectionId must be an integer")) orelse 0;
 
     const command_id = api.namedCommandLookup(name);
     if (command_id == 0) {

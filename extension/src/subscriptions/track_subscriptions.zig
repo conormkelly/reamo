@@ -34,6 +34,9 @@ pub const SubscriptionMode = enum {
 /// Maximum extra GUIDs per client (for hybrid range + specific tracks)
 pub const MAX_EXTRA_GUIDS = 8;
 
+/// Longest GUID stored, in bytes: a REAPER GUID is 38, "master" 6.
+pub const GUID_LEN = 40;
+
 /// Per-client subscription state.
 pub const ClientSubscription = struct {
     mode: SubscriptionMode = .none,
@@ -43,13 +46,13 @@ pub const ClientSubscription = struct {
     range_end: c_int = 0,
 
     // GUID mode fields (stored GUIDs)
-    guids: [MAX_GUIDS_PER_CLIENT][40]u8 = undefined,
+    guids: [MAX_GUIDS_PER_CLIENT][GUID_LEN]u8 = undefined,
     guid_lens: [MAX_GUIDS_PER_CLIENT]usize = [_]usize{0} ** MAX_GUIDS_PER_CLIENT,
     guid_count: usize = 0,
 
     // Extra GUIDs for range mode (e.g., info-selected track outside visible bank)
     // These are resolved alongside the range, allowing hybrid subscriptions.
-    extra_guids: [MAX_EXTRA_GUIDS][40]u8 = undefined,
+    extra_guids: [MAX_EXTRA_GUIDS][GUID_LEN]u8 = undefined,
     extra_guid_lens: [MAX_EXTRA_GUIDS]usize = [_]usize{0} ** MAX_EXTRA_GUIDS,
     extra_guid_count: usize = 0,
 
@@ -205,7 +208,7 @@ pub const TrackSubscriptions = struct {
             for (guids) |guid| {
                 if (client.extra_guid_count >= MAX_EXTRA_GUIDS) break;
 
-                const len = @min(guid.len, 40);
+                const len = @min(guid.len, GUID_LEN);
                 @memcpy(client.extra_guids[client.extra_guid_count][0..len], guid[0..len]);
                 client.extra_guid_lens[client.extra_guid_count] = len;
                 client.extra_guid_count += 1;
@@ -256,7 +259,7 @@ pub const TrackSubscriptions = struct {
                 has_master = true;
             }
 
-            const len = @min(guid.len, 40);
+            const len = @min(guid.len, GUID_LEN);
             @memcpy(client.guids[client.guid_count][0..len], guid[0..len]);
             client.guid_lens[client.guid_count] = len;
             client.guid_count += 1;

@@ -28,9 +28,9 @@ pub fn handleGetSeekSettings(api: anytype, _: protocol.CommandMessage, response:
 /// These are REAPER's global preferences (saved in reaper.ini), so nothing is
 /// written unless every value given is valid.
 pub fn handleSetSeekSettings(api: anytype, cmd: protocol.CommandMessage, response: *mod.ResponseWriter) void {
-    const enabled = cmd.getFlag("enabled");
-    const measures = cmd.getInt("measures");
-    const mode = cmd.getInt("mode");
+    const enabled = cmd.getFlag("enabled") catch return response.err("INVALID_PARAMS", "enabled must be a boolean");
+    const measures = cmd.getIntStrict("measures") catch return response.err("INVALID_PARAMS", "measures must be an integer");
+    const mode = cmd.getIntStrict("mode") catch return response.err("INVALID_PARAMS", "mode must be an integer");
 
     if (measures) |m| if (m < 1 or m > 8) {
         response.err("INVALID_MEASURES", "measures must be 1-8");

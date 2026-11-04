@@ -944,7 +944,7 @@ Subscribe to peaks for multiple tracks. Returns tile-based peak data optimized f
 }
 ```
 
-**Errors:** `TOO_MANY_CLIENTS`, `INVALID_PARAMS` (neither `range` nor `guids`).
+**Errors:** `TOO_MANY_CLIENTS`, `INVALID_PARAMS` (neither `range` nor `guids`; `range` that isn't an object of integer `start` and `end`; `guids` that isn't an array of GUID strings of at most 40 bytes, or holds more than 64; `sampleCount` that isn't an integer). A rejected subscribe keeps the current subscription.
 
 **Peak data (binary frames, sent to the subscriber after subscribe and on changes):**
 
@@ -1454,7 +1454,7 @@ Subscribe to track updates. Replaces any previous subscription for this client. 
 **Errors:**
 
 - `TOO_MANY_CLIENTS` — Maximum client limit reached (16 clients)
-- `INVALID_PARAMS` — Neither range nor guids parameter provided
+- `INVALID_PARAMS` — Neither range nor guids parameter provided; `range` isn't an object of integer `start` and `end`; `guids` or `extraGuids` isn't an array of GUID strings of at most 40 bytes; more than 64 `guids`, more than 8 `extraGuids`, or more than 64 of the two together; `includeMaster` isn't a boolean or integer. A rejected subscribe keeps the current subscription.
 
 **Notes:**
 
@@ -4650,6 +4650,7 @@ Common error codes:
 
 - `INVALID_POSITION` - Position is negative, NaN, or Inf
 - `MISSING_*` - Required parameter not provided
+- `INVALID_PARAMS` - An optional integer, on/off or array parameter is present but not of its type: an integer that is a fraction, a string or `null`; an on/off flag that is neither `true`/`false` nor an integer (0 is off); an array with a trailing comma or an element of the wrong type, or longer than its limit. Such a value is not read as absent and given its default. The exceptions: `tempo/barsToTime` reads a malformed `beat` or `ticks` as absent, and a `viewport` with a malformed `widthPx` is treated as missing. Optional number (float) parameters are not covered: one that isn't a number is still read as absent
 - `NOT_FOUND` - Referenced track/item/marker/region/route doesn't exist (including a send, receive or hardware output index that is stale)
 - `INVALID_RANGE` - End before start
 - `INVALID_BAR` - Bar out of range, or before the project start
