@@ -1,12 +1,12 @@
 /**
  * Press Handler E2E Tests
  *
- * The timeline's selection mode button, the track info bar's FX button and
- * the toolbar's buttons in a real browser, against a fake extension over a
+ * The timeline's selection mode button, the track info bar's FX button, the
+ * toolbar's buttons and the Actions view's pads in a real browser, against a fake extension over a
  * routed WebSocket that records each command the page sends. A tap and a
  * hold do what each button says; a press that is neither (a release with no
  * press on the button, a right-click, a finger dragged across it) does
- * nothing.
+ * nothing. A tap or hold commits a name being edited before it acts.
  */
 
 import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
@@ -19,7 +19,7 @@ interface Sent {
 type At = { x: number; y: number };
 
 /** The commands these buttons send; the page sends others on its own. */
-const BUTTON_COMMANDS = new Set(['track/setFxEnabled', 'action/execute']);
+const BUTTON_COMMANDS = new Set(['track/rename', 'track/setFxEnabled', 'action/execute']);
 
 async function installFakeReaper(page: Page): Promise<Sent[]> {
   const sent: Sent[] = [];
@@ -268,6 +268,50 @@ test.describe('FX button, mouse', () => {
   });
 });
 
+test.describe('FX button, touch', () => {
+  test.use({ viewport: { width: 414, height: 896 }, hasTouch: true, isMobile: true });
+
+  test('a tap toggles the track FX once', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const fx = await openFxButton(page);
+
+    await fx.tap();
+    await settle(page);
+
+    expect(sent).toEqual([FX_TOGGLE]);
+  });
+
+  test('a hold opens the FX list and toggles nothing', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const fx = await openFxButton(page);
+    const at = await centre(fx);
+    const f = await finger(page);
+
+    await f.down(at);
+    await page.waitForTimeout(700);
+    await f.up();
+    await settle(page);
+
+    await expect(fxList(page)).toBeVisible();
+    expect(sent).toEqual([]);
+  });
+
+  test('a tap while the track name is being edited commits the rename, then toggles', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const fx = await openFxButton(page);
+    await page.getByTitle('Click to edit name').tap();
+    const name = page.locator('input[type="text"]');
+    await expect(name).toBeFocused();
+    await name.fill('Lead');
+
+    await fx.tap();
+    await settle(page);
+
+    expect(sent).toEqual([{ command: 'track/rename', params: { trackGuid: TRACK_GUID, name: 'Lead' } }, FX_TOGGLE]);
+    await expect(name).toHaveCount(0);
+  });
+});
+
 // ============================================
 // Toolbar buttons
 // ============================================
@@ -285,6 +329,12 @@ async function openToolbar(page: Page): Promise<Locator> {
   await expect(split).toBeVisible();
   return split;
 }
+
+/** What the Split button, and a pad set to the same action, send. */
+const SPLIT: Sent = { command: 'action/execute', params: { commandId: 40012 } };
+
+/** The editor a tap in edit mode opens. */
+const toolbarEditor = (page: Page) => page.getByRole('heading', { name: /^(Edit|Add) / });
 
 const toolbarEditMode = (page: Page) =>
   page.evaluate(() => (window as any).__REAPER_STORE__.getState().toolbarEditMode as boolean);
@@ -304,7 +354,7 @@ test.describe('Toolbar button, mouse', () => {
     await split.click();
     await settle(page);
 
-    expect(sent).toEqual([{ command: 'action/execute', params: { commandId: 40012 } }]);
+    expect(sent).toEqual([SPLIT]);
   });
 
   test('a hold enters edit mode and runs nothing', async ({ page }) => {
@@ -344,5 +394,112 @@ test.describe('Toolbar button, mouse', () => {
 
     const after = await toolbarLabels(page);
     expect(after.slice(0, 2)).toEqual(['Glue', 'Split']);
+    await expect(toolbarEditor(page)).toHaveCount(0);
+  });
+});
+
+test.describe('Toolbar button, touch', () => {
+  test.use({ viewport: { width: 414, height: 896 }, hasTouch: true, isMobile: true });
+
+  test('a tap runs the action once', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const split = await openToolbar(page);
+
+    await split.tap();
+    await settle(page);
+
+    expect(sent).toEqual([SPLIT]);
+  });
+
+  test('a hold enters edit mode, and its release runs nothing and opens no editor', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const split = await openToolbar(page);
+    const at = await centre(split);
+    const f = await finger(page);
+
+    await f.down(at);
+    await page.waitForTimeout(450);
+    await f.up();
+    await settle(page);
+
+    expect(await toolbarEditMode(page)).toBe(true);
+    await expect(toolbarEditor(page)).toHaveCount(0);
+    expect(sent).toEqual([]);
+  });
+
+  test('a tap in edit mode opens the editor and runs nothing', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const split = await openToolbar(page);
+    await page.evaluate(() => (window as any).__REAPER_STORE__.getState().setToolbarEditMode(true));
+
+    await split.tap();
+
+    await expect(toolbarEditor(page)).toHaveCount(1);
+    expect(sent).toEqual([]);
+  });
+
+  test('in edit mode a finger drag reorders the buttons and opens no editor', async ({ page }) => {
+    await installFakeReaper(page);
+    const split = await openToolbar(page);
+    await page.evaluate(() => (window as any).__REAPER_STORE__.getState().setToolbarEditMode(true));
+    expect((await toolbarLabels(page)).slice(0, 2)).toEqual(['Split', 'Glue']);
+    const at = await centre(split);
+    const f = await finger(page);
+
+    await f.down(at);
+    for (let dy = 10; dy <= 120; dy += 10) await f.move({ x: at.x, y: at.y + dy });
+    await f.up();
+    await settle(page);
+
+    expect((await toolbarLabels(page))[0]).not.toBe('Split');
+    await expect(toolbarEditor(page)).toHaveCount(0);
+  });
+});
+
+// ============================================
+// Actions view pads (ToolbarButton)
+// ============================================
+
+async function openActionPad(page: Page): Promise<Locator> {
+  await connect(page);
+  await page.evaluate(() => {
+    const store = (window as any).__REAPER_STORE__;
+    store.getState().addSection({ name: 'Pads' });
+    const id = store.getState().actionsSections.at(-1).id;
+    store.getState().addActionToSection(id, {
+      id: 'pad-1', type: 'reaper_action', label: 'PadA', actionId: '40012', sectionId: 0,
+    });
+  });
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  const pad = page.getByTitle('PadA', { exact: true });
+  await expect(pad).toBeVisible();
+  return pad;
+}
+
+test.describe('Actions view pad, touch', () => {
+  test.use({ viewport: { width: 414, height: 896 }, hasTouch: true, isMobile: true });
+
+  test('a tap runs the action once', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const pad = await openActionPad(page);
+
+    await pad.tap();
+    await settle(page);
+
+    expect(sent).toEqual([SPLIT]);
+  });
+
+  test('a finger that drifts 12 px, past the tap tolerance, runs nothing', async ({ page }) => {
+    const sent = await installFakeReaper(page);
+    const pad = await openActionPad(page);
+    const at = await centre(pad);
+    const f = await finger(page);
+
+    await f.down(at);
+    await f.move({ x: at.x + 12, y: at.y });
+    await f.up();
+    await settle(page);
+
+    expect(sent).toEqual([]);
   });
 });
