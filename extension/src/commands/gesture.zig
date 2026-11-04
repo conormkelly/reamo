@@ -132,8 +132,9 @@ const MovableTracks = struct {
     csurf_flushes: usize = 0,
     undo_points: usize = 0,
     undo_blocks: usize = 0,
-    /// route_values[kind][track id]: the last volume or pan written to the
-    /// track's send (0), receive (1) or hardware output (2).
+    /// route_values[kind][track id]: the last volume, pan, mute (0/1), mode
+    /// or destination channel written to the track's send (0), receive (1)
+    /// or hardware output (2).
     route_values: [3][8]?f64 = .{.{null} ** 8} ** 3,
 
     fn ptr(id: u8) *anyopaque {
@@ -221,11 +222,37 @@ const MovableTracks = struct {
     pub fn trackHwOutputSetPan(self: *MovableTracks, track: *anyopaque, _: c_int, v: f64) bool {
         return self.setRoute(2, track, v);
     }
+    pub fn trackSendSetMute(self: *MovableTracks, track: *anyopaque, _: c_int, muted: bool) bool {
+        return self.setRoute(0, track, @floatFromInt(@intFromBool(muted)));
+    }
+    pub fn trackReceiveSetMute(self: *MovableTracks, track: *anyopaque, _: c_int, muted: bool) bool {
+        return self.setRoute(1, track, @floatFromInt(@intFromBool(muted)));
+    }
+    pub fn trackHwOutputSetMute(self: *MovableTracks, track: *anyopaque, _: c_int, muted: bool) bool {
+        return self.setRoute(2, track, @floatFromInt(@intFromBool(muted)));
+    }
+    pub fn trackSendSetMode(self: *MovableTracks, track: *anyopaque, _: c_int, mode: c_int) bool {
+        return self.setRoute(0, track, @floatFromInt(mode));
+    }
+    pub fn trackReceiveSetMode(self: *MovableTracks, track: *anyopaque, _: c_int, mode: c_int) bool {
+        return self.setRoute(1, track, @floatFromInt(mode));
+    }
+    pub fn trackHwOutputSetMode(self: *MovableTracks, track: *anyopaque, _: c_int, mode: c_int) bool {
+        return self.setRoute(2, track, @floatFromInt(mode));
+    }
+    pub fn trackHwOutputSetDestChannel(self: *MovableTracks, track: *anyopaque, _: c_int, dest: c_int) bool {
+        return self.setRoute(2, track, @floatFromInt(dest));
+    }
 };
 
 /// Runs `handler` on `json` from client 1 with gesture tracking, as dispatch
 /// would. GUIDs resolve through a cache built from `api`, as in REAPER.
 fn runWithGestures(api: *MovableTracks, gestures: *gesture_state.GestureState, comptime handler: anytype, json: []const u8) void {
+    runWithGesturesReply(api, gestures, handler, json, null);
+}
+
+/// runWithGestures that, given `reply`, answers the command into it.
+fn runWithGesturesReply(api: *MovableTracks, gestures: *gesture_state.GestureState, comptime handler: anytype, json: []const u8, reply: ?*mod.TestReply) void {
     var cache = guid_cache.GuidCache.init(std.testing.allocator);
     defer cache.deinit();
     cache.rebuild(api) catch unreachable;
@@ -236,7 +263,8 @@ fn runWithGestures(api: *MovableTracks, gestures: *gesture_state.GestureState, c
     const cmd = protocol.CommandMessage.parse(json).?;
     std.debug.assert(cmd.getId() == null);
     var shared: @import("../server/ws_server.zig").SharedState = undefined;
-    var response = mod.ResponseWriter{ .client_id = 1, .cmd_id = null, .shared_state = &shared, .gestures = gestures };
+    var response = mod.ResponseWriter{ .client_id = 1, .cmd_id = if (reply != null) "t" else null, .shared_state = &shared, .gestures = gestures, .test_reply = reply };
+    if (reply) |r| r.bytes.clearRetainingCapacity();
     handler(api, cmd, &response);
 }
 
@@ -254,6 +282,18 @@ const route_controls = .{
     .{ "receivePan", "recvIdx", "pan", 1, receive_cmds.handleSetPan },
     .{ "hwOutputVolume", "hwIdx", "volume", 2, hw_output.handleSetVolume },
     .{ "hwOutputPan", "hwIdx", "pan", 2, hw_output.handleSetPan },
+};
+
+/// Each routing tap: the parameter naming the route, the value parameter,
+/// which route it writes and the handler.
+const route_taps = .{
+    .{ "sendIdx", "muted", 0, send_cmds.handleSetMute },
+    .{ "sendIdx", "mode", 0, send_cmds.handleSetMode },
+    .{ "recvIdx", "muted", 1, receive_cmds.handleSetMute },
+    .{ "recvIdx", "mode", 1, receive_cmds.handleSetMode },
+    .{ "hwIdx", "muted", 2, hw_output.handleSetMute },
+    .{ "hwIdx", "mode", 2, hw_output.handleSetMode },
+    .{ "hwIdx", "destChannel", 2, hw_output.handleSetDestChannel },
 };
 
 /// A routing control's gesture/start or gesture/end, by Guitar's GUID.
@@ -329,6 +369,67 @@ test "an index-addressed routing value sent after its track moved changes the tr
     try std.testing.expectEqual(@as(usize, 1), api.undo_blocks); // Vocals' change, outside the drag
     try std.testing.expectEqual(@as(usize, 1), api.undo_points); // the drag still ends at gesture/end
     try std.testing.expect(!gestures.hasActiveGestures());
+}
+
+test "routing taps addressed by trackGuid reach that track after it moved" {
+    inline for (route_taps) |c| {
+        var api = MovableTracks{};
+        var gestures = gesture_state.GestureState.init(std.testing.allocator);
+        defer gestures.deinit();
+        var buf: [256]u8 = undefined;
+        api.insertAtTop(); // Guitar at index 3, Vocals at 2
+
+        runWithGestures(&api, &gestures, c[3], routeValue(&buf, "\"trackGuid\":\"" ++ GUITAR ++ "\"", c[0], c[1], 1));
+        errdefer std.debug.print("{s} {s}\n", .{ c[0], c[1] });
+        try std.testing.expectEqual(@as(?f64, 1), api.route_values[c[2]][GUITAR_ID]);
+        try std.testing.expectEqual(@as(?f64, null), api.route_values[c[2]][VOCALS_ID]);
+    }
+}
+
+test "an unknown trackGuid on a routing command is refused with NOT_FOUND and changes no track" {
+    const UNKNOWN = "\"trackGuid\":\"{00000000-0000-0000-0000-000000000099}\"";
+    var reply = mod.TestReply{};
+    defer reply.deinit();
+    inline for (route_controls) |c| {
+        var api = MovableTracks{};
+        var gestures = gesture_state.GestureState.init(std.testing.allocator);
+        defer gestures.deinit();
+        var buf: [256]u8 = undefined;
+
+        runWithGesturesReply(&api, &gestures, c[4], routeValue(&buf, UNKNOWN, c[1], c[2], 0.5), &reply);
+        errdefer std.debug.print("control {s}: {s}\n", .{ c[0], reply.json() });
+        try std.testing.expectEqualStrings("NOT_FOUND", reply.errorCode() orelse "(no error)");
+        for (api.route_values) |kind| for (kind) |v| try std.testing.expectEqual(@as(?f64, null), v);
+        try std.testing.expectEqual(@as(usize, 0), api.undo_blocks);
+    }
+    inline for (route_taps) |c| {
+        var api = MovableTracks{};
+        var gestures = gesture_state.GestureState.init(std.testing.allocator);
+        defer gestures.deinit();
+        var buf: [256]u8 = undefined;
+
+        runWithGesturesReply(&api, &gestures, c[3], routeValue(&buf, UNKNOWN, c[0], c[1], 1), &reply);
+        errdefer std.debug.print("{s} {s}: {s}\n", .{ c[0], c[1], reply.json() });
+        try std.testing.expectEqualStrings("NOT_FOUND", reply.errorCode() orelse "(no error)");
+        for (api.route_values) |kind| for (kind) |v| try std.testing.expectEqual(@as(?f64, null), v);
+        try std.testing.expectEqual(@as(usize, 0), api.undo_blocks);
+    }
+}
+
+test "a routing command with both trackIdx and trackGuid goes to the track at trackIdx" {
+    // As tracks.resolveTrack: the index is looked up first.
+    const BOTH = "\"trackIdx\":1,\"trackGuid\":\"" ++ GUITAR ++ "\"";
+    inline for (route_controls) |c| {
+        var api = MovableTracks{};
+        var gestures = gesture_state.GestureState.init(std.testing.allocator);
+        defer gestures.deinit();
+        var buf: [256]u8 = undefined;
+
+        runWithGestures(&api, &gestures, c[4], routeValue(&buf, BOTH, c[1], c[2], 0.5));
+        errdefer std.debug.print("control {s}\n", .{c[0]});
+        try std.testing.expectEqual(@as(?f64, 0.5), api.route_values[c[3]][VOCALS_ID]);
+        try std.testing.expectEqual(@as(?f64, null), api.route_values[c[3]][GUITAR_ID]);
+    }
 }
 
 test "trackIdx 0 and \"master\" name the same gesture" {

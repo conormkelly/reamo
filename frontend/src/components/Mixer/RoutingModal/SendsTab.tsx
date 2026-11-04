@@ -89,10 +89,10 @@ function SendRow({
         sendCommand(sendCmd.setPan(trackIndex, sendIndex, 0, guid));
       }}
       onMuteToggle={() => {
-        sendCommand(sendCmd.setMute(trackIndex, sendIndex, send.muted ? 0 : 1));
+        sendCommand(sendCmd.setMute(trackIndex, sendIndex, send.muted ? 0 : 1, guid));
       }}
       onModeToggle={() => {
-        sendCommand(sendCmd.setMode(trackIndex, sendIndex, nextMode(send.mode)));
+        sendCommand(sendCmd.setMode(trackIndex, sendIndex, nextMode(send.mode), guid));
       }}
       onDelete={() => {
         sendCommand(sendCmd.remove(trackGuid, sendIndex));

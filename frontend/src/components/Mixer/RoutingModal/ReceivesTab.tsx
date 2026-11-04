@@ -89,10 +89,10 @@ function ReceiveRow({
         sendCommand(receiveCmd.setPan(trackIndex, recvIdx, 0, guid));
       }}
       onMuteToggle={() => {
-        sendCommand(receiveCmd.setMute(trackIndex, recvIdx, recv.muted ? 0 : 1));
+        sendCommand(receiveCmd.setMute(trackIndex, recvIdx, recv.muted ? 0 : 1, guid));
       }}
       onModeToggle={() => {
-        sendCommand(receiveCmd.setMode(trackIndex, recvIdx, nextMode(recv.mode ?? 0)));
+        sendCommand(receiveCmd.setMode(trackIndex, recvIdx, nextMode(recv.mode ?? 0), guid));
       }}
       onDelete={() => {
         sendCommand(receiveCmd.remove(trackGuid, recvIdx));

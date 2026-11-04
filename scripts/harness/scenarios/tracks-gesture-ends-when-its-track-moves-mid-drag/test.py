@@ -74,7 +74,7 @@ CONTROLS = [
      "reaper.GetTrackSendInfo_Value(t, -1, 0, 'D_PAN')", "REAmo: Adjust receives", "REAmo: Adjust receive pan"),
     ("volume", {}, "track/setVolume", "volume", [0.9, 0.8, 0.7, 0.6, 0.5, 0.4],
      "reaper.GetMediaTrackInfo_Value(t, 'D_VOL')", "Adjust track volume (via surface)", None),
-    ("fxParam", {"paramIdx": 0}, "trackFxParams/set", "value", [0.55, 0.6, 0.65, 0.7, 0.75, 0.8],
+    ("fxParam", {"paramIdx": 0}, "trackFxParams/set", "value", [0.55, 0.6, 0.65, 0.7, 0.72, 0.75],
      "reaper.TrackFX_GetParamNormalized(t, 0, 0)", "REAmo: Adjust FX parameters", None),
 ]
 
@@ -112,8 +112,8 @@ with Client() as c:
         got, vocals = value_on("Guitar", lua), value_on("Vocals", lua)
         print(f"{ctl:15s}: Guitar {old_idx} -> {index_of('Guitar')}, value {got} (Vocals {vocals_before} -> {vocals}); "
               f"new undo steps, newest first: {new}")
-        # The EQ's parameter is stepped: REAPER stores the nearest step.
-        if abs(got - values[-1]) > (0.02 if ctl == "fxParam" else 1e-6):
+        # The FX drag ends on 0.75, one of the EQ parameter's steps, so REAPER stores it exactly.
+        if abs(got - values[-1]) > 1e-6:
             problems.append(f"{ctl}: Guitar ends at {got}, not the drag's last value {values[-1]}")
         if abs(vocals - vocals_before) > 1e-9:
             problems.append(f"{ctl}: the drag changed Vocals ({vocals_before} -> {vocals})")

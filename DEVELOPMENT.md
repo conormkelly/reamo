@@ -252,7 +252,8 @@ make extension   # Build the extension → REAPER's UserPlugins (REAPER; restart
   gesture and every value, resolved per command (`tracks.resolveTrack`,
   `state/guid_cache.zig`), so a reorder mid-drag still hits the right track.
   The routing modal follows a track index, so its rows lock the GUID with
-  `RoutingModal/useGestureGuid.ts`. Gestures are tracked by the track's GUID
+  `RoutingModal/useGestureGuid.ts`; their taps (reset, mute, mode, output
+  destination) send the GUID of the track shown. Gestures are tracked by the track's GUID
   (`gesture_state.trackKey`), never its index, so a drag's start, value
   changes and end find the same gesture however the tracks above it move.
 - **Master is `"master"`**, not its GUID: `GetTrackGUID` is inconsistent for

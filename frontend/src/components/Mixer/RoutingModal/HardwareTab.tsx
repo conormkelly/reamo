@@ -89,10 +89,10 @@ function HwOutputRow({
         sendCommand(hwCmd.setPan(trackIndex, hwIdx, 0, guid));
       }}
       onMuteToggle={() => {
-        sendCommand(hwCmd.setMute(trackIndex, hwIdx, hw.muted ? 0 : 1));
+        sendCommand(hwCmd.setMute(trackIndex, hwIdx, hw.muted ? 0 : 1, guid));
       }}
       onModeToggle={() => {
-        sendCommand(hwCmd.setMode(trackIndex, hwIdx, nextMode(hw.mode)));
+        sendCommand(hwCmd.setMode(trackIndex, hwIdx, nextMode(hw.mode), guid));
       }}
       onDelete={() => {
         sendCommand(hwCmd.remove(trackGuid, hwIdx));
@@ -117,7 +117,7 @@ export function HardwareTab({ trackIndex, trackGuid, hwOutputs, hwOutCount }: Ha
         currentDestChannel={editingHw?.destChannel}
         onSelect={async (destChannel) => {
           if (isEditing) {
-            sendCommand(hwCmd.setDestChannel(trackIndex, pickerMode, destChannel));
+            sendCommand(hwCmd.setDestChannel(trackIndex, pickerMode, destChannel, trackGuid));
           } else {
             // Create new hw output, then set its destination
             try {
@@ -126,7 +126,7 @@ export function HardwareTab({ trackIndex, trackGuid, hwOutputs, hwOutCount }: Ha
                 payload?: { hwIdx?: number };
               };
               if (res.success && res.payload?.hwIdx !== undefined) {
-                sendCommand(hwCmd.setDestChannel(trackIndex, res.payload.hwIdx, destChannel));
+                sendCommand(hwCmd.setDestChannel(trackIndex, res.payload.hwIdx, destChannel, trackGuid));
               }
             } catch {
               // hw/add may fail silently — output still created with defaults by REAPER
