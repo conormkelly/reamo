@@ -1,13 +1,15 @@
 /**
- * WebSocketCommands - addressing
+ * WebSocketCommands
  *
- * Commands that change a track, item or plugin name it by GUID when the
- * caller has one: indices shift when anything is added, removed or
+ * Addressing: commands that change a track, item or plugin name it by GUID
+ * when the caller has one: indices shift when anything is added, removed or
  * reordered around the target, and the server then acts on the neighbour.
+ *
+ * Integer fields: the server refuses a fraction where it reads an integer.
  */
 
 import { describe, it, expect } from 'vitest';
-import { track, trackFx, item } from './WebSocketCommands';
+import { track, trackFx, item, peaks } from './WebSocketCommands';
 
 describe('track commands', () => {
   it('name the track by GUID when given one, and by index otherwise', () => {
@@ -35,5 +37,21 @@ describe('item commands', () => {
     expect(item.setActiveTake('{IT}', 1).params).toEqual({ itemGuid: '{IT}', takeIdx: 1 });
     expect(item.setLock('{IT}', 1).params).toEqual({ itemGuid: '{IT}', locked: 1 });
     expect(item.setColor('{IT}', 255).params).toEqual({ itemGuid: '{IT}', color: 255 });
+  });
+});
+
+describe('peaks commands', () => {
+  it('send the viewport width in whole pixels, as the server reads an integer', () => {
+    const viewport = { start: 1.5, end: 31.25, widthPx: 389.5 };
+
+    expect(peaks.subscribe({ range: { start: 0, end: 7 }, viewport }).params).toEqual({
+      range: { start: 0, end: 7 },
+      viewport: { start: 1.5, end: 31.25, widthPx: 390 },
+    });
+    expect(peaks.updateViewport({ ...viewport, widthPx: 412.4 }).params).toEqual({
+      viewport: { start: 1.5, end: 31.25, widthPx: 412 },
+    });
+    // The caller's own object is left as measured.
+    expect(viewport.widthPx).toBe(389.5);
   });
 });
