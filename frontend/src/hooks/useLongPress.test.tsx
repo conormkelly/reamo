@@ -63,7 +63,12 @@ function fingerUp(el: Element, at: Point = AT, pointerId = 1) {
 function emulatedMouse(el: Element, at: Point = AT) {
   fireEvent.mouseDown(el, { clientX: at.x, clientY: at.y });
   fireEvent.mouseUp(el, { clientX: at.x, clientY: at.y });
-  fireEvent.click(el, { clientX: at.x, clientY: at.y });
+  pointerClick(el, at);
+}
+
+/** A click that ends a pointer press: its detail is the click count. */
+function pointerClick(el: Element, at: Point = AT) {
+  fireEvent.click(el, { clientX: at.x, clientY: at.y, detail: 1 });
 }
 
 /** The browser takes the touch over for a scroll. */
@@ -131,7 +136,7 @@ describe('useLongPress', () => {
 
       mouseDown(el);
       mouseUp(el);
-      fireEvent.click(el);
+      pointerClick(el);
 
       expect(onTap).toHaveBeenCalledTimes(1);
     });
@@ -168,6 +173,43 @@ describe('useLongPress', () => {
       expect(onTap).toHaveBeenCalledTimes(2);
     });
 
+    it('a release beyond the tolerance with no move before it is not a tap', () => {
+      const { el, onTap } = setup();
+
+      fingerDown(el);
+      fingerUp(el, { x: AT.x, y: AT.y + 30 });
+
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('a click with no pointer behind it, from a keyboard or screen reader, is a tap', () => {
+      const { el, onTap, onLongPress } = setup();
+
+      fireEvent.click(el, { detail: 0 });
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(onLongPress).not.toHaveBeenCalled();
+    });
+
+    it('a pointer tap followed by a click with no detail taps once', () => {
+      const { el, onTap } = setup();
+
+      fingerDown(el);
+      fingerUp(el);
+      fireEvent.click(el, { detail: 0 });
+
+      expect(onTap).toHaveBeenCalledTimes(1);
+    });
+
+    it('a press does not take focus from a text field', () => {
+      const { el } = setup();
+
+      const down = fireEvent.mouseDown(el);
+
+      // fireEvent returns false when the default action was prevented.
+      expect(down).toBe(false);
+    });
+
     it('a long hold without onLongPress is still a tap on release', () => {
       const { el, onTap } = setup({ onLongPress: undefined });
 
@@ -202,7 +244,7 @@ describe('useLongPress', () => {
       mouseDown(el);
       wait(500);
       mouseUp(el);
-      fireEvent.click(el);
+      pointerClick(el);
 
       expect(onLongPress).toHaveBeenCalledTimes(1);
       expect(onTap).not.toHaveBeenCalled();
@@ -244,6 +286,46 @@ describe('useLongPress', () => {
       fingerMove(el, { x: AT.x, y: AT.y - 20 });
       fingerCancel(el, { x: AT.x, y: AT.y - 20 });
       wait(1000);
+
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('a still hold that the browser cancels fires nothing, even when an up follows', () => {
+      const { el, onTap, onLongPress } = setup();
+
+      fingerDown(el);
+      fingerMove(el, { x: AT.x, y: AT.y - 8 });
+      fireEvent.pointerCancel(el, pointer({ x: AT.x, y: AT.y - 8 }));
+      wait(1000);
+      fireEvent.pointerUp(el, pointer({ x: AT.x, y: AT.y - 8 }));
+
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('a mouse whose primary button comes up while another stays down ends the hold', () => {
+      const { el, onTap, onLongPress } = setup();
+
+      mouseDown(el);
+      // Right button joins, then the left lifts: chorded buttons send moves.
+      fireEvent.pointerMove(el, pointer(AT, 'mouse', 1, { buttons: 3 }));
+      fireEvent.pointerMove(el, pointer(AT, 'mouse', 1, { buttons: 2 }));
+      wait(1000);
+      fireEvent.pointerUp(el, pointer(AT, 'mouse', 1, { button: 2, buttons: 0 }));
+
+      expect(onLongPress).not.toHaveBeenCalled();
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('the context menu opening mid-hold ends it', () => {
+      const { el, onTap, onLongPress } = setup();
+
+      mouseDown(el);
+      wait(200);
+      fireEvent.contextMenu(el);
+      wait(1000);
+      mouseUp(el);
 
       expect(onLongPress).not.toHaveBeenCalled();
       expect(onTap).not.toHaveBeenCalled();
@@ -299,8 +381,10 @@ describe('useLongPress', () => {
       wait(200);
       expect(onLongPress).not.toHaveBeenCalled();
 
-      // The first finger's lift is not the second press's tap.
-      fireEvent.pointerUp(el, pointer(AT, 'touch', 1));
+      // The first finger's moves and lift neither end the second press nor
+      // tap for it.
+      fingerMove(el, { x: AT.x + 100, y: AT.y }, 1);
+      fingerUp(el, { x: AT.x + 100, y: AT.y }, 1);
       expect(onTap).not.toHaveBeenCalled();
 
       wait(200);

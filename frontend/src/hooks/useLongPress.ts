@@ -10,9 +10,16 @@
  * while the pointer stays put: a press ends with neither when the pointer
  * moves more than a few pixels (a scroll or drag, not a hold), when the
  * browser cancels it (it took the touch over for a scroll), when the pointer
- * leaves the element, when another press begins, or when the element unmounts.
- * A right-button press, or a mouse Ctrl+click on macOS, opens the context
- * menu, so it is neither.
+ * leaves the element, when the mouse's primary button is no longer down, when
+ * the context menu opens, when another press begins, or when the element
+ * unmounts. A right-button press is neither, and nor is a mouse Ctrl+click on
+ * any platform, as on macOS it opens the context menu.
+ *
+ * A click with no pointer press behind it (Enter or Space on a focused button,
+ * or a screen reader's activation) is a tap.
+ *
+ * Pressing the element doesn't take focus, so a text field being typed in
+ * keeps it and a phone's keyboard stays up.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -34,6 +41,9 @@ export interface UseLongPressResult {
     onPointerUp: (e: React.PointerEvent) => void;
     onPointerCancel: (e: React.PointerEvent) => void;
     onPointerLeave: (e: React.PointerEvent) => void;
+    onMouseDown: (e: React.MouseEvent) => void;
+    onContextMenu: () => void;
+    onClick: (e: React.MouseEvent) => void;
   };
 }
 
@@ -69,6 +79,9 @@ export function useLongPress({
   // The press under way; null when there is none, or once it has ended in a
   // long press or been cancelled.
   const pressRef = useRef<Press | null>(null);
+  // Set when a pointer release has just tapped, so the click that follows the
+  // release is not a second tap.
+  const pointerTappedRef = useRef(false);
 
   // The callbacks of the latest render: they read state, such as the mixer
   // lock, that can change while a press is held.
@@ -87,6 +100,7 @@ export function useLongPress({
     (e: React.PointerEvent) => {
       // Each press starts afresh.
       cancel();
+      pointerTappedRef.current = false;
       const opensMenu = e.button !== 0 || (e.ctrlKey && e.pointerType === 'mouse');
       if (opensMenu) return;
 
@@ -107,6 +121,12 @@ export function useLongPress({
     (e: React.PointerEvent) => {
       const press = pressRef.current;
       if (!press || e.pointerId !== press.pointerId) return;
+      // A mouse whose primary button came up while another stays down sends
+      // a move, not an up.
+      if (e.pointerType === 'mouse' && (e.buttons & 1) === 0) {
+        cancel();
+        return;
+      }
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) {
         cancel();
       }
@@ -121,6 +141,7 @@ export function useLongPress({
       cancel();
       // A release can move the pointer without a pointermove before it.
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_MOVE_TOLERANCE) return;
+      pointerTappedRef.current = true;
       latest.current.onTap?.();
     },
     [cancel]
@@ -133,6 +154,19 @@ export function useLongPress({
     [cancel]
   );
 
+  // A pointer press drives the gesture; a click carries no pointer
+  // (detail 0) only when a keyboard or a screen reader activated the element.
+  const onClick = useCallback((e: React.MouseEvent) => {
+    const pointerTapped = pointerTappedRef.current;
+    pointerTappedRef.current = false;
+    if (e.detail !== 0 || pointerTapped) return;
+    latest.current.onTap?.();
+  }, []);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+  }, []);
+
   // A hold still running when the element leaves the page is abandoned.
   useEffect(() => cancel, [cancel]);
 
@@ -143,8 +177,11 @@ export function useLongPress({
       onPointerUp,
       onPointerCancel: onPointerEnd,
       onPointerLeave: onPointerEnd,
+      onMouseDown,
+      onContextMenu: cancel,
+      onClick,
     }),
-    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd]
+    [onPointerDown, onPointerMove, onPointerUp, onPointerEnd, onMouseDown, cancel, onClick]
   );
 
   return { handlers };
