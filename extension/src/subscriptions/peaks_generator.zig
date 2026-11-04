@@ -484,3 +484,55 @@ test "an item whose audio covers it gets every peak asked for" {
     defer result.deinit();
     try expectPeaksMatchMock(&result, 32, 2);
 }
+
+/// Fetch a one-take item's peaks, its take's source having
+/// `source_channels` channels and the take channel mode `channel_mode`.
+fn fetchWithChannelMode(api: *mock.MockBackend, source_channels: c_int, channel_mode: c_int) ItemPeaksResult {
+    api.tracks[0].item_count = 1;
+    api.tracks[0].items[0].length = 2.0;
+    api.tracks[0].items[0].take_count = 1;
+    api.tracks[0].items[0].takes[0].channel_count = source_channels;
+    api.tracks[0].items[0].takes[0].channel_mode = channel_mode;
+    const take = mock_state.encodeTakePtr(0, 0, 0).?;
+    return fetchItemPeaksViaTakePeaksAPI(std.testing.allocator, api, take, 0.0, 2.0, 16.0).?;
+}
+
+test "a take in a mono channel mode gets one channel, as REAPER draws one waveform" {
+    for ([_]c_int{ 2, 3, 4, 5, 66, 131, 194 }) |mode| {
+        for ([_]c_int{ 2, 4 }) |source_channels| {
+            var api = mock.MockBackend{};
+            var result = fetchWithChannelMode(&api, source_channels, mode);
+            defer result.deinit();
+            expectPeaksMatchMock(&result, 32, 1) catch |err| {
+                std.debug.print("channel mode {d}, {d}-channel source\n", .{ mode, source_channels });
+                return err;
+            };
+        }
+    }
+}
+
+test "a take in a stereo-pair or all-channel mode keeps two channels" {
+    for ([_]c_int{ 0, 1, 67, 130, 195, 257, 258, 300 }) |mode| {
+        for ([_]c_int{ 2, 4 }) |source_channels| {
+            var api = mock.MockBackend{};
+            var result = fetchWithChannelMode(&api, source_channels, mode);
+            defer result.deinit();
+            expectPeaksMatchMock(&result, 32, 2) catch |err| {
+                std.debug.print("channel mode {d}, {d}-channel source\n", .{ mode, source_channels });
+                return err;
+            };
+        }
+    }
+}
+
+test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
+    for ([_]c_int{ 0, 2, 3, 67 }) |mode| {
+        var api = mock.MockBackend{};
+        var result = fetchWithChannelMode(&api, 1, mode);
+        defer result.deinit();
+        expectPeaksMatchMock(&result, 32, 1) catch |err| {
+            std.debug.print("channel mode {d}\n", .{mode});
+            return err;
+        };
+    }
+}

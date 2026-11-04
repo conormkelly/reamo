@@ -434,6 +434,9 @@ pub const MockTake = struct {
     playrate: f64 = 1.0,
     is_midi: bool = false,
     channel_count: c_int = 2,
+    /// I_CHANMODE: 0 normal, 1 reverse stereo, 2 mono downmix, 3 mono left,
+    /// 4 mono right, and above 4 REAPER's mono-channel and stereo-pair modes.
+    channel_mode: c_int = 0,
     color: c_int = 0, // I_CUSTOMCOLOR: 0=theme default, or color|0x01000000 for custom
     /// Seconds of audio the take plays from its item's start. Past it,
     /// getMediaItemTakePeaks returns fewer peaks than asked for, as REAPER
