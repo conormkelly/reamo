@@ -221,6 +221,9 @@ pub const TileCache = struct {
     /// Key: track GUID (owned string), Value: hash of item properties
     track_hashes: std.StringHashMap(u64),
 
+    /// Set by sendEpoch when a send moves a take's stored epoch.
+    epoch_moved: bool = false,
+
     pub fn init(allocator: Allocator) TileCache {
         return .{
             .allocator = allocator,
@@ -317,9 +320,33 @@ pub const TileCache = struct {
         self.frame_counter +%= 1;
     }
 
-    /// Get current epoch for a take, computing if needed.
-    pub fn getEpoch(self: *TileCache, take_guid: []const u8, api: anytype, take: *anyopaque) u32 {
-        return self.epochs.getOrCompute(take_guid, api, take);
+    /// The epoch a send keys and tags a take's tiles with: the take as it is
+    /// now, so tiles read from it are cached and sent only under the state
+    /// they were read from, even before the change check reaches its track.
+    /// When that differs from the stored epoch (a change the check hasn't
+    /// reached yet, or one undone since), it becomes the stored epoch, the
+    /// take's other tiles are dropped, and epoch_moved is set: phones this
+    /// send doesn't reach may still show the take's old waveform. A take not
+    /// seen before is stored without setting it, as the change check does.
+    pub fn sendEpoch(self: *TileCache, take_guid: []const u8, api: anytype, take: *anyopaque) u32 {
+        const got = self.epochs.update(take_guid, api, take);
+        if (got.changed) {
+            self.removeTilesForTake(take_guid);
+            self.epoch_moved = true;
+        }
+        return got.epoch;
+    }
+
+    /// Whether a send moved a take's stored epoch since the last call
+    /// (sendEpoch), and clear it.
+    pub fn consumeEpochMoved(self: *TileCache) bool {
+        defer self.epoch_moved = false;
+        return self.epoch_moved;
+    }
+
+    /// The epoch last stored for a take, by the change check or a send.
+    pub fn storedEpoch(self: *const TileCache, take_guid: []const u8) ?u32 {
+        return self.epochs.epochs.get(take_guid);
     }
 
     /// Invalidate all tiles for a take (call when source audio changes).
@@ -400,10 +427,10 @@ pub const TileCache = struct {
             const take_guid = api.getTakeGUID(take, &take_guid_buf);
 
             // Check if epoch changed (source audio was edited)
-            if (self.epochs.checkAndUpdate(take_guid, api, take)) |new_epoch| {
-                // Epoch changed - remove cached tiles for this take
-                // Note: checkAndUpdate already stored the new epoch, so just remove tiles
-                logging.debug("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, new_epoch });
+            const got = self.epochs.update(take_guid, api, take);
+            if (got.changed) {
+                // update() already stored the new epoch, so just remove tiles
+                logging.debug("peaks_tile: epoch changed for take {s} (new epoch: {}), removing tiles", .{ take_guid, got.epoch });
                 self.removeTilesForTake(take_guid);
                 changed = true;
             }
@@ -477,54 +504,26 @@ pub const EpochTracker = struct {
         self.epochs.deinit();
     }
 
-    /// Get epoch for a take, computing from source properties if not cached.
-    pub fn getOrCompute(self: *EpochTracker, take_guid: []const u8, api: anytype, take: *anyopaque) u32 {
-        // Check if we have a cached epoch
-        if (self.epochs.get(take_guid)) |epoch| {
-            return epoch;
-        }
-
-        // Compute epoch from source properties
-        const epoch = computeEpoch(api, take);
-
-        // Store it (need to dupe key)
-        const owned_guid = self.allocator.dupe(u8, take_guid) catch {
-            logging.warn("peaks_tile: failed to store epoch key", .{});
-            return epoch;
-        };
-        self.epochs.put(owned_guid, epoch) catch {
-            self.allocator.free(owned_guid);
-            logging.warn("peaks_tile: failed to store epoch", .{});
-        };
-
-        return epoch;
-    }
-
-    /// Check if epoch has changed (source was edited).
-    /// Returns new epoch if changed, null if unchanged.
-    pub fn checkAndUpdate(self: *EpochTracker, take_guid: []const u8, api: anytype, take: *anyopaque) ?u32 {
+    /// The take's epoch as it is now, stored, and whether it differs from
+    /// the one stored before. A take seen for the first time is stored
+    /// without counting as changed: the forced send of a new subscription
+    /// gives phones its tiles, so first sight is no change to broadcast.
+    pub fn update(self: *EpochTracker, take_guid: []const u8, api: anytype, take: *anyopaque) struct { epoch: u32, changed: bool } {
         const new_epoch = computeEpoch(api, take);
 
-        if (self.epochs.get(take_guid)) |old_epoch| {
-            if (old_epoch == new_epoch) {
-                return null; // Unchanged
-            }
-            // Update epoch
-            self.epochs.put(take_guid, new_epoch) catch {};
-            return new_epoch;
+        if (self.epochs.getPtr(take_guid)) |stored| {
+            if (stored.* == new_epoch) return .{ .epoch = new_epoch, .changed = false };
+            stored.* = new_epoch;
+            return .{ .epoch = new_epoch, .changed = true };
         }
 
-        // First time seeing this take — register silently.
-        // force_broadcast from subscription creation handles the initial data send,
-        // so first-seen should not trigger a change broadcast.
         const owned_guid = self.allocator.dupe(u8, take_guid) catch {
-            return null;
+            return .{ .epoch = new_epoch, .changed = false };
         };
         self.epochs.put(owned_guid, new_epoch) catch {
             self.allocator.free(owned_guid);
         };
-
-        return null;
+        return .{ .epoch = new_epoch, .changed = false };
     }
 
     /// Invalidate epoch for a take (force recomputation on next access).
@@ -933,27 +932,60 @@ test "a channel mode change is a change to the track, and drops the take's cache
     @memcpy(m.tracks[1].items[0].takes[0].guid[0..guid.len], guid);
     m.tracks[1].items[0].takes[0].guid_len = guid.len;
     const track = m.getTrackByUnifiedIdx(1).?;
-    const take = m.getItemActiveTake(m.getItemByIdx(track, 0).?).?;
 
     var cache = TileCache.init(std.testing.allocator);
     defer cache.deinit();
     _ = cache.trackChanged("t1", &m, track);
     try std.testing.expect(!cache.trackChanged("t1", &m, track));
 
-    const stereo_epoch = cache.getEpoch(guid, &m, take);
+    const stereo_epoch = cache.storedEpoch(guid).?;
     const peaks = [_]f64{0.5} ** 4;
     cache.put(TileCacheKey.create(guid, stereo_epoch, 6, 0), &peaks, &peaks, 2, 2);
 
     // Normal to mono (left): REAPER draws one waveform instead of two.
     m.tracks[1].items[0].takes[0].channel_mode = 3;
     try std.testing.expect(cache.trackChanged("t1", &m, track));
-    try std.testing.expect(cache.getEpoch(guid, &m, take) != stereo_epoch);
+    try std.testing.expect(cache.storedEpoch(guid).? != stereo_epoch);
     try std.testing.expectEqual(@as(usize, 0), cache.count());
 
     // Left to right: still one waveform, but another channel's.
-    const left_epoch = cache.getEpoch(guid, &m, take);
+    const left_epoch = cache.storedEpoch(guid).?;
     m.tracks[1].items[0].takes[0].channel_mode = 4;
     try std.testing.expect(cache.trackChanged("t1", &m, track));
-    try std.testing.expect(cache.getEpoch(guid, &m, take) != left_epoch);
+    try std.testing.expect(cache.storedEpoch(guid).? != left_epoch);
     try std.testing.expect(!cache.trackChanged("t1", &m, track));
+}
+
+test "a send keys a take's tiles by the take as it is now, and an edit the check hasn't reached moves the stored epoch" {
+    const reaper = @import("../reaper.zig");
+    var m = reaper.MockBackend{ .track_count = 1 };
+    m.tracks[1].item_count = 1;
+    m.tracks[1].items[0].take_count = 1;
+    const guid = "{take-1}";
+    @memcpy(m.tracks[1].items[0].takes[0].guid[0..guid.len], guid);
+    m.tracks[1].items[0].takes[0].guid_len = guid.len;
+    const track = m.getTrackByUnifiedIdx(1).?;
+    const take = m.getItemActiveTake(m.getItemByIdx(track, 0).?).?;
+
+    var cache = TileCache.init(std.testing.allocator);
+    defer cache.deinit();
+    _ = cache.trackChanged("t1", &m, track);
+    const normal = cache.sendEpoch(guid, &m, take);
+    try std.testing.expect(!cache.consumeEpochMoved());
+
+    // Mono before the change check gets to the track: the send says so.
+    m.tracks[1].items[0].takes[0].channel_mode = 3;
+    const mono = cache.sendEpoch(guid, &m, take);
+    try std.testing.expect(mono != normal);
+    try std.testing.expect(cache.consumeEpochMoved());
+    try std.testing.expect(!cache.consumeEpochMoved());
+    const peaks = [_]f64{0.5} ** 2;
+    cache.put(TileCacheKey.create(guid, mono, 5, 0), &peaks, &peaks, 2, 1);
+
+    // Undone before the check: back to the first epoch, with no tiles read in mono under it.
+    m.tracks[1].items[0].takes[0].channel_mode = 0;
+    try std.testing.expectEqual(normal, cache.sendEpoch(guid, &m, take));
+    try std.testing.expect(cache.consumeEpochMoved());
+    try std.testing.expect(cache.get(TileCacheKey.create(guid, normal, 5, 0)) == null);
+    try std.testing.expectEqual(@as(usize, 0), cache.count());
 }

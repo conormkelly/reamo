@@ -843,7 +843,7 @@ fn doProcessing() !void {
         // Poll peaks subscriptions
         if (g_peaks_subs) |peaks_subs| {
             if (g_tile_cache) |tile_cache| {
-                try subscription_polling.pollPeaksSubscriptions(&poll_ctx, peaks_subs, tile_cache);
+                subscription_polling.pollPeaksSubscriptions(&poll_ctx, peaks_subs, tile_cache);
             }
         }
 

@@ -14,8 +14,8 @@ const binary_protocol = @import("../core/binary_protocol.zig");
 
 const Allocator = std.mem.Allocator;
 
-/// Maximum tracks in a single subscription broadcast.
-const MAX_TRACKS_PER_BROADCAST = 32;
+/// Most tracks of one client's subscription a send gives it tiles for.
+pub const MAX_TRACKS_PER_BROADCAST = 32;
 
 // =============================================================================
 // GetMediaItemTake_Peaks Based Tile Generation
@@ -233,6 +233,42 @@ fn sliceTileFromItemPeaks(
 // Binary Tile Serialization
 // =============================================================================
 
+/// The tracks (unified indices) a send gives the client tiles for: its
+/// subscription's first MAX_TRACKS_PER_BROADCAST tracks that exist.
+pub fn sendTracks(
+    api: anytype,
+    guid_cache: *const guid_cache_mod.GuidCache,
+    sub: *const @import("peaks_subscriptions.zig").ClientSubscription,
+    out: *[MAX_TRACKS_PER_BROADCAST]c_int,
+) []c_int {
+    var n: usize = 0;
+    switch (sub.mode) {
+        .none => {},
+        .range => {
+            const total_tracks = api.trackCount();
+            var idx = sub.range_start;
+            const end = @min(sub.range_end, total_tracks);
+            while (idx <= end and n < MAX_TRACKS_PER_BROADCAST) : (idx += 1) {
+                out[n] = idx;
+                n += 1;
+            }
+        },
+        .guids => {
+            for (0..sub.guid_count) |i| {
+                if (n >= MAX_TRACKS_PER_BROADCAST) break;
+                const guid = sub.getGuid(i) orelse continue;
+                const track = guid_cache.resolve(api, guid) orelse continue;
+                const idx = api.getTrackIdx(track);
+                if (idx >= 0) {
+                    out[n] = idx;
+                    n += 1;
+                }
+            }
+        },
+    }
+    return out[0..n];
+}
+
 /// Generate tiles for all items in a subscription's viewport.
 /// Serializes to binary int8 quantized format (~12x smaller than JSON).
 /// Payload is ~1KB per stereo tile vs ~13KB JSON.
@@ -252,34 +288,9 @@ pub fn generateTilesForSubscriptionBinary(
         0.5,
     ) orelse return null;
 
-    // Collect track indices
     var track_indices_buf: [MAX_TRACKS_PER_BROADCAST]c_int = undefined;
-    var track_count: usize = 0;
-
-    switch (sub.mode) {
-        .none => return null,
-        .range => {
-            const total_tracks = api.trackCount();
-            var idx = sub.range_start;
-            const end = @min(sub.range_end, total_tracks);
-            while (idx <= end and track_count < MAX_TRACKS_PER_BROADCAST) : (idx += 1) {
-                track_indices_buf[track_count] = idx;
-                track_count += 1;
-            }
-        },
-        .guids => {
-            for (0..sub.guid_count) |i| {
-                if (track_count >= MAX_TRACKS_PER_BROADCAST) break;
-                const guid = sub.getGuid(i) orelse continue;
-                const track = guid_cache.resolve(api, guid) orelse continue;
-                const idx = api.getTrackIdx(track);
-                if (idx >= 0) {
-                    track_indices_buf[track_count] = idx;
-                    track_count += 1;
-                }
-            }
-        },
-    }
+    const send_tracks = sendTracks(api, guid_cache, sub, &track_indices_buf);
+    const track_count = send_tracks.len;
 
     if (track_count == 0) return null;
 
@@ -300,7 +311,7 @@ pub fn generateTilesForSubscriptionBinary(
     var offset: usize = binary_protocol.BATCH_ENVELOPE_SIZE;
     var tiles_written: u16 = 0;
 
-    tracks: for (track_indices_buf[0..track_count]) |track_idx| {
+    tracks: for (send_tracks) |track_idx| {
         const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
         const item_count_raw = api.trackItemCount(track);
         if (item_count_raw <= 0) continue;
@@ -325,7 +336,7 @@ pub fn generateTilesForSubscriptionBinary(
 
             var take_guid_buf: [64]u8 = undefined;
             const take_guid = api.getTakeGUID(take, &take_guid_buf);
-            const epoch = tile_cache.getEpoch(take_guid, api, take);
+            const epoch = tile_cache.sendEpoch(take_guid, api, take);
 
             const item_start_tile: u32 = blk: {
                 const rel = @max(0.0, vp_start - item_position);
@@ -554,4 +565,71 @@ test "a mono source keeps one channel in a mono or stereo-pair channel mode" {
             return err;
         };
     }
+}
+
+/// The LOD, channel count and epoch of each tile in a binary peaks frame.
+fn sentTileHeaders(bin: []const u8, out: []binary_protocol.TileHeader) []binary_protocol.TileHeader {
+    const count = std.mem.readInt(u16, bin[2..4], .little);
+    var off: usize = binary_protocol.BATCH_ENVELOPE_SIZE;
+    for (0..count) |i| {
+        out[i] = std.mem.bytesToValue(binary_protocol.TileHeader, bin[off..][0..binary_protocol.TILE_HEADER_SIZE]);
+        off += binary_protocol.TILE_FIXED_SIZE + @as(usize, out[i].num_peaks) * out[i].channels * 2;
+    }
+    std.debug.assert(off == bin.len);
+    return out[0..count];
+}
+
+test "tiles read while an edit the change check hasn't reached is in place aren't sent as the take's waveform once it's undone" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+
+    var api = mock.MockBackend{ .track_count = 1 };
+    api.tracks[1].item_count = 1;
+    api.tracks[1].items[0].length = 8.0;
+    api.tracks[1].items[0].take_count = 1;
+    const mock_take = &api.tracks[1].items[0].takes[0];
+    const guid = "{take-1}";
+    @memcpy(mock_take.guid[0..guid.len], guid);
+    mock_take.guid_len = guid.len;
+
+    var tile_cache = peaks_tile.TileCache.init(std.testing.allocator);
+    defer tile_cache.deinit();
+    var guids = guid_cache_mod.GuidCache.init(std.testing.allocator);
+    defer guids.deinit();
+    var sub = @import("peaks_subscriptions.zig").ClientSubscription{
+        .mode = .range,
+        .range_start = 1,
+        .range_end = 1,
+        .viewport_start = 0,
+        .viewport_end = 14,
+        .viewport_width_px = 1400,
+    };
+    var headers: [64]binary_protocol.TileHeader = undefined;
+
+    const near = sentTileHeaders(generateTilesForSubscriptionBinary(scratch, &api, &guids, &tile_cache, &sub).?, &headers);
+    const normal_epoch = near[0].epoch;
+    for (near) |h| try std.testing.expectEqual(@as(u8, 2), h.channels);
+
+    // The take goes mono and the phone zooms out to a level it hasn't
+    // shown, all before the change check gets to the track.
+    mock_take.channel_mode = 3;
+    sub.viewport_end = 60;
+    const far_mono = sentTileHeaders(generateTilesForSubscriptionBinary(scratch, &api, &guids, &tile_cache, &sub).?, &headers);
+    try std.testing.expect(far_mono.len > 0);
+    for (far_mono) |h| {
+        try std.testing.expectEqual(@as(u8, 1), h.channels);
+        try std.testing.expect(h.epoch != normal_epoch);
+    }
+    try std.testing.expect(tile_cache.consumeEpochMoved());
+
+    // Undone, still before the check: the phone gets the take in normal mode.
+    mock_take.channel_mode = 0;
+    const far = sentTileHeaders(generateTilesForSubscriptionBinary(scratch, &api, &guids, &tile_cache, &sub).?, &headers);
+    try std.testing.expect(far.len > 0);
+    for (far) |h| {
+        try std.testing.expectEqual(@as(u8, 2), h.channels);
+        try std.testing.expectEqual(normal_epoch, h.epoch);
+    }
+    try std.testing.expect(tile_cache.consumeEpochMoved());
 }

@@ -79,16 +79,37 @@ pub fn pollToggleSubscriptions(
 
 /// Poll peaks subscriptions and broadcast waveform data to subscribed clients.
 /// Uses tile-based LOD cache for efficient pan/zoom operations.
-/// Sends a client its tiles when it subscribes or moves its viewport
-/// (forced), and every client fresh tiles when a subscribed track's items
-/// or a take's audio source change, at most once per
-/// CHANGE_BROADCAST_INTERVAL_MS; a change that limit holds back goes out on
-/// the first tick it allows.
 pub fn pollPeaksSubscriptions(
     ctx: *const PollingContext,
     peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
     tile_cache: *peaks_tile.TileCache,
-) !void {
+) void {
+    pollPeaks(
+        ctx.scratchAllocator(),
+        ctx.backend,
+        ctx.guid_cache_ptr,
+        peaks_subs,
+        tile_cache,
+        ctx.shared_state,
+        std.time.milliTimestamp(),
+    );
+}
+
+/// One peaks tick. Sends a client its tiles when it subscribes or moves its
+/// viewport (forced), and every client fresh tiles when a subscribed
+/// track's items or a take's audio source change, at most once per
+/// CHANGE_BROADCAST_INTERVAL_MS; a change that limit holds back goes out on
+/// the first tick it allows. `sender` takes sendBinToClient(client_id, bytes);
+/// `scratch` is the frame's arena.
+pub fn pollPeaks(
+    scratch: std.mem.Allocator,
+    api: anytype,
+    guids: *const guid_cache.GuidCache,
+    peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
+    tile_cache: *peaks_tile.TileCache,
+    sender: anytype,
+    now_ms: i64,
+) void {
     if (!peaks_subs.hasSubscriptions()) {
         // Nobody is left to owe a held change to.
         peaks_subs.change_pending = false;
@@ -101,61 +122,42 @@ pub fn pollPeaksSubscriptions(
     // Some client subscribed or moved its viewport and needs its own tiles now.
     const any_forced = peaks_subs.anyForceBroadcast();
 
-    // Every subscribed track across all clients. Each is a unified index
-    // (0 = master .. trackCount), deduplicated, so trackCount + 1 holds
-    // them all.
-    const index_capacity: usize = @intCast(@max(0, ctx.backend.trackCount()) + 1);
-    const scratch = ctx.scratchAllocator();
-    const indices_buf = scratch.alloc(c_int, index_capacity) catch {
-        // Nothing is consumed: forced sends and a held change wait for the next tick.
-        logging.warn("peaks: no scratch memory for {d} track indices; skipping this tick", .{index_capacity});
-        return;
-    };
-    const subscribed_indices = peaks_subs.getSubscribedIndices(ctx.guid_cache_ptr, ctx.backend, indices_buf);
-
     // Check the subscribed tracks for a change (items, or a take's audio
     // source); that goes to every client. Every track in this tick's batch,
     // not just up to the first change: trackChanged also drops a changed
-    // take's stale tiles, which the broadcast below must not send. Past
-    // CHANGE_CHECK_TRACKS_PER_TICK tracks the batch takes them in turn, so
-    // a broadcast can carry the cached tiles of a track not yet read; its
-    // turn finds the change and sends it within a few ticks.
+    // take's stale tiles. Past CHANGE_CHECK_TRACKS_PER_TICK tracks the
+    // batch takes them in turn; a send meanwhile reads a take as it is now
+    // (TileCache.sendEpoch), so it never sends or caches a take's new audio
+    // under its old epoch.
     //
-    // A forced tick skips the check (the next tick sees any change). The
-    // first check of a track counts as a change, so it remembers a track
-    // never checked as it is, if only clients due their tiles now watch
-    // it: the forced send gives it to each of them with a viewport (one
-    // without gets it when it sets one). A track an unforced client also
-    // watches is left to the next tick's check, which sends it to everyone.
+    // A forced tick skips the check (the next tick sees any change), and
+    // remembers the tracks its sends cover (rememberForcedTracks).
     var any_track_changed = false;
     if (any_forced) {
-        const unforced_buf = scratch.alloc(c_int, index_capacity) catch null;
-        const unforced_indices: ?[]const c_int = if (unforced_buf) |buf|
-            peaks_subs.getUnforcedIndices(ctx.guid_cache_ptr, ctx.backend, buf)
-        else
-            null;
-        for (subscribed_indices) |track_idx| {
-            if (!peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced_indices, track_idx)) continue;
-            // Unified index (0 = master), as the generator resolves it.
-            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
-            var guid_buf: [64]u8 = undefined;
-            tile_cache.rememberTrack(ctx.backend.formatTrackGuid(track, &guid_buf), ctx.backend, track);
-        }
+        rememberForcedTracks(scratch, api, guids, peaks_subs, tile_cache) catch {
+            scratchShortage(peaks_subs);
+            return;
+        };
     } else {
-        var batch = peaks_subs.changeCheckBatch(subscribed_indices);
+        const subscribed = peaks_subs.getSubscribedIndices(scratch, guids, api) catch {
+            scratchShortage(peaks_subs);
+            return;
+        };
+        var batch = peaks_subs.changeCheckBatch(subscribed);
         while (batch.next()) |track_idx| {
-            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
+            // Unified index (0 = master), as the generator resolves it.
+            const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
             var guid_buf: [64]u8 = undefined;
-            if (tile_cache.trackChanged(ctx.backend.formatTrackGuid(track, &guid_buf), ctx.backend, track)) {
+            if (tile_cache.trackChanged(api.formatTrackGuid(track, &guid_buf), api, track)) {
                 any_track_changed = true;
             }
         }
     }
+    peaks_subs.scratch_shortage_logged = false;
 
     // A change goes to every client, rate-limited; one the limit holds back
     // goes out on the first tick it allows. Forced per-client sends bypass
     // the limit, as initial data always did.
-    const now_ms = std.time.milliTimestamp();
     var send_change = false;
     if (any_forced) {
         // Leaves change_pending alone: a held change goes out on a later
@@ -166,7 +168,7 @@ pub fn pollPeaksSubscriptions(
         if (!send_change) return;
     }
 
-    logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ send_change, any_forced, subscribed_indices.len });
+    logging.debug("peaks: broadcasting (content changed={}, forced={})", .{ send_change, any_forced });
     var iter = peaks_subs.activeSubscriptions();
     while (iter.next()) |entry| {
         const forced = peaks_subs.consumeForceBroadcast(entry.slot);
@@ -177,20 +179,60 @@ pub fn pollPeaksSubscriptions(
             continue;
         }
 
-        const bin = peaks_generator.generateTilesForSubscriptionBinary(
-            scratch,
-            ctx.backend,
-            ctx.guid_cache_ptr,
-            tile_cache,
-            entry.sub,
-        );
+        const bin = peaks_generator.generateTilesForSubscriptionBinary(scratch, api, guids, tile_cache, entry.sub);
         if (bin) |b| {
             logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
-            ctx.shared_state.sendBinToClient(entry.client_id, b);
+            sender.sendBinToClient(entry.client_id, b);
         } else {
             logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
         }
     }
+
+    // A send that found a take changed before the check reached it stored
+    // the change, so no check will find it: unless this was a change
+    // broadcast (every client with a viewport just got the take as it is),
+    // it is owed to every client.
+    if (tile_cache.consumeEpochMoved() and !send_change) peaks_subs.change_pending = true;
+}
+
+/// On a forced tick, remember each track a forced client's send covers
+/// (peaks_generator.sendTracks: at most MAX_TRACKS_PER_BROADCAST per
+/// client) that no unforced client watches. The first check of a track
+/// counts as a change, so a remembered track isn't broadcast to everyone
+/// just for being new: the forced send gives it to each client due one
+/// (one without a viewport gets it when it sets one). A track an unforced
+/// client also watches is left to the check, which sends it to everyone.
+/// Bounded per tick by the forced clients, not the subscribed tracks: a
+/// track a forced client watches but its send doesn't cover is left to
+/// the check too, and its first check is one broadcast.
+fn rememberForcedTracks(
+    scratch: std.mem.Allocator,
+    api: anytype,
+    guids: *const guid_cache.GuidCache,
+    peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
+    tile_cache: *peaks_tile.TileCache,
+) std.mem.Allocator.Error!void {
+    const unforced = try peaks_subs.getUnforcedIndices(scratch, guids, api);
+    var iter = peaks_subs.activeSubscriptions();
+    while (iter.next()) |entry| {
+        if (!peaks_subs.isForced(entry.slot)) continue;
+        var covered_buf: [peaks_generator.MAX_TRACKS_PER_BROADCAST]c_int = undefined;
+        for (peaks_generator.sendTracks(api, guids, entry.sub, &covered_buf)) |track_idx| {
+            if (!peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced, track_idx)) continue;
+            const track = api.getTrackByUnifiedIdx(track_idx) orelse continue;
+            var guid_buf: [64]u8 = undefined;
+            tile_cache.rememberTrack(api.formatTrackGuid(track, &guid_buf), api, track);
+        }
+    }
+}
+
+/// A tick skipped for want of scratch memory. Nothing is consumed: forced
+/// sends and a held change wait for a tick that has it. Logged once until
+/// a tick gets what it needs.
+fn scratchShortage(peaks_subs: *peaks_subscriptions.PeaksSubscriptions) void {
+    if (peaks_subs.scratch_shortage_logged) return;
+    peaks_subs.scratch_shortage_logged = true;
+    logging.warn("peaks: no scratch memory to list subscribed tracks; skipping peaks until there is", .{});
 }
 
 /// Poll routing subscriptions and broadcast sends/receives/hw outputs.
@@ -380,4 +422,255 @@ test "PollingContext.scratchAllocator returns valid allocator" {
     // This test would require mocking tiered_state.TieredArenas
     // For now, we verify the struct compiles correctly
     _ = PollingContext;
+}
+
+const mock_state = @import("../reaper/mock/state.zig");
+const PeaksSubs = peaks_subscriptions.PeaksSubscriptions;
+
+/// A project of `count` tracks over a MockBackend, which stores only a few.
+/// Every track is empty but unified index `with_items`, which is mock track
+/// 1; the others are mock track 2. Track GUIDs are per index. Counts the
+/// tracks whose items are read (trackItemCount).
+const ManyTracks = struct {
+    mock: *reaper.MockBackend,
+    count: c_int,
+    with_items: c_int,
+    item_reads: usize = 0,
+
+    fn stored(self: *ManyTracks, track: *anyopaque) *anyopaque {
+        const k: c_int = @intCast(mock_state.decodeTrackPtr(track));
+        return mock_state.encodeTrackPtr(if (k == self.with_items) 1 else 2).?;
+    }
+    pub fn trackCount(self: *ManyTracks) c_int {
+        return self.count;
+    }
+    pub fn getTrackByUnifiedIdx(self: *ManyTracks, idx: c_int) ?*anyopaque {
+        if (idx < 0 or idx > self.count) return null;
+        return mock_state.encodeTrackPtr(idx);
+    }
+    pub fn formatTrackGuid(_: *ManyTracks, track: *anyopaque, buf: []u8) []const u8 {
+        return std.fmt.bufPrint(buf, "{{00000000-0000-0000-0000-{d:0>12}}}", .{mock_state.decodeTrackPtr(track)}) catch "";
+    }
+    pub fn trackItemCount(self: *ManyTracks, track: *anyopaque) c_int {
+        self.item_reads += 1;
+        return self.mock.trackItemCount(self.stored(track));
+    }
+    pub fn getItemByIdx(self: *ManyTracks, track: *anyopaque, i: c_int) ?*anyopaque {
+        return self.mock.getItemByIdx(self.stored(track), i);
+    }
+    pub fn getTrackIdx(_: *ManyTracks, track: *anyopaque) c_int {
+        return @intCast(mock_state.decodeTrackPtr(track));
+    }
+    pub fn masterTrack(_: *ManyTracks) ?*anyopaque {
+        return mock_state.encodeTrackPtr(0);
+    }
+    pub fn validateTrackPtr(self: *ManyTracks, track: *anyopaque) bool {
+        return mock_state.decodeTrackPtr(track) <= @as(usize, @intCast(self.count));
+    }
+    pub fn getItemActiveTake(self: *ManyTracks, item: *anyopaque) ?*anyopaque {
+        return self.mock.getItemActiveTake(item);
+    }
+    pub fn getItemActiveTakeIdx(self: *ManyTracks, item: *anyopaque) !c_int {
+        return self.mock.getItemActiveTakeIdx(item);
+    }
+    pub fn getItemPosition(self: *ManyTracks, item: *anyopaque) f64 {
+        return self.mock.getItemPosition(item);
+    }
+    pub fn getItemLength(self: *ManyTracks, item: *anyopaque) f64 {
+        return self.mock.getItemLength(item);
+    }
+    pub fn isTakeMIDI(self: *ManyTracks, take: *anyopaque) bool {
+        return self.mock.isTakeMIDI(take);
+    }
+    pub fn getTakeGUID(self: *ManyTracks, take: *anyopaque, buf: []u8) []const u8 {
+        return self.mock.getTakeGUID(take, buf);
+    }
+    pub fn getTakeSource(self: *ManyTracks, take: *anyopaque) ?*anyopaque {
+        return self.mock.getTakeSource(take);
+    }
+    pub fn getMediaSourceChannels(self: *ManyTracks, source: *anyopaque) c_int {
+        return self.mock.getMediaSourceChannels(source);
+    }
+    pub fn getTakeChannelMode(self: *ManyTracks, take: *anyopaque) !c_int {
+        return self.mock.getTakeChannelMode(take);
+    }
+    pub fn getTakeStartOffset(self: *ManyTracks, take: *anyopaque) f64 {
+        return self.mock.getTakeStartOffset(take);
+    }
+    pub fn getTakePlayrate(self: *ManyTracks, take: *anyopaque) f64 {
+        return self.mock.getTakePlayrate(take);
+    }
+    pub fn getMediaItemTakePeaks(self: *ManyTracks, take: *anyopaque, peakrate: f64, starttime: f64, numchannels: c_int, n: c_int, buf: []f64) c_int {
+        return self.mock.getMediaItemTakePeaks(take, peakrate, starttime, numchannels, n, buf);
+    }
+};
+
+/// Counts the peaks frames each client is sent.
+const SentFrames = struct {
+    frames: [8]usize = [_]usize{0} ** 8,
+
+    pub fn sendBinToClient(self: *SentFrames, client_id: usize, _: []const u8) void {
+        self.frames[client_id] += 1;
+    }
+    fn total(self: *const SentFrames) usize {
+        var n: usize = 0;
+        for (self.frames) |f| n += f;
+        return n;
+    }
+};
+
+/// What pollPeaks needs, over a ManyTracks project whose one item (8 s,
+/// stereo) is on track `with_items`.
+const PeaksRig = struct {
+    mock: reaper.MockBackend,
+    api: ManyTracks,
+    subs: PeaksSubs,
+    tiles: peaks_tile.TileCache,
+    guids: guid_cache.GuidCache,
+    arena: std.heap.ArenaAllocator,
+    sent: SentFrames = .{},
+    now_ms: i64 = 1000,
+
+    const viewport = PeaksSubs.ViewportParams{ .start = 0, .end = 14, .width_px = 1400 };
+
+    fn init(self: *PeaksRig, count: c_int, with_items: c_int) void {
+        const allocator = std.testing.allocator;
+        self.mock = .{ .track_count = 2 };
+        self.mock.tracks[1].item_count = 1;
+        self.mock.tracks[1].items[0].length = 8.0;
+        self.mock.tracks[1].items[0].take_count = 1;
+        const guid = "{take-on-the-item-track}";
+        @memcpy(self.mock.tracks[1].items[0].takes[0].guid[0..guid.len], guid);
+        self.mock.tracks[1].items[0].takes[0].guid_len = guid.len;
+        self.api = .{ .mock = &self.mock, .count = count, .with_items = with_items };
+        self.subs = PeaksSubs.init(allocator);
+        self.tiles = peaks_tile.TileCache.init(allocator);
+        self.guids = guid_cache.GuidCache.init(allocator);
+        self.arena = std.heap.ArenaAllocator.init(allocator);
+        self.sent = .{};
+        self.now_ms = 1000;
+    }
+
+    fn deinit(self: *PeaksRig) void {
+        self.arena.deinit();
+        self.guids.deinit();
+        self.tiles.deinit();
+        self.subs.deinit();
+    }
+
+    /// One tick, `step_ms` after the last, with `scratch` (the arena if null).
+    fn tickWith(self: *PeaksRig, step_ms: i64, scratch: ?std.mem.Allocator) void {
+        self.now_ms += step_ms;
+        pollPeaks(scratch orelse self.arena.allocator(), &self.api, &self.guids, &self.subs, &self.tiles, &self.sent, self.now_ms);
+        _ = self.arena.reset(.retain_capacity);
+    }
+
+    fn tick(self: *PeaksRig, step_ms: i64) void {
+        self.tickWith(step_ms, null);
+    }
+
+    /// Ticks a second apart, past the rate limit, until one sends nothing.
+    fn settle(self: *PeaksRig) !void {
+        for (0..20) |_| {
+            const before = self.sent.total();
+            self.tick(1000);
+            if (self.sent.total() == before) return;
+        }
+        return error.NeverSettled;
+    }
+};
+
+test "a change on a subscribed track past the first 128 sends the phone watching it fresh tiles" {
+    var rig: PeaksRig = undefined;
+    rig.init(300, 250);
+    defer rig.deinit();
+    // Phone 1 watches every track, phone 2 only track 250.
+    _ = try rig.subs.subscribeRangeWithViewport(1, 1, 300, 30, PeaksRig.viewport);
+    _ = try rig.subs.subscribeRangeWithViewport(2, 250, 250, 30, PeaksRig.viewport);
+    rig.tick(0);
+    try std.testing.expectEqual(@as(usize, 1), rig.sent.frames[2]);
+    try rig.settle();
+
+    // Track 250's item moves.
+    rig.mock.tracks[1].items[0].position = 1.0;
+    const before = rig.sent.frames[2];
+    const ticks = (300 + PeaksSubs.CHANGE_CHECK_TRACKS_PER_TICK - 1) / PeaksSubs.CHANGE_CHECK_TRACKS_PER_TICK;
+    for (0..ticks) |_| rig.tick(1000);
+    try std.testing.expectEqual(before + 1, rig.sent.frames[2]);
+}
+
+test "a forced tick reads the items of only the tracks its sends cover, however many are subscribed" {
+    var rig: PeaksRig = undefined;
+    rig.init(1000, 5);
+    defer rig.deinit();
+    _ = try rig.subs.subscribeRangeWithViewport(1, 0, 10_000, 30, PeaksRig.viewport);
+    rig.tick(0);
+    try std.testing.expectEqual(@as(usize, 1), rig.sent.frames[1]);
+    // Remembering, then sending, the client's first MAX_TRACKS_PER_BROADCAST tracks.
+    try std.testing.expect(rig.api.item_reads <= 2 * peaks_generator.MAX_TRACKS_PER_BROADCAST);
+}
+
+test "after a forced send covering every track a phone watches, the change check broadcasts nothing" {
+    var rig: PeaksRig = undefined;
+    rig.init(300, 5);
+    defer rig.deinit();
+    _ = try rig.subs.subscribeRangeWithViewport(1, 1, 20, 30, PeaksRig.viewport);
+    rig.tick(0);
+    try std.testing.expectEqual(@as(usize, 1), rig.sent.frames[1]);
+    for (0..3) |_| rig.tick(1000);
+    try std.testing.expectEqual(@as(usize, 1), rig.sent.frames[1]);
+}
+
+test "a tick without scratch memory sends nothing and loses neither a held change nor a forced send" {
+    var rig: PeaksRig = undefined;
+    rig.init(10, 5);
+    defer rig.deinit();
+    _ = try rig.subs.subscribeRangeWithViewport(1, 1, 10, 30, PeaksRig.viewport);
+    rig.tick(0);
+    try rig.settle();
+
+    // A change found 50 ms after a send: held by the rate limit.
+    rig.mock.tracks[1].items[0].position = 1.0;
+    _ = rig.subs.updateViewport(1, .{ .start = 0, .end = 13, .width_px = 1400 });
+    rig.tick(0); // the forced send
+    const sent = rig.sent.total();
+    rig.tick(50);
+    try std.testing.expect(rig.subs.change_pending);
+    try std.testing.expectEqual(sent, rig.sent.total());
+
+    var no_memory = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    _ = rig.subs.updateViewport(1, .{ .start = 0, .end = 12, .width_px = 1400 });
+    rig.tickWith(1000, no_memory.allocator());
+    try std.testing.expectEqual(sent, rig.sent.total());
+    try std.testing.expect(rig.subs.change_pending);
+    try std.testing.expect(rig.subs.isForced(rig.subs.client_id_to_slot.get(1).?));
+    try std.testing.expect(rig.subs.scratch_shortage_logged);
+
+    // With memory again: the forced send goes, then the held change.
+    rig.tick(0);
+    try std.testing.expectEqual(sent + 1, rig.sent.total());
+    try std.testing.expect(!rig.subs.scratch_shortage_logged);
+    rig.tick(1000);
+    try std.testing.expectEqual(sent + 2, rig.sent.total());
+    try std.testing.expect(!rig.subs.change_pending);
+}
+
+test "a take a forced send finds changed before the check reaches it goes to every other phone too" {
+    var rig: PeaksRig = undefined;
+    rig.init(10, 5);
+    defer rig.deinit();
+    _ = try rig.subs.subscribeRangeWithViewport(1, 5, 5, 30, PeaksRig.viewport);
+    _ = try rig.subs.subscribeRangeWithViewport(2, 5, 5, 30, PeaksRig.viewport);
+    rig.tick(0);
+    try rig.settle();
+    const phone2 = rig.sent.frames[2];
+
+    // Mono, and phone 1 scrolls before any check: its send reads the take in mono.
+    rig.mock.tracks[1].items[0].takes[0].channel_mode = 3;
+    _ = rig.subs.updateViewport(1, .{ .start = 0, .end = 13, .width_px = 1400 });
+    rig.tick(1000);
+    try std.testing.expectEqual(phone2, rig.sent.frames[2]);
+    // The check finds nothing new (the send stored it), but phone 2 is owed it.
+    rig.tick(1000);
+    try std.testing.expectEqual(phone2 + 1, rig.sent.frames[2]);
 }
