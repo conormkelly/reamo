@@ -9,7 +9,8 @@
  * - epoch: cache invalidation signal (changes when source audio edited)
  * - lod: Level of Detail (0-6, see extension/src/state/peaks_tile.zig)
  * - tileIndex: position within the item
- * - itemPosition: item start time in project
+ * - itemPosition: item start time in project when sent (not stored: a tile
+ *   is drawn at its item's position from the items state, which is current)
  * - startTime/endTime: tile bounds relative to item start
  *
  * Tiles are stored in a cache keyed by `${takeGuid}:${epoch}:${lod}:${tileIndex}`
@@ -34,7 +35,6 @@ export interface CachedTile {
   channels: 1 | 2;
   startTime: number;   // Relative to item start
   endTime: number;     // Relative to item start
-  itemPosition: number; // Absolute project time
 }
 
 const MAX_TILE_CACHE_SIZE = 500; // Match backend
@@ -119,7 +119,6 @@ export const createPeaksSlice: StateCreator<PeaksSlice, [], [], PeaksSlice> = (s
           channels: tile.channels,
           startTime: tile.startTime,
           endTime: tile.endTime,
-          itemPosition: tile.itemPosition,
         });
 
         // Update index
