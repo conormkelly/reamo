@@ -113,14 +113,14 @@ pub fn pollPeaksSubscriptions(
     // A forced tick skips the check (the next tick sees any change). The
     // first check of a track counts as a change, so it remembers a track
     // never checked as it is, if only clients due their tiles now watch
-    // it: the forced send gives it to all of them. A track an unforced
-    // client also watches is left to the next tick's check, which sends it
-    // to everyone.
+    // it: the forced send gives it to each of them with a viewport (one
+    // without gets it when it sets one). A track an unforced client also
+    // watches is left to the next tick's check, which sends it to everyone.
     var unforced_buf: [128]c_int = undefined;
-    const unforced_indices = if (any_forced)
+    const unforced_indices: ?[]const c_int = if (any_forced)
         peaks_subs.getUnforcedIndices(ctx.guid_cache_ptr, ctx.backend, &unforced_buf)
     else
-        unforced_buf[0..0];
+        null;
     var any_track_changed = false;
     for (subscribed_indices) |track_idx| {
         // Unified index (0 = master), as the generator resolves it.
@@ -128,7 +128,7 @@ pub fn pollPeaksSubscriptions(
         var guid_buf: [64]u8 = undefined;
         const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
         if (any_forced) {
-            if (std.sort.binarySearch(c_int, unforced_indices, track_idx, orderCInt) == null) {
+            if (peaks_subscriptions.PeaksSubscriptions.onlyForcedClientsWatch(unforced_indices, track_idx)) {
                 tile_cache.rememberTrack(track_guid, ctx.backend, track);
             }
         } else if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
@@ -177,10 +177,6 @@ pub fn pollPeaksSubscriptions(
             logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
         }
     }
-}
-
-fn orderCInt(a: c_int, b: c_int) std.math.Order {
-    return std.math.order(a, b);
 }
 
 /// Poll routing subscriptions and broadcast sends/receives/hw outputs.

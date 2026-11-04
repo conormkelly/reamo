@@ -449,19 +449,32 @@ pub const PeaksSubscriptions = struct {
         api: anytype,
         out_buf: []c_int,
     ) []c_int {
-        return self.collectIndices(cache, api, out_buf, .all);
+        return self.collectIndices(cache, api, out_buf, .all).indices;
     }
 
     /// Track indices (sorted) of the clients not due fresh tiles this tick,
     /// without grace-period tracks: the tracks a forced send doesn't give
-    /// to everyone who watches them.
+    /// to everyone who watches them. Null if they don't all fit `out_buf`.
     pub fn getUnforcedIndices(
         self: *PeaksSubscriptions,
         cache: *const GuidCache,
         api: anytype,
         out_buf: []c_int,
-    ) []c_int {
-        return self.collectIndices(cache, api, out_buf, .unforced);
+    ) ?[]c_int {
+        const got = self.collectIndices(cache, api, out_buf, .unforced);
+        return if (got.complete) got.indices else null;
+    }
+
+    /// Whether only clients due their tiles this tick watch `track_idx`,
+    /// given getUnforcedIndices' result. When that is null (too many tracks
+    /// to list), no track can be shown to be unwatched by the others.
+    pub fn onlyForcedClientsWatch(unforced_indices: ?[]const c_int, track_idx: c_int) bool {
+        const unforced = unforced_indices orelse return false;
+        return std.sort.binarySearch(c_int, unforced, track_idx, orderCInt) == null;
+    }
+
+    fn orderCInt(a: c_int, b: c_int) std.math.Order {
+        return std.math.order(a, b);
     }
 
     fn collectIndices(
@@ -470,7 +483,7 @@ pub const PeaksSubscriptions = struct {
         api: anytype,
         out_buf: []c_int,
         which: enum { all, unforced },
-    ) []c_int {
+    ) struct { indices: []c_int, complete: bool } {
         // Use a hash set to dedupe indices
         var seen = std.AutoHashMap(c_int, void).init(self.allocator);
         defer seen.deinit();
@@ -533,7 +546,7 @@ pub const PeaksSubscriptions = struct {
         // Sort for consistent ordering
         std.mem.sort(c_int, out_buf[0..count], {}, std.sort.asc(c_int));
 
-        return out_buf[0..count];
+        return .{ .indices = out_buf[0..count], .complete = seen.count() <= out_buf.len };
     }
 
     /// Clean up expired grace period entries. Call periodically (e.g., in LOW tier).
@@ -737,7 +750,7 @@ test "getSubscribedIndices with range" {
     try std.testing.expectEqual(@as(c_int, 4), indices[4]);
 }
 
-test "getUnforcedIndices leaves out a forced client's tracks but keeps those another client watches" {
+test "a track only a forced client watches is told apart from one another client watches too" {
     const allocator = std.testing.allocator;
     var subs = PeaksSubscriptions.init(allocator);
     defer subs.deinit();
@@ -758,12 +771,22 @@ test "getUnforcedIndices leaves out a forced client's tracks but keeps those ano
     try subs.grace_until.put(9, std.time.nanoTimestamp() + std.time.ns_per_s * 60);
 
     var buf: [32]c_int = undefined;
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3 }, subs.getUnforcedIndices(&cache, &mock, &buf));
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6, 9 }, subs.getSubscribedIndices(&cache, &mock, &buf));
+    const unforced = subs.getUnforcedIndices(&cache, &mock, &buf).?;
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3 }, unforced);
+    // Tracks 4..6 only the forced client watches; 2 and 3 client 1 watches too.
+    for ([_]c_int{ 4, 5, 6 }) |t| try std.testing.expect(PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
+    for ([_]c_int{ 1, 2, 3 }) |t| try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(unforced, t));
+    // Too many to list: none counts as only the forced client's.
+    var small: [2]c_int = undefined;
+    try std.testing.expect(subs.getUnforcedIndices(&cache, &mock, &small) == null);
+    try std.testing.expect(!PeaksSubscriptions.onlyForcedClientsWatch(null, 5));
+
+    var all_buf: [32]c_int = undefined;
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6, 9 }, subs.getSubscribedIndices(&cache, &mock, &all_buf));
 
     // Once client 2's send is done, every track it watches is unforced.
     _ = subs.consumeForceBroadcast(subs.client_id_to_slot.get(2).?);
-    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6 }, subs.getUnforcedIndices(&cache, &mock, &buf));
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 2, 3, 4, 5, 6 }, subs.getUnforcedIndices(&cache, &mock, &buf).?);
 }
 
 test "getSubscribedIndices with GUIDs" {
