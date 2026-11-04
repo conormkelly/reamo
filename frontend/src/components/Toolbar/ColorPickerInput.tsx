@@ -1,6 +1,14 @@
 /**
  * ColorPickerInput - Compact color swatch with hold-to-reset
- * Click to open system color picker, hold 500ms to reset to default
+ *
+ * A hidden colour input covers the swatch, so a tap or click lands on it and
+ * the browser opens its own picker. Holding the swatch still for 500 ms resets
+ * the colour to its default instead, and the click that ends that hold is
+ * cancelled so the picker stays shut.
+ *
+ * Only pointer events drive the hold: they report mouse, touch and pen once
+ * each, where the mouse events a browser emulates after a touch would run it
+ * a second time.
  */
 
 import { useRef, useCallback, useEffect } from 'react';
@@ -16,6 +24,9 @@ interface ColorPickerInputProps {
 
 const HOLD_DURATION = 500; // ms to hold for reset
 
+/** How far, in CSS px, a press may drift and still count as holding still. */
+const HOLD_MOVE_TOLERANCE = 10;
+
 export function ColorPickerInput({
   label,
   value,
@@ -23,48 +34,60 @@ export function ColorPickerInput({
   defaultValue,
   compact = false,
 }: ColorPickerInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const holdTimer = useRef<number | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdOrigin = useRef<{ x: number; y: number } | null>(null);
   const didReset = useRef(false);
 
   const isDefault = value === defaultValue;
 
-  const handleMouseDown = useCallback(() => {
-    didReset.current = false;
-    holdTimer.current = window.setTimeout(() => {
-      if (!isDefault) {
-        onChange(defaultValue);
+  const cancelHold = useCallback(() => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    holdOrigin.current = null;
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Each press starts afresh: a reset whose click never came must not
+      // cancel this press's click.
+      didReset.current = false;
+      cancelHold();
+      if (isDefault) return;
+      holdOrigin.current = { x: e.clientX, y: e.clientY };
+      holdTimer.current = setTimeout(() => {
+        holdTimer.current = null;
+        holdOrigin.current = null;
         didReset.current = true;
+        onChange(defaultValue);
+      }, HOLD_DURATION);
+    },
+    [isDefault, onChange, defaultValue, cancelHold]
+  );
+
+  // A finger that drifts is scrolling or dragging, not holding.
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const origin = holdOrigin.current;
+      if (!origin) return;
+      if (Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > HOLD_MOVE_TOLERANCE) {
+        cancelHold();
       }
-    }, HOLD_DURATION);
-  }, [isDefault, onChange, defaultValue]);
+    },
+    [cancelHold]
+  );
 
-  const handleMouseUp = useCallback(() => {
-    if (holdTimer.current) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-    // Only open picker if we didn't just reset
-    if (!didReset.current) {
-      inputRef.current?.click();
+  // Cancelling the click stops the browser opening its picker.
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (didReset.current) {
+      didReset.current = false;
+      e.preventDefault();
     }
   }, []);
 
-  const handleMouseLeave = useCallback(() => {
-    if (holdTimer.current) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-  }, []);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (holdTimer.current) {
-        clearTimeout(holdTimer.current);
-      }
-    };
-  }, []);
+  // A hold still running when the swatch leaves the page is abandoned.
+  useEffect(() => cancelHold, [cancelHold]);
 
   const swatchSize = compact ? 'w-6 h-6' : 'w-10 h-10';
   const dotSize = compact ? 'w-2 h-2 -top-0.5 -right-0.5' : 'w-3 h-3 -top-1 -right-1';
@@ -75,11 +98,11 @@ export function ColorPickerInput({
         {label}{compact && label ? ':' : ''}
       </label>
       <div
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-        onTouchStart={handleMouseDown}
-        onTouchEnd={handleMouseUp}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={cancelHold}
+        onPointerCancel={cancelHold}
+        onPointerLeave={cancelHold}
         className={`relative ${swatchSize} rounded border-2 border-border-default cursor-pointer hover:border-text-secondary transition-colors touch-none`}
         style={{ backgroundColor: value }}
         title={isDefault ? value : `${value} (hold to reset)`}
@@ -88,12 +111,12 @@ export function ColorPickerInput({
         {!isDefault && (
           <div className={`absolute ${dotSize} bg-primary-hover rounded-full border border-bg-surface`} />
         )}
-        {/* Hidden color input */}
+        {/* Hidden color input: the tap that opens the picker lands on it */}
         <input
-          ref={inputRef}
           type="color"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onClick={handleClick}
           className="absolute inset-0 opacity-0 cursor-pointer"
           tabIndex={-1}
         />
