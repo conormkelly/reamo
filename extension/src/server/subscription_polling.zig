@@ -79,13 +79,21 @@ pub fn pollToggleSubscriptions(
 
 /// Poll peaks subscriptions and broadcast waveform data to subscribed clients.
 /// Uses tile-based LOD cache for efficient pan/zoom operations.
-/// Broadcasts when: force_broadcast is set OR track audio source changed.
+/// Sends a client its tiles when it subscribes or moves its viewport
+/// (forced), and every client fresh tiles when a subscribed track's items
+/// or a take's audio source change, at most once per
+/// CHANGE_BROADCAST_INTERVAL_MS; a change that limit holds back goes out on
+/// the first tick it allows.
 pub fn pollPeaksSubscriptions(
     ctx: *const PollingContext,
     peaks_subs: *peaks_subscriptions.PeaksSubscriptions,
     tile_cache: *peaks_tile.TileCache,
 ) !void {
-    if (!peaks_subs.hasSubscriptions()) return;
+    if (!peaks_subs.hasSubscriptions()) {
+        // Nobody is left to owe a held change to.
+        peaks_subs.change_pending = false;
+        return;
+    }
 
     // Tick the cache for LRU tracking
     tile_cache.tick();
@@ -100,18 +108,20 @@ pub fn pollPeaksSubscriptions(
     // Check every subscribed track for a change (items, or a take's audio
     // source); that goes to every client. Every track, not just up to the
     // first change: trackChanged also drops a changed take's stale tiles,
-    // which the broadcast below must not send. Skipped on a forced tick: the
-    // next tick sees it.
+    // which the broadcast below must not send. A forced tick skips the check
+    // (the next tick sees any change) and only remembers tracks never
+    // checked: the forced send gives them as they are, and the first check
+    // of a track counts as a change, which would resend them to everyone.
     var any_track_changed = false;
-    if (!any_forced) {
-        for (subscribed_indices) |track_idx| {
-            // Unified index (0 = master), as the generator resolves it.
-            const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
-            var guid_buf: [64]u8 = undefined;
-            const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
-            if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
-                any_track_changed = true;
-            }
+    for (subscribed_indices) |track_idx| {
+        // Unified index (0 = master), as the generator resolves it.
+        const track = ctx.backend.getTrackByUnifiedIdx(track_idx) orelse continue;
+        var guid_buf: [64]u8 = undefined;
+        const track_guid = ctx.backend.formatTrackGuid(track, &guid_buf);
+        if (any_forced) {
+            tile_cache.rememberTrack(track_guid, ctx.backend, track);
+        } else if (tile_cache.trackChanged(track_guid, ctx.backend, track)) {
+            any_track_changed = true;
         }
     }
 
@@ -121,6 +131,8 @@ pub fn pollPeaksSubscriptions(
     const now_ms = std.time.milliTimestamp();
     var send_change = false;
     if (any_forced) {
+        // Leaves change_pending alone: a held change goes out on a later
+        // tick, after this send's interval.
         peaks_subs.last_broadcast_ms = now_ms;
     } else {
         send_change = peaks_subs.changeBroadcastDue(any_track_changed, now_ms);
