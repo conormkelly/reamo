@@ -2,7 +2,7 @@
  * ToolbarButton - Individual action button with toggle state support
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Pencil } from 'lucide-react';
 import { useReaper } from '../../hooks/useReaper';
 import { action as actionCmd, midi as midiCmd } from '../../core/WebSocketCommands';
@@ -94,21 +94,26 @@ export function ToolbarButton({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
-  const handlePointerDown = useCallback(() => {
-    if (editMode || !onLongPress) return;
-    longPressFired.current = false;
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      onLongPress();
-    }, LONG_PRESS_DELAY);
-  }, [editMode, onLongPress]);
-
-  const handlePointerUp = useCallback(() => {
+  const cancelLongPress = useCallback(() => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
   }, []);
+
+  const handlePointerDown = useCallback(() => {
+    if (editMode || !onLongPress) return;
+    cancelLongPress();
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null;
+      longPressFired.current = true;
+      onLongPress();
+    }, LONG_PRESS_DELAY);
+  }, [editMode, onLongPress, cancelLongPress]);
+
+  // A hold still running when the button leaves the page is abandoned.
+  useEffect(() => cancelLongPress, [cancelLongPress]);
 
   // Determine sizing based on layout mode
   // - horizontal/vertical: use LAYOUT_CONFIG
@@ -163,9 +168,9 @@ export function ToolbarButton({
     <button
       onClick={handleClick}
       onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-      onPointerCancel={handlePointerUp}
+      onPointerUp={cancelLongPress}
+      onPointerLeave={cancelLongPress}
+      onPointerCancel={cancelLongPress}
       {...dragProps}
       className={`
         relative flex flex-col items-center justify-center

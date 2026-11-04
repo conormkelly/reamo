@@ -107,14 +107,20 @@ export function ToolbarEditor({
     }
   }, [action]);
 
-  // Close on Escape
+  // Escape closes the topmost dialog only: the icon picker when it's open
+  // over the editor, otherwise the editor.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (showIconPicker) {
+        setShowIconPicker(false);
+      } else {
+        onClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, showIconPicker]);
 
   const handleSave = useCallback(() => {
     if (!label.trim()) return;
@@ -185,10 +191,16 @@ export function ToolbarEditor({
       onDelete(action.id);
     } else {
       setConfirmingDelete(true);
-      // Auto-reset after 3 seconds
-      setTimeout(() => setConfirmingDelete(false), 3000);
     }
   }, [action, confirmingDelete, onDelete]);
+
+  // The delete confirmation lapses after 3 s. The timer belongs to this
+  // confirmation and is cleared with it, or when the editor closes.
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const timer = setTimeout(() => setConfirmingDelete(false), 3000);
+    return () => clearTimeout(timer);
+  }, [confirmingDelete]);
 
   // Handle action selection from ActionSearch
   const handleActionSelect = useCallback((selectedAction: ReaperAction) => {
