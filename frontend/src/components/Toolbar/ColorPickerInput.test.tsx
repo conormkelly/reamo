@@ -202,6 +202,16 @@ describe('ColorPickerInput', () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
+    it('does not reset on a held Ctrl+click, which opens the context menu on macOS', () => {
+      const { input, onChange } = setup();
+
+      fireEvent.pointerDown(input, { ...pointer(AT, 1, 'mouse'), ctrlKey: true });
+      fireEvent.mouseDown(input, { ctrlKey: true });
+      hold(1000);
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
     it('still resets when the finger only jitters within a few pixels', () => {
       const { input, onChange } = setup();
 

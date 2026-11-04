@@ -111,7 +111,8 @@ export function ToolbarEditor({
   // the editor, the action search back to the form, otherwise the editor.
   // The editor is modal, so it takes Escape first (window, capture phase) and
   // stops it there: a panel the editor sits inside, like the landscape side
-  // rail, would otherwise close too and take the unsaved edits with it.
+  // rail, would otherwise close too and take the unsaved edits with it. While
+  // the editor is open no React onKeyDown sees Escape, inside it or not.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;

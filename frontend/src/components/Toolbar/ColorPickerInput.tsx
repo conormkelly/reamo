@@ -55,8 +55,10 @@ export function ColorPickerInput({
       // cancel this press's click.
       didReset.current = false;
       cancelHold();
-      // Only the primary button holds: a right-button press is for a menu.
-      if (isDefault || e.button !== 0) return;
+      // Only a plain primary press holds: a right-button press, or a mouse
+      // Ctrl+click on macOS, opens the context menu.
+      const opensMenu = e.button !== 0 || (e.ctrlKey && e.pointerType === 'mouse');
+      if (isDefault || opensMenu) return;
       holdOrigin.current = { x: e.clientX, y: e.clientY };
       holdTimer.current = setTimeout(() => {
         holdTimer.current = null;
