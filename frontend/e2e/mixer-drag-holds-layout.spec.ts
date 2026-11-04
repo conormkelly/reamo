@@ -11,7 +11,10 @@
  * Runs against a fake extension over a routed WebSocket: it pushes the
  * track events a test asks for, sends each tracks event for the page's
  * current track subscription as the extension does, and records the volume
- * and gesture commands the page sends.
+ * and gesture commands the page sends. Like the extension, which answers a
+ * subscription on its next poll, it sends the tracks event for a new
+ * subscription a poll later, so a page that briefly lacks a track between
+ * subscriptions shows it.
  */
 
 import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
@@ -28,6 +31,9 @@ const DRUMS: Row = { g: '{DRUMS}', name: 'Drums' };
 const BASS: Row = { g: '{BASS}', name: 'Bass' };
 const KEYS: Row = { g: '{KEYS}', name: 'Keys' };
 const NEW: Row = { g: '{NEW}', name: 'New track' };
+
+/** The extension's high-tier poll interval. */
+const POLL_MS = 33;
 
 const RECORDED = new Set(['track/setVolume', 'gesture/start', 'gesture/end']);
 
@@ -111,7 +117,7 @@ async function installFakeReaper(page: Page): Promise<FakeReaper> {
       const command = msg.command as string;
       if (command === 'track/subscribe') {
         subscription = msg as Subscription;
-        pushTracksEvent();
+        setTimeout(pushTracksEvent, POLL_MS);
       }
       if (RECORDED.has(command)) {
         sent.push({ command, trackGuid: msg.trackGuid as string | undefined });
@@ -289,5 +295,57 @@ test.describe('Mixer drag holds the track layout, tablet', () => {
     await expect(nameAt(page, 1)).toHaveText('New track');
     await expect(nameAt(page, 4)).toHaveText('Keys');
     await expect(stripAt(page, 4)).toContainText('-6.02 dB');
+  });
+});
+
+test.describe('Mixer drag holds the track layout, info track', () => {
+  test.use({ viewport: { width: 414, height: 896 } });
+
+  const T = (n: number): Row => ({ g: `{T${n}}`, name: `T${n}` });
+  const TWELVE: Row[] = [MASTER, ...Array.from({ length: 12 }, (_, i) => T(i + 1))];
+
+  test('off-screen prefetched tracks and the info track stay in the store and updating through a drag and its release', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('reamo-mixer-info-selected', '{T5}'));
+    const fake = await installFakeReaper(page);
+    await openMixer(page);
+    fake.setTracks(TWELVE);
+    await settle(page);
+    // T5 is in the prefetched range, not on screen.
+    await expect(stripAt(page, 5)).toHaveCount(0);
+    // T5 is the info track; T6 is only prefetched.
+    await page.waitForFunction(() => {
+      const { tracks } = (window as any).__REAPER_STORE__.getState();
+      return tracks[5]?.guid === '{T5}' && tracks[6]?.guid === '{T6}';
+    });
+
+    await page.evaluate(() => {
+      const store = (window as any).__REAPER_STORE__;
+      const w = window as any;
+      w.__offScreenMissing = 0;
+      store.subscribe((s: any) => {
+        if (s.tracks[5]?.guid !== '{T5}' || s.tracks[6]?.guid !== '{T6}') w.__offScreenMissing++;
+      });
+    });
+
+    const at = await centre(faderAt(page, 1));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x, at.y - 20, { steps: 2 });
+    await settle(page);
+    fake.setVolume('{T5}', 0.5);
+    fake.setVolume('{T6}', 0.25);
+    await settle(page);
+    // Their values keep arriving during the drag.
+    expect(
+      await page.evaluate(() => {
+        const { tracks } = (window as any).__REAPER_STORE__.getState();
+        return [tracks[5]?.volume, tracks[6]?.volume];
+      })
+    ).toEqual([0.5, 0.25]);
+
+    await page.mouse.up();
+    await settle(page);
+
+    expect(await page.evaluate(() => (window as any).__offScreenMissing)).toBe(0);
   });
 });

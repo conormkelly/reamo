@@ -484,6 +484,22 @@ export function MixerView(): ReactElement {
     return allFilteredTracks.slice(filteredPrefetchStart, filteredPrefetchEnd).map((t) => t.g);
   }, [isFiltered, allFilteredTracks, filteredPrefetchStart, filteredPrefetchEnd]);
 
+  // While a drag holds the track layout, each row keeps the track it showed,
+  // but REAPER may have moved that track out of the subscribed index range
+  // (an insert above the last track does). So while held, every track the
+  // store holds (the prefetched rows, the info track, a pinned master) is
+  // subscribed by GUID, and its values keep arriving wherever it moved.
+  // That is at most the prefetch range plus two, under the extension's
+  // limit of 64. Keyed by a string so the list changes only when the GUIDs do.
+  const layoutHeld = useReaperStore((s) => s.trackLayoutHolds > 0);
+  const heldGuidsKey = layoutHeld
+    ? Object.values(tracks).map((t) => t.guid).join('\n')
+    : '';
+  const heldGuids = useMemo(
+    (): readonly string[] => (heldGuidsKey ? heldGuidsKey.split('\n') : EMPTY_STRING_ARRAY),
+    [heldGuidsKey]
+  );
+
   // Compute extra GUIDs for info-selected track when it's outside visible range
   // This keeps track data flowing even when the selected track is paged out
   // Uses EMPTY_STRING_ARRAY for stable reference when no extra GUIDs needed
@@ -491,7 +507,11 @@ export function MixerView(): ReactElement {
     if (infoSelectedTrackIdx === null || infoSelectedTrackGuid === null) return EMPTY_STRING_ARRAY;
     const infoGuid = infoSelectedTrackGuid;
 
-    if (isFiltered) {
+    if (heldGuids.length > 0 && !isFiltered) {
+      // Layout held: check if GUID is already in the held subscription list
+      if (heldGuids.includes(infoGuid)) return EMPTY_STRING_ARRAY;
+      return [infoGuid];
+    } else if (isFiltered) {
       // In filtered mode: check if GUID is already in the subscription list
       if (filteredGuidsToSubscribe.includes(infoGuid)) return EMPTY_STRING_ARRAY;
       return [infoGuid];
@@ -500,24 +520,10 @@ export function MixerView(): ReactElement {
       if (infoSelectedTrackIdx >= prefetchStart && infoSelectedTrackIdx <= prefetchEnd) return EMPTY_STRING_ARRAY;
       return [infoGuid];
     }
-  }, [infoSelectedTrackIdx, infoSelectedTrackGuid, isFiltered, filteredGuidsToSubscribe, prefetchStart, prefetchEnd]);
-
-  // While a drag holds the track layout, each strip on screen keeps the
-  // track it showed, but REAPER may have moved that track out of the
-  // subscribed index range (an insert above the last track does). Those
-  // tracks are subscribed by GUID until the hold ends, so their values keep
-  // arriving. Keyed by a string so the list changes only when the GUIDs do.
-  const layoutHeld = useReaperStore((s) => s.trackLayoutHolds > 0);
-  const heldGuidsKey = layoutHeld
-    ? displayTrackIndices.map((i) => tracks[i]?.guid ?? '').filter(Boolean).join('\n')
-    : '';
-  const heldGuids = useMemo(
-    (): readonly string[] => (heldGuidsKey ? heldGuidsKey.split('\n') : EMPTY_STRING_ARRAY),
-    [heldGuidsKey]
-  );
+  }, [infoSelectedTrackIdx, infoSelectedTrackGuid, isFiltered, filteredGuidsToSubscribe, heldGuids, prefetchStart, prefetchEnd]);
 
   // Subscribe to tracks - range mode for unfiltered, GUID mode for filtered
-  // or for the strips on screen while the layout is held
+  // or for the held tracks while the layout is held
   // When master is pinned, explicitly include it (it's outside the bank range)
   // When master is not pinned, it's included in the range naturally when on first banks
   // extraGuids keeps info-selected track subscribed even when paged out
