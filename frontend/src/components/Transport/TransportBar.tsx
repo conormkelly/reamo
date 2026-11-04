@@ -26,7 +26,7 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
   const { sendCommand } = useReaper();
   const { isPlaying, isPaused, isStopped, isRecording, play, pause, stop, toggleRepeat } = useTransport();
   const isRepeat = useReaperStore((state) => state.isRepeat);
-  const { pointerHandlers, recordMode } = useRecordButton();
+  const { handlers: recordHandlers, recordMode } = useRecordButton();
 
   const handleSkipToStart = () => sendCommand(transport.goStart());
   const handlePlay = () => sendCommand(play());
@@ -103,7 +103,7 @@ export function TransportBar({ className = '' }: TransportBarProps): ReactElemen
 
       {/* Record - with long-press for record mode cycling */}
       <button
-        {...pointerHandlers}
+        {...recordHandlers}
         title={recordModeTitle(recordMode)}
         aria-label={recordModeTitle(recordMode)}
         aria-pressed={isRecording}

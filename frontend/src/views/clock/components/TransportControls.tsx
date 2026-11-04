@@ -67,7 +67,7 @@ interface TransportControlsProps {
 export function TransportControls({ scale }: TransportControlsProps): ReactElement {
   const { sendCommand } = useReaper();
   const { isPlaying, isPaused, isStopped, play, pause, stop } = useTransport();
-  const { pointerHandlers, recordMode, isRecording } = useRecordButton();
+  const { handlers: recordHandlers, recordMode, isRecording } = useRecordButton();
 
   // Transport handlers
   const handleSkipToStart = () => sendCommand(transport.goStart());
@@ -136,7 +136,7 @@ export function TransportControls({ scale }: TransportControlsProps): ReactEleme
 
       {/* Record - with long-press for record mode cycling */}
       <button
-        {...pointerHandlers}
+        {...recordHandlers}
         title={recordModeTitle(recordMode)}
         aria-label={recordModeTitle(recordMode)}
         aria-pressed={isRecording}

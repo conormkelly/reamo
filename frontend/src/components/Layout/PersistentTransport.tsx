@@ -32,7 +32,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
   const bpm = useReaperStore((state) => state.bpm);
   const timeSignatureNumerator = useReaperStore((state) => state.timeSignatureNumerator);
   const timeSignatureDenominator = useReaperStore((state) => state.timeSignatureDenominator);
-  const { pointerHandlers, recordMode } = useRecordButton();
+  const { handlers: recordHandlers, recordMode } = useRecordButton();
 
   // Panel states
   const [isQuickActionsPanelOpen, setIsQuickActionsPanelOpen] = useState(false);
@@ -128,7 +128,7 @@ export function PersistentTransport({ className = '', position = 'left' }: Persi
 
         {/* Record - with long-press for record mode cycling */}
         <button
-          {...pointerHandlers}
+          {...recordHandlers}
           title={recordModeTitle(recordMode)}
           aria-label={recordModeTitle(recordMode)}
           aria-pressed={isRecording}
