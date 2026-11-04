@@ -72,7 +72,8 @@ fn isLinkLocal(ip: [4]u8) bool {
     return ip[0] == 169 and ip[1] == 254;
 }
 
-/// Check if IP is a private address (RFC 1918 + CGNAT)
+/// Check if IP is one REAmo counts as LAN: RFC 1918, CGNAT (100.64/10),
+/// link-local (169.254/16) and 192.0.0/24
 fn isPrivateIP(ip: [4]u8) bool {
     // 10.0.0.0/8
     if (ip[0] == 10) return true;
@@ -132,13 +133,13 @@ pub fn detectOrdered(buf: []NetworkInfo) usize {
 /// Order networks to offer the likeliest one first: USB tethering (a cable
 /// is the surest link at a venue), then `route`, the address this computer
 /// reaches other networks from, then every other address, then link-local
-/// ones (169.254/16). Each group keeps the order the OS listed it in. The
-/// default route matters because the OS lists virtual adapters (VirtualBox,
-/// Hyper-V, Docker, VPNs) beside the real one, in no useful order, and a
-/// phone can't reach them. A link-local address is what an adapter gives
-/// itself when no DHCP server answers (Windows lists such an adapter
-/// first when there's no default route), so it's rarely the one a phone is
-/// on; it stays in the list, last.
+/// ones (169.254/16), even the default route's. Each group keeps the order
+/// the OS listed it in. The default route matters because the OS lists
+/// virtual adapters (VirtualBox, Hyper-V, Docker, VPNs) beside the real one,
+/// in no useful order, and a phone can't reach them. A link-local address is
+/// what an adapter gives itself when no DHCP server answers (Windows can list
+/// such an adapter first when there's no default route), so it's rarely the
+/// one a phone is on; it stays in the list, last.
 pub fn order(networks: []NetworkInfo, route: ?[4]u8) void {
     std.sort.insertion(NetworkInfo, networks, route, struct {
         fn rank(r: ?[4]u8, n: NetworkInfo) u2 {
@@ -516,6 +517,27 @@ test "order offers a link-local address after the default route's and USB tether
     };
     order(&networks, .{ 192, 168, 1, 18 });
     try expectOrder(&networks, &.{ .{ 172, 20, 10, 2 }, .{ 192, 168, 1, 18 }, .{ 169, 254, 10, 20 } });
+}
+
+test "order offers a link-local address last even when the default route is from it" {
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 169, 254, 10, 20 }, "Ethernet 2"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+    };
+    order(&networks, .{ 169, 254, 10, 20 });
+    try expectOrder(&networks, &.{ .{ 192, 168, 56, 1 }, .{ 169, 254, 10, 20 } });
+}
+
+test "order puts USB tethering first and a cabled phone's link-local address after other LAN addresses" {
+    // A cabled phone without Personal Hotspot or USB tethering only gets a
+    // link-local address; the USB tier goes by subnet, so it isn't in it.
+    var networks = [_]NetworkInfo{
+        testNetwork(.{ 169, 254, 30, 40 }, "iPhone USB"),
+        testNetwork(.{ 192, 168, 56, 1 }, "VirtualBox"),
+        testNetwork(.{ 192, 168, 42, 65 }, "Android USB"),
+    };
+    order(&networks, null);
+    try expectOrder(&networks, &.{ .{ 192, 168, 42, 65 }, .{ 192, 168, 56, 1 }, .{ 169, 254, 30, 40 } });
 }
 
 test "order still offers a link-local address when it's the only one" {
