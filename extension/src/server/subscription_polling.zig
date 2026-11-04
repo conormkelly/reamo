@@ -113,39 +113,42 @@ pub fn pollPeaksSubscriptions(
         }
     }
 
-    // Only broadcast if something changed, with rate limiting (forced
-    // per-client sends bypass the limit, as initial data always did)
-    if (any_track_changed or any_forced) {
-        const now_ms = std.time.milliTimestamp();
-        if (!any_forced and (now_ms - peaks_subs.last_broadcast_ms) < 100) return;
+    // A change goes to every client, rate-limited; forced per-client sends
+    // bypass the limit, as initial data always did.
+    const now_ms = std.time.milliTimestamp();
+    var send_change = false;
+    if (any_forced) {
         peaks_subs.last_broadcast_ms = now_ms;
+    } else {
+        send_change = peaks_subs.changeBroadcastDue(any_track_changed, now_ms);
+        if (!send_change) return;
+    }
 
-        logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ any_track_changed, any_forced, subscribed_indices.len });
-        var iter = peaks_subs.activeSubscriptions();
-        while (iter.next()) |entry| {
-            const forced = peaks_subs.consumeForceBroadcast(entry.slot);
-            if (!forced and !any_track_changed) continue;
+    logging.debug("peaks: broadcasting (content changed={}, forced={}, indices={})", .{ send_change, any_forced, subscribed_indices.len });
+    var iter = peaks_subs.activeSubscriptions();
+    while (iter.next()) |entry| {
+        const forced = peaks_subs.consumeForceBroadcast(entry.slot);
+        if (!forced and !send_change) continue;
 
-            const scratch = ctx.scratchAllocator();
+        const scratch = ctx.scratchAllocator();
 
-            if (!entry.sub.hasViewport()) {
-                logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});
-                continue;
-            }
+        if (!entry.sub.hasViewport()) {
+            logging.debug("peaks: skipping client {} (no viewport)", .{entry.client_id});
+            continue;
+        }
 
-            const bin = peaks_generator.generateTilesForSubscriptionBinary(
-                scratch,
-                ctx.backend,
-                ctx.guid_cache_ptr,
-                tile_cache,
-                entry.sub,
-            );
-            if (bin) |b| {
-                logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
-                ctx.shared_state.sendBinToClient(entry.client_id, b);
-            } else {
-                logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
-            }
+        const bin = peaks_generator.generateTilesForSubscriptionBinary(
+            scratch,
+            ctx.backend,
+            ctx.guid_cache_ptr,
+            tile_cache,
+            entry.sub,
+        );
+        if (bin) |b| {
+            logging.debug("peaks: sending {} bytes (binary) to client {}", .{ b.len, entry.client_id });
+            ctx.shared_state.sendBinToClient(entry.client_id, b);
+        } else {
+            logging.debug("peaks: binary generation returned null for client {}", .{entry.client_id});
         }
     }
 }

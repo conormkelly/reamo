@@ -154,8 +154,12 @@ pub const PeaksSubscriptions = struct {
     /// doesn't regenerate and resend every other client's tiles.
     force_broadcast_clients: [MAX_CLIENTS]bool = [_]bool{false} ** MAX_CLIENTS,
 
-    /// Timestamp of last peaks broadcast (milliseconds) for rate limiting
+    /// When tiles last went out (a change broadcast or a forced send), in
+    /// milliseconds, for the change-broadcast rate limit.
     last_broadcast_ms: i64 = 0,
+
+    /// Shortest gap between a send and a change broadcast after it.
+    pub const CHANGE_BROADCAST_INTERVAL_MS: i64 = 100;
 
     pub fn init(allocator: Allocator) PeaksSubscriptions {
         var subs = PeaksSubscriptions{
@@ -534,6 +538,17 @@ pub const PeaksSubscriptions = struct {
             return true;
         }
         return false;
+    }
+
+    /// Whether this tick sends a track change to every client. `changed`:
+    /// this tick's check found one. Says no within
+    /// CHANGE_BROADCAST_INTERVAL_MS of the last send; on yes, records the
+    /// send.
+    pub fn changeBroadcastDue(self: *PeaksSubscriptions, changed: bool, now_ms: i64) bool {
+        if (!changed) return false;
+        if (now_ms - self.last_broadcast_ms < CHANGE_BROADCAST_INTERVAL_MS) return false;
+        self.last_broadcast_ms = now_ms;
+        return true;
     }
 
     /// Whether any client is due fresh tiles (does not consume).
